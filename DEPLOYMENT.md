@@ -6,6 +6,7 @@ Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/in
 
 - Supabase project `smpdzhxydnctiyjqojmp` holds 12 application tables and two private media buckets. The tables have RLS and no client-role grants. The trusted server uses a scoped `inkshot_app` login, TLS certificate and hostname verification, and application-level workspace checks.
 - Supabase Auth redirects allow the hosted callback and the two local callbacks. Hosted sign-in created and loaded a disposable test workspace.
+- A homepage website URL now starts a server-side read automatically after sign-in. The reader fetches only public HTTPS pages, prioritizes main-page copy, and returns an editable draft; nothing is saved until the customer reviews it.
 - Vercel serves `/api/health` with 200. Unauthenticated `/api/studio` and unsigned `/api/cron/worker` return 401. The production deployment uses `GENERATION_MODE=mock` and `ALLOW_LIVE_GENERATION=false`.
 - Stripe is configured **only in sandbox** with a $39/month Studio test price and webhook. A disposable account completed test checkout and received exactly 300 credits through the hosted billing flow. No real payment was collected.
 - The disposable hosted campaign spent 100 test credits and completed three sample videos, three image ads, and three posts. Its ZIP download returned 200 with all nine assets, captions, and a sample notice. A guard now refuses to run a managed-database worker without private cloud storage.

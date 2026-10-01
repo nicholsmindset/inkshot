@@ -132,11 +132,13 @@ export async function scrape(input: string) {
   ];
   return pages.map((p) => {
     const d = cheerio.load(p.html);
-    d("script,style,nav,footer,header,noscript").remove();
+    d("script,style,nav,footer,header,noscript,aside,form,svg,[role='navigation'],[aria-hidden='true']").remove();
+    const main = d("main,[role='main'],article,#content").first();
+    const readable = main.length ? main : d("body");
     return {
       url: p.url,
       title: d("title").text().slice(0, 200),
-      text: d("body").text().replace(/\s+/g, " ").trim().slice(0, 10000),
+      text: readable.text().replace(/\s+/g, " ").trim().slice(0, 10000),
     };
   });
 }
