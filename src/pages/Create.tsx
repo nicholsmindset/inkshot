@@ -26,12 +26,14 @@ function BrandForm({ initial }: { initial: Brand }) {
   const [brand, setBrand] = useState(initial);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [readPreview, setReadPreview] = useState<Brand | null>(null);
   const [url, setUrl] = useState(searchParams.get("website") || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
     setBrand((b) => ({ ...b, [key]: value }));
   async function read(requestedUrl = url) {
     setBusy("read");
     setError("");
+    setReadPreview(null);
     try {
       let address = requestedUrl.trim();
       if (!address.startsWith("https://")) address = `https://${address}`;
@@ -40,6 +42,7 @@ function BrandForm({ initial }: { initial: Brand }) {
         ...next,
         ...(brand.photoId ? { photoId: brand.photoId } : {}),
       });
+      setReadPreview(next);
       notify(
         studio?.mode === "mock"
           ? "Website text imported. Review and refine your brief below."
@@ -124,7 +127,10 @@ function BrandForm({ initial }: { initial: Brand }) {
                 aria-label="Your website"
                 placeholder="yourbusiness.com"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setReadPreview(null);
+                }}
               />
               <Button
                 disabled={!url.trim() || !!busy}
@@ -143,6 +149,9 @@ function BrandForm({ initial }: { initial: Brand }) {
               </small>
             ) : null}
           </div>
+          {busy === "read" || readPreview ? (
+            <SiteReadingScene website={url} brief={readPreview} />
+          ) : null}
           <form className="brand-form" onSubmit={save}>
             <div className="form-section-heading">
               <span className="hand">01</span>
@@ -314,6 +323,53 @@ function BrandForm({ initial }: { initial: Brand }) {
         </aside>
       </div>
     </>
+  );
+}
+function SiteReadingScene({ website, brief }: { website: string; brief: Brand | null }) {
+  const copy = brief?.description.slice(0, 360) || "";
+  const [visible, setVisible] = useState(0);
+  useEffect(() => {
+    if (!brief) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setVisible(copy.length);
+      return;
+    }
+    let frame = 0;
+    let started = 0;
+    const type = (time: number) => {
+      if (!started) started = time;
+      const count = Math.min(copy.length, Math.floor((time - started) / 15));
+      setVisible(count);
+      if (count < copy.length) frame = requestAnimationFrame(type);
+    };
+    setVisible(0);
+    frame = requestAnimationFrame(type);
+    return () => cancelAnimationFrame(frame);
+  }, [brief, copy]);
+  return (
+    <div className="site-reading-scene">
+      <div className="site-reading-steps">
+        <span className="eyebrow">FROM SITE TO STORY</span>
+        <h3>{brief ? "Your first draft." : "Reading your site."}</h3>
+        <p>{website}</p>
+        <ol>
+          <li className="done"><Check size={17} /> Public website supplied</li>
+          <li className={brief ? "done" : "active"}>{brief ? <Check size={17} /> : <span className="read-spinner" />} Reading the page copy</li>
+          <li className={brief ? "done" : "pending"}>{brief ? <Check size={17} /> : <span className="read-step-dot" />} Preparing an editable draft</li>
+        </ol>
+      </div>
+      <div className="brief-sheet">
+        <div className="brief-sheet-top"><span className="hand">draft</span><small>website copy · review before saving</small></div>
+        <h4>{brief?.name || "Your brand"}</h4>
+        <div className="brief-sheet-row">
+          <span>what you do</span>
+          {brief ? (
+            <p><span className="sr-only">{copy}</span><span aria-hidden="true">{copy.slice(0, visible)}{visible < copy.length ? <i className="typing-caret" /> : null}</span></p>
+          ) : <div className="brief-placeholder" aria-label="Reading your website"><span /><span /><span /></div>}
+        </div>
+        {brief?.audience ? <div className="brief-sheet-row"><span>who it's for</span><p>{brief.audience}</p></div> : null}
+      </div>
+    </div>
   );
 }
 export function NewCampaign() {
