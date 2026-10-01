@@ -1,34 +1,19 @@
 # Inkshot infrastructure
 
-The GitHub repository is private. GitHub Actions runs tests and a production frontend build on pushes and pull requests. Vercel hosts the frontend preview and uses the native GitHub integration for subsequent deployments.
+Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/inkshot), deployed to [Vercel](https://vercel.com/nicholsmindset-gmailcoms-projects/inkshot) at [inkshot-omega.vercel.app](https://inkshot-omega.vercel.app). GitHub Actions runs the tests and production build on pushes and pull requests. Vercel hosts the frontend and authenticated API; a scheduled Vercel function drains generation jobs. The site remains `noindex` until launch.
 
-## Current deployment boundary
+## Verified on 1 October 2026
 
-The hosted frontend is a preview, not an operational paid SaaS. API calls return a deliberate JSON 503 until the hosted backend is connected. This avoids running the local embedded database and FFmpeg worker on ephemeral serverless instances. Local `npm run dev` continues to provide the functioning sample studio.
+- Supabase project `smpdzhxydnctiyjqojmp` holds 12 application tables and two private media buckets. The tables have RLS and no client-role grants. The trusted server uses a scoped `inkshot_app` login, TLS certificate and hostname verification, and application-level workspace checks.
+- Supabase Auth redirects allow the hosted callback and the two local callbacks. Hosted sign-in created and loaded a disposable test workspace.
+- Vercel serves `/api/health` with 200. Unauthenticated `/api/studio` and unsigned `/api/cron/worker` return 401. The production deployment uses `GENERATION_MODE=mock` and `ALLOW_LIVE_GENERATION=false`.
+- Stripe is configured **only in sandbox** with a $39/month Studio test price and webhook. A disposable account completed test checkout and received exactly 300 credits through the hosted billing flow. No real payment was collected.
+- The disposable hosted campaign spent 100 test credits and completed three sample videos, three image ads, and three posts. Its ZIP download returned 200 with all nine assets, captions, and a sample notice. A guard now refuses to run a managed-database worker without private cloud storage.
+- A local, budget-capped Higgsfield integration completed three videos and six images, stored in private Supabase storage. The kit is in ignored `outputs/live-kit.zip`. Provider estimate reservations total $3.834; that is not reconciled spend and excludes writing and infrastructure.
+- Thirteen local tests, the TypeScript/frontend build, and the latest GitHub Actions run passed.
 
-Next integration work:
+## Launch boundary
 
-1. Connect the runtime to Inkshot Supabase project `smpdzhxydnctiyjqojmp`. Its 11 tables and two private buckets are created and verified via the signed-in dashboard; all tables have RLS, with no anon/authenticated grants. Connector access still needs the correct organization.
-2. Configure managed authentication, tenant-isolated database access, and private object storage.
-3. Host the durable generation worker with FFmpeg and connect the authenticated API.
-4. Set server-only Higgsfield, Anthropic, and Stripe sandbox credentials; verify generation quotes and signed payment events before live billing.
-5. Replace the temporary API adapter and rewrite, test complete customer flows, and remove the preview noindex header when ready to launch.
+The hosted app is still a **preview**, despite its working auth, storage, API, sample media export, and Stripe sandbox. Real campaign writing is unavailable because the configured OpenRouter account returned HTTP 402 for insufficient credit. Live generation remains disabled until writing, model pricing, provider budget accounting, full hosted live-media export, and paid billing are validated. Do not promote the Stripe sandbox configuration to live or remove `noindex` before those checks.
 
-Never commit `.env`, `.vercel`, generated customer media, or API credentials. Do not add secret keys with a `VITE_` prefix.
-
-## Verified infrastructure — 1 October 2026
-
-- Private repository: https://github.com/nicholsmindset/inkshot
-- Vercel project: https://vercel.com/nicholsmindset-gmailcoms-projects/inkshot
-- Hosted frontend preview: https://inkshot-omega.vercel.app
-- Native Vercel GitHub integration connected. Initial GitHub Actions build/test run passed.
-- Supabase schema applied through SQL Editor; verification returned 11 tables, 11 with RLS, zero client grants, two private buckets. Local migration file records the equivalent schema; dashboard SQL execution does not register CLI migration history.
-
-## Integration verification update — 1 October 2026
-
-- Added the twelfth table, `provider_spend`, with RLS and no client-role grants.
-- With explicit user approval, created `inkshot_app`, limited to CRUD on the twelve application tables. It cannot create roles/databases, bypass RLS, or act as superuser. This is a trusted server role; application queries enforce workspace ownership.
-- Saved its connection string in private `.env`. Verified an authenticated query through the transaction pooler with TLS certificate and hostname validation. The public CA file in `server/certs/supabase-ca.crt` came from the project's Database Settings certificate link.
-- A local worker using real Higgsfield generation and Supabase private storage completed three videos and six images. `outputs/live-kit.zip` contains nine assets and captions. The provider estimate reservations total $3.834; this is not reconciled spend and excludes AI writing and infrastructure. Sample concepts were used because OpenRouter returned insufficient-credit errors.
-- Thirteen local tests and the TypeScript/frontend production build pass.
-- These integration changes are not yet deployed. Managed-auth URL configuration, hosted worker validation, Stripe sandbox checkout/webhook verification and a complete hosted customer flow remain outstanding. OpenRouter funding remains required for real campaign writing.
+Private credentials belong in ignored `.env` and Vercel server-only environment variables. Never commit `.env`, `.vercel`, generated customer media, or API keys; do not use a `VITE_` prefix for secrets.

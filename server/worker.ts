@@ -193,6 +193,8 @@ async function handle(db:Database,job: Job) {
   }
 
 export async function runWorkerOnce(db:Database):Promise<boolean> {
+ if(process.env.DATABASE_URL && !cloudStorageEnabled())
+  throw new Error('A managed database requires private cloud media storage.');
  const job=await db.transaction(async tx=>{
   await tx.query('LOCK TABLE jobs IN EXCLUSIVE MODE');
   const active=Number((await tx.query<{n:string}>("SELECT count(*)::text AS n FROM jobs WHERE state='processing' AND locked_until>now()")).rows[0].n);

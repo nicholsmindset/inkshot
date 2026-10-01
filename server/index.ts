@@ -2,6 +2,9 @@ import { config } from "./config.js";
 import { createDatabase } from "./db.js";
 import { createApp } from "./app.js";
 import { startWorker } from "./worker.js";
+import { cloudStorageEnabled } from "./storage.js";
+if (process.env.DATABASE_URL && !cloudStorageEnabled())
+  throw new Error("A managed database requires private cloud media storage.");
 if (config.production)
   throw new Error(
     "Production launch is gated pending managed identity, payment fulfillment, private object storage and live provider validation. See README.",
