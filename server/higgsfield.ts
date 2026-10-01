@@ -1,4 +1,4 @@
-import { config, AppError } from "./config";
+import { config, AppError } from "./config.js";
 const BASE = "https://api.higgsfield.ai";
 export const MODELS = {
   image: "higgsfield-ai/soul/v2/standard",

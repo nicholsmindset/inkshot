@@ -1,11 +1,11 @@
-import {submitBudgeted} from './provider-budget';
-import {persistMedia,materializeMedia,cloudStorageEnabled} from './storage';
+import {submitBudgeted} from './provider-budget.js';
+import {persistMedia,materializeMedia,cloudStorageEnabled} from './storage.js';
 import path from "node:path";
-import type { Database } from "./db";
-import { config } from "./config";
-import { changeCredits } from "./credits";
-import { renderMedia, downloadOutput } from "./render";
-import * as hf from "./higgsfield";
+import type { Database } from "./db.js";
+import { config } from "./config.js";
+import { changeCredits } from "./credits.js";
+import { renderMedia, downloadOutput } from "./render.js";
+import * as hf from "./higgsfield.js";
 type Job = {
   id: string;
   version_id: string;

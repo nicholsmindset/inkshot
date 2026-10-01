@@ -1,7 +1,7 @@
-import { config, AppError } from "./config";
-import { brandSchema, sampleConcepts } from "./brand";
+import { config, AppError } from "./config.js";
+import { brandSchema, sampleConcepts } from "./brand.js";
 import { z } from "zod";
-import type { Brand, Concept } from "../shared/types";
+import type { Brand, Concept } from "../shared/types.js";
 async function ask(system: string, input: unknown) {
   if (!config.claudeKey && !config.openrouterKey)
     throw new AppError(

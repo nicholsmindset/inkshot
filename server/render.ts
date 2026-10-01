@@ -3,7 +3,7 @@ import sharp from "sharp";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { config } from "./config";
+import { config } from "./config.js";
 const xml = (text: string) =>
   text.replace(
     /[<>&"']/g,
@@ -164,7 +164,7 @@ export async function downloadOutput(url: string, id: string, video = false) {
   if (parsed.protocol !== "https:")
     throw new Error("Provider returned an invalid media URL.");
   const { lookup } = await import("node:dns/promises");
-  const { isPublicIp } = await import("./scrape");
+  const { isPublicIp } = await import("./scrape.js");
   const addresses = await lookup(parsed.hostname, { all: true });
   if (addresses.some((a) => !isPublicIp(a.address)))
     throw new Error("Invalid media address");

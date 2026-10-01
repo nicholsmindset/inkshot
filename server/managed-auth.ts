@@ -2,10 +2,10 @@ import { createServerClient } from '@supabase/ssr';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import type { Database } from './db';
-import type { User } from '../shared/types';
-import { config, AppError } from './config';
-import { emptyBrand } from './brand';
+import type { Database } from './db.js';
+import type { User } from '../shared/types.js';
+import { config, AppError } from './config.js';
+import { emptyBrand } from './brand.js';
 export const managedAuthEnabled = () => process.env.AUTH_PROVIDER === 'supabase';
 export function authClient(req: Request, res: Response) {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_PUBLISHABLE_KEY;

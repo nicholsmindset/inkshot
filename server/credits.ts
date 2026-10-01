@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Queryable } from "./db";
-import { AppError } from "./config";
+import type { Queryable } from "./db.js";
+import { AppError } from "./config.js";
 export async function changeCredits(
   tx: Queryable,
   workspaceId: string,

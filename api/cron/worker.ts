@@ -1,7 +1,7 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {timingSafeEqual} from 'node:crypto';
-import {hostedDatabase} from '../../server/hosted';
-import {runWorkerOnce} from '../../server/worker';
+import {hostedDatabase} from '../../server/hosted.js';
+import {runWorkerOnce} from '../../server/worker.js';
 export default async function handler(req:IncomingMessage,res:ServerResponse){
  const expected=process.env.CRON_SECRET?Buffer.from(`Bearer ${process.env.CRON_SECRET}`):null;
  const supplied=Buffer.from(req.headers.authorization||'');

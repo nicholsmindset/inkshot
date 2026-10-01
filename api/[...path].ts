@@ -1,6 +1,6 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
-import {createApp} from '../server/app';
-import {hostedDatabase} from '../server/hosted';
+import {createApp} from '../server/app.js';
+import {hostedDatabase} from '../server/hosted.js';
 let app:ReturnType<typeof createApp>|undefined;
 export default async function handler(req:IncomingMessage,res:ServerResponse){
  try {

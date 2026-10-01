@@ -1,7 +1,7 @@
-import { config } from "./config";
-import { createDatabase } from "./db";
-import { createApp } from "./app";
-import { startWorker } from "./worker";
+import { config } from "./config.js";
+import { createDatabase } from "./db.js";
+import { createApp } from "./app.js";
+import { startWorker } from "./worker.js";
 if (config.production)
   throw new Error(
     "Production launch is gated pending managed identity, payment fulfillment, private object storage and live provider validation. See README.",

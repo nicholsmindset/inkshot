@@ -1,4 +1,4 @@
-import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth';
+import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import {
   randomBytes,
   randomUUID,
@@ -8,9 +8,9 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import type { Request, Response, NextFunction } from "express";
-import type { Database } from "./db";
-import { config, AppError } from "./config";
-import type { User } from "../shared/types";
+import type { Database } from "./db.js";
+import { config, AppError } from "./config.js";
+import type { User } from "../shared/types.js";
 const scrypt = promisify(scryptCallback);
 export const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");

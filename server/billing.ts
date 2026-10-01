@@ -1,9 +1,9 @@
 import Stripe from 'stripe';
 import {randomBytes} from 'node:crypto';
-import type {Database} from './db';
-import {AppError,config} from './config';
-import {changeCredits} from './credits';
-import type {User} from '../shared/types';
+import type {Database} from './db.js';
+import {AppError,config} from './config.js';
+import {changeCredits} from './credits.js';
+import type {User} from '../shared/types.js';
 
 export function billingConfigured(){return !!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&!!process.env.STRIPE_STUDIO_PRICE_ID&&process.env.ENABLE_BILLING_SANDBOX==='true'}
 function client(){

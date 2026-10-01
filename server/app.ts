@@ -1,5 +1,5 @@
-import {persistMedia,materializeMedia} from './storage';
-import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth';
+import {persistMedia,materializeMedia} from './storage.js';
+import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -11,20 +11,20 @@ import path from "node:path";
 import sharp from "sharp";
 import archiver from "archiver";
 import { z } from "zod";
-import { config, AppError } from "./config";
-import type { Database } from "./db";
+import { config, AppError } from "./config.js";
+import type { Database } from "./db.js";
 import {
   requireUser,
   createUser,
   verifyPassword,
   session,
   tokenHash,
-} from "./auth";
-import { brandSchema, demoBrand, emptyBrand } from "./brand";
-import { writeBrief, writeConcepts } from "./claude";
-import { scrape } from "./scrape";
-import { changeCredits } from "./credits";
-import {billingConfigured,checkout,portal,webhook} from './billing';
+} from "./auth.js";
+import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
+import { writeBrief, writeConcepts } from "./claude.js";
+import { scrape } from "./scrape.js";
+import { changeCredits } from "./credits.js";
+import {billingConfigured,checkout,portal,webhook} from './billing.js';
 import {
   KIT_CREDITS,
   VERSION_CREDITS,
@@ -32,7 +32,7 @@ import {
   type Campaign,
   type Asset,
   type Version,
-} from "../shared/types";
+} from "../shared/types.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
 export function createApp(db: Database) {

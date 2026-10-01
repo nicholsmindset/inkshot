@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Brand, Concept } from "../shared/types";
+import type { Brand, Concept } from "../shared/types.js";
 export const brandSchema = z.object({
   name: z.string().trim().min(1).max(100),
   website: z.string().max(2048).default(""),

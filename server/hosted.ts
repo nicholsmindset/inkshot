@@ -1,4 +1,4 @@
-import {createDatabase,type Database} from './db';
+import {createDatabase,type Database} from './db.js';
 let pending:Promise<Database>|undefined;
 export function hostedDatabase(){
  if(!process.env.DATABASE_URL)throw new Error('Hosted database is not configured');

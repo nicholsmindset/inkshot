@@ -2,7 +2,7 @@ import https from "node:https";
 import { lookup } from "node:dns/promises";
 import ipaddr from "ipaddr.js";
 import * as cheerio from "cheerio";
-import { AppError } from "./config";
+import { AppError } from "./config.js";
 export function isPublicIp(address: string) {
   try {
     let ip = ipaddr.parse(address);

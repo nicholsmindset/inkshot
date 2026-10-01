@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
-import type {Database} from './db';
-import {AppError} from './config';
-import * as hf from './higgsfield';
+import type {Database} from './db.js';
+import {AppError} from './config.js';
+import * as hf from './higgsfield.js';
 // Reserve before submission, including ambiguous outcomes. Never release a reservation
 // automatically: a timeout may still have incurred a provider charge.
 export async function submitBudgeted(db:Database,model:string,input:unknown,key:string){

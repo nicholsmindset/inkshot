@@ -2,8 +2,8 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { config } from "./config";
-import { supabaseCa } from "./supabase-ca";
+import { config } from "./config.js";
+import { supabaseCa } from "./supabase-ca.js";
 export type Queryable = {
   query<T = Record<string, unknown>>(
     sql: string,

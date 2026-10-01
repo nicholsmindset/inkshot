@@ -1,7 +1,7 @@
 import {createClient} from '@supabase/supabase-js';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {config,AppError} from './config';
+import {config,AppError} from './config.js';
 export const cloudStorageEnabled=()=>process.env.STORAGE_PROVIDER==='supabase';
 function client(){
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SECRET_KEY;
