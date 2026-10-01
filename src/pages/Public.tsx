@@ -22,7 +22,7 @@ export function Landing() {
   function startWithWebsite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const value = website.trim();
-    if (value) navigate(`/signup?website=${encodeURIComponent(value)}`);
+    if (value) navigate(`${studio ? "/studio/brand" : "/signup"}?website=${encodeURIComponent(value)}`);
   }
   async function demo() {
     setBusy(true);
