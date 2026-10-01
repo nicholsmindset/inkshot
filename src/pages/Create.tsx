@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Link as LinkIcon,
@@ -20,18 +20,20 @@ export function BrandPage() {
 }
 function BrandForm({ initial }: { initial: Brand }) {
   const { studio, refresh, notify } = useStudio();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedWebsite = searchParams.get("website");
+  const startedWebsiteRead = useRef(false);
   const [brand, setBrand] = useState(initial);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [url, setUrl] = useState(searchParams.get("website") || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
     setBrand((b) => ({ ...b, [key]: value }));
-  async function read() {
+  async function read(requestedUrl = url) {
     setBusy("read");
     setError("");
     try {
-      let address = url.trim();
+      let address = requestedUrl.trim();
       if (!address.startsWith("https://")) address = `https://${address}`;
       const next = await api<Brand>("/brand/read", { url: address });
       setBrand({
@@ -49,6 +51,11 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBusy("");
     }
   }
+  useEffect(() => {
+    if (!requestedWebsite || startedWebsiteRead.current) return;
+    startedWebsiteRead.current = true;
+    void read(requestedWebsite).finally(() => setSearchParams({}, { replace: true }));
+  }, [requestedWebsite, setSearchParams]);
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy("save");
