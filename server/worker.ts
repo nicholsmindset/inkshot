@@ -1,3 +1,5 @@
+import {submitBudgeted} from './provider-budget';
+import {persistMedia,materializeMedia,cloudStorageEnabled} from './storage';
 import path from "node:path";
 import type { Database } from "./db";
 import { config } from "./config";
@@ -25,11 +27,7 @@ type Work = {
   asset_id: string;
   campaign_id: string;
 };
-export function startWorker(db: Database) {
-  let stopped = false;
-  let active = 0;
-  let claiming = false;
-  async function handle(job: Job) {
+async function handle(db:Database,job: Job) {
     let work: Work | undefined;
     try {
       work = (
@@ -43,7 +41,7 @@ export function startWorker(db: Database) {
         "UPDATE versions SET status='making',error=NULL WHERE id=$1",
         [work.id],
       );
-      let source = work.source_path;
+      let source = work.source_path ? await materializeMedia(work.source_path) : null;
       if (!source && work.mock) {
         const uploaded = work.brand.photoId
           ? (
@@ -54,7 +52,7 @@ export function startWorker(db: Database) {
             ).rows[0]
           : null;
         source =
-          uploaded?.file_path || path.resolve("public/examples/candle.png");
+          uploaded ? await materializeMedia(uploaded.file_path) : path.resolve("public/examples/candle.png");
       }
       if (!source && !work.mock) {
         const checkpoint = job.checkpoint;
@@ -65,7 +63,8 @@ export function startWorker(db: Database) {
           ]);
         };
         if (!checkpoint.imageId) {
-          const result = await hf.submit(
+          const result = await submitBudgeted(
+            db,
             hf.MODELS.image,
             {
               prompt: work.prompt,
@@ -94,7 +93,8 @@ export function startWorker(db: Database) {
           throw new TerminalFailure("The provider returned no image.");
         if (work.kind === "video") {
           if (!checkpoint.videoId) {
-            const result = await hf.submit(
+            const result = await submitBudgeted(
+            db,
               hf.MODELS.video,
               {
                 image_url: image.images[0].url,
@@ -121,7 +121,7 @@ export function startWorker(db: Database) {
       if (!source) throw new Error("No source media");
       await db.query(
         "UPDATE versions SET status='rendering',source_path=$2 WHERE id=$1",
-        [work.id, source],
+        [work.id, await persistMedia(source,job.workspace_id,'generated-media')],
       );
       const files = await renderMedia({
         id: work.id,
@@ -133,10 +133,12 @@ export function startWorker(db: Database) {
         brandName: work.brand.name,
         mock: work.mock,
       });
+      const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media');
+      const savedPreview = files.preview_path===files.file_path ? savedFile : await persistMedia(files.preview_path,job.workspace_id,'generated-media');
       await db.transaction(async (tx) => {
         await tx.query(
           "UPDATE versions SET status='ready',file_path=$2,preview_path=$3 WHERE id=$1",
-          [work!.id, files.file_path, files.preview_path],
+          [work!.id, savedFile, savedPreview],
         );
         await tx.query(
           "UPDATE jobs SET state='done',locked_until=NULL WHERE id=$1",
@@ -189,48 +191,27 @@ export function startWorker(db: Database) {
         );
     }
   }
-  async function tick() {
-    if (stopped || claiming || active >= config.concurrency) return;
-    claiming = true;
-    try {
-      const job = await db.transaction(async (tx) => {
-        const row = (
-          await tx.query<Job>(
-            "SELECT * FROM jobs WHERE (state='queued' AND available_at<=now()) OR (state='processing' AND locked_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
-          )
-        ).rows[0];
-        if (row) {
-          await tx.query(
-            "UPDATE jobs SET state='processing',locked_until=now()+interval '5 minutes',attempts=attempts+1 WHERE id=$1",
-            [row.id],
-          );
-          row.attempts += 1;
-        }
-        return row;
-      });
-      if (job) {
-        active++;
-        void handle(job)
-          .catch(() =>
-            console.error(
-              "Worker job could not be updated. It will be recovered after its lease expires.",
-            ),
-          )
-          .finally(() => {
-            active--;
-          });
-      }
-    } finally {
-      claiming = false;
-    }
-  }
-  const timer = setInterval(() => {
-    void tick().catch(() => console.error("Worker temporarily unavailable"));
-  }, 1000);
-  return () => {
-    stopped = true;
-    clearInterval(timer);
-  };
+
+export async function runWorkerOnce(db:Database):Promise<boolean> {
+ const job=await db.transaction(async tx=>{
+  await tx.query('LOCK TABLE jobs IN EXCLUSIVE MODE');
+  const active=Number((await tx.query<{n:string}>("SELECT count(*)::text AS n FROM jobs WHERE state='processing' AND locked_until>now()")).rows[0].n);
+  if(active>=config.concurrency)return undefined;
+  const row=(await tx.query<Job>("SELECT * FROM jobs WHERE (state='queued' AND available_at<=now()) OR (state='processing' AND locked_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
+  if(row){await tx.query("UPDATE jobs SET state='processing',locked_until=now()+interval '5 minutes',attempts=attempts+1 WHERE id=$1",[row.id]);row.attempts++;}
+  return row;
+ });
+ if(!job)return false;
+ await handle(db,job);return true;
+}
+export function startWorker(db:Database){
+ let stopped=false,active=0;
+ const timer=setInterval(()=>{
+  if(stopped||active>=config.concurrency)return;
+  active++;
+  void runWorkerOnce(db).catch(()=>console.error('Worker temporarily unavailable')).finally(()=>active--);
+ },1000);
+ return ()=>{stopped=true;clearInterval(timer);};
 }
 async function requeue(db: Database, id: string) {
   await db.query(

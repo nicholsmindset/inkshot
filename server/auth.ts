@@ -1,3 +1,4 @@
+import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth';
 import {
   randomBytes,
   randomUUID,
@@ -48,8 +49,14 @@ export async function session(db: Database, userId: string, res: Response) {
   });
 }
 export function requireUser(db: Database) {
-  return async (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (managedAuthEnabled()) {
+        const {data, error} = await authClient(req,res).auth.getUser();
+        if (error || !data.user) throw new AppError(401, 'Please sign in to your studio.');
+        req.user = await provisionManagedUser(db,data.user);
+        return next();
+      }
       const token = req.cookies?.inkshot_session;
       if (!token) throw new AppError(401, "Please sign in to your studio.");
       const { rows } = await db.query<User>(

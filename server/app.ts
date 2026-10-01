@@ -1,3 +1,5 @@
+import {persistMedia,materializeMedia} from './storage';
+import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth';
 import express from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -91,7 +93,7 @@ export function createApp(db: Database) {
     message: { error: "Too many attempts. Please try again later." },
   });
   app.post("/api/auth/demo", authLimit, async (req, res) => {
-    if (config.production || config.mode !== "mock")
+    if (managedAuthEnabled() || config.production || config.mode !== "mock")
       throw new AppError(404, "Preview is unavailable.");
     const { userId } = await createUser(
       db,
@@ -117,6 +119,13 @@ export function createApp(db: Database) {
         password: z.string().min(12).max(128),
       })
       .parse(req.body);
+    if (managedAuthEnabled()) {
+      const {data,error} = await authClient(req,res).auth.signUp({email:input.email,password:input.password,options:{data:{name:input.name},emailRedirectTo:`${config.origin}/api/auth/callback`}});
+      if (error) throw new AppError(400,'Unable to create your account. Check your details or try signing in.');
+      if (data.session && data.user) await provisionManagedUser(db,data.user);
+      res.status(201).json({ok:true,confirmationRequired:!data.session});
+      return;
+    }
     if (
       (await db.query("SELECT id FROM users WHERE email=$1", [input.email]))
         .rows.length
@@ -136,6 +145,12 @@ export function createApp(db: Database) {
         password: z.string().min(1).max(128),
       })
       .parse(req.body);
+    if (managedAuthEnabled()) {
+      const {data,error} = await authClient(req,res).auth.signInWithPassword(input);
+      if(error || !data.user) throw new AppError(401,'Unable to sign in. Check your email, password and email confirmation.');
+      await provisionManagedUser(db,data.user);
+      res.json({ok:true}); return;
+    }
     const user = (
       await db.query<{ id: string; password_hash: string }>(
         "SELECT id,password_hash FROM users WHERE email=$1",
@@ -148,12 +163,23 @@ export function createApp(db: Database) {
     res.json({ ok: true });
   });
   app.post("/api/auth/logout", async (req, res) => {
+    if (managedAuthEnabled()) {
+      const {error} = await authClient(req,res).auth.signOut();
+      if (error) throw new AppError(503,'Sign-out could not finish. Please try again.');
+    }
     if (req.cookies.inkshot_session)
       await db.query("DELETE FROM sessions WHERE token_hash=$1", [
         tokenHash(req.cookies.inkshot_session),
       ]);
     res.clearCookie("inkshot_session", { path: "/" });
     res.json({ ok: true });
+  });
+  app.get('/api/auth/callback', async(req,res)=> {
+    if (!managedAuthEnabled() || typeof req.query.code !== 'string') return res.redirect('/login?confirmation=failed');
+    const {data,error}=await authClient(req,res).auth.exchangeCodeForSession(req.query.code);
+    if(error || !data.user) return res.redirect('/login?confirmation=failed');
+    await provisionManagedUser(db,data.user);
+    res.redirect('/studio/brand');
   });
   app.use("/api", requireUser(db));
   app.post('/api/billing/checkout',async(req,res)=>res.json(await checkout(db,req.user!)));
@@ -195,7 +221,7 @@ export function createApp(db: Database) {
       mode: config.mode,
       providers: {
         higgsfield: !!config.hfKey && !!config.hfSecret,
-        claude: !!config.claudeKey,
+        claude: !!config.claudeKey || !!config.openrouterKey,
       },
       billingEnabled: billingConfigured()&&!req.user!.demo,
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
@@ -266,9 +292,10 @@ export function createApp(db: Database) {
     const file = path.join(dir, `${uploadId}.jpg`);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(file, buffer);
+    const storedFile = await persistMedia(file,req.user!.workspaceId,'brand-uploads');
     await db.query(
       "INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3)",
-      [uploadId, req.user!.workspaceId, file],
+      [uploadId, req.user!.workspaceId, storedFile],
     );
     res.status(201).json({ id: uploadId });
   });
@@ -280,7 +307,7 @@ export function createApp(db: Database) {
       )
     ).rows[0];
     if (!row) throw new AppError(404, "Photo not found.");
-    res.sendFile(row.file_path);
+    res.sendFile(await materializeMedia(row.file_path));
   });
   app.post("/api/campaigns", async (req, res) => {
     const input = z
@@ -326,11 +353,8 @@ export function createApp(db: Database) {
       .object({ approved: z.literal(true) })
       .parse(req.body);
     void approved;
-    if (config.mode === "live")
-      throw new AppError(
-        503,
-        "Live campaigns are not enabled yet. Model validation and provider cost limits must be configured before paid generation.",
-      );
+    if (config.mode === "live" && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !(Number(process.env.HF_DAILY_BUDGET_USD)>0)))
+      throw new AppError(503,"Generation requires provider credentials and a configured spending limit.");
     await db.transaction(async (tx) => {
       const c = (
         await tx.query<Campaign & { brand: Brand }>(
@@ -499,7 +523,7 @@ export function createApp(db: Database) {
       )
     ).rows[0];
     if (!v) throw new AppError(404, "This export is not ready.");
-    const file = req.query.preview === "true" ? v.preview_path : v.file_path;
+    const file = await materializeMedia(req.query.preview === "true" ? v.preview_path : v.file_path);
     res.setHeader("Cache-Control", "private, max-age=3600");
     if (req.query.download === "true")
       res.download(file, `inkshot-${req.params.id}${path.extname(file)}`);
@@ -534,11 +558,9 @@ export function createApp(db: Database) {
     const zip = archiver("zip", { zlib: { level: 5 } });
     zip.on("error", () => res.destroy());
     zip.pipe(res);
-    rows.forEach((a, i) =>
-      zip.file(a.file_path, {
-        name: `${i + 1}-${a.kind}${path.extname(a.file_path)}`,
-      }),
-    );
+    for (const [i,a] of rows.entries()) {
+      zip.file(await materializeMedia(a.file_path), {name:`${i+1}-${a.kind}${path.extname(a.file_path)}`});
+    }
     zip.append(
       rows
         .filter((a) => a.kind === "post")

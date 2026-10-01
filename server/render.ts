@@ -1,3 +1,4 @@
+import staticFfmpeg from 'ffmpeg-static';
 import sharp from "sharp";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -37,7 +38,7 @@ export function lines(text: string, max = 24) {
 }
 export async function ffmpeg(args: string[]) {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(config.ffmpeg, args, {
+    const child = spawn(process.env.FFMPEG_PATH || (process.env.VERCEL ? staticFfmpeg! : config.ffmpeg), args, {
       stdio: ["ignore", "ignore", "pipe"],
     });
     let error = "";
@@ -167,23 +168,24 @@ export async function downloadOutput(url: string, id: string, video = false) {
   const addresses = await lookup(parsed.hostname, { all: true });
   if (addresses.some((a) => !isPublicIp(a.address)))
     throw new Error("Invalid media address");
-  const response = await fetch(url, {
-    redirect: "error",
-    signal: AbortSignal.timeout(90000),
+  if(parsed.username || parsed.password || (parsed.port && parsed.port!=='443') || !addresses.length) throw new Error('Invalid media URL');
+  const https = await import('node:https');
+  const selected=addresses[0];
+  const bytes=await new Promise<Buffer>((resolve,reject)=>{
+    const request=https.get(parsed,{
+      lookup:((_host:unknown,options:{all?:boolean},cb:Function)=>options.all?cb(null,[selected]):cb(null,selected.address,selected.family)) as never,
+      timeout:90000,
+    },response=>{
+      if(response.statusCode!==200){response.resume();reject(new Error('Could not download generated media'));return;}
+      const chunks:Buffer[]=[];let length=0;
+      response.on('data',(chunk:Buffer)=>{length+=chunk.length;if(length>100*1024*1024){request.destroy(new Error('Generated file too large'));return;}chunks.push(chunk);});
+      response.on('end',()=>resolve(Buffer.concat(chunks)));response.on('error',reject);
+    });
+    request.on('timeout',()=>request.destroy(new Error('Download timed out')));request.on('error',reject);
   });
-  if (!response.ok || !response.body)
-    throw new Error("Could not download the generated media.");
-  let length = 0;
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of response.body as never as AsyncIterable<Uint8Array>) {
-    length += chunk.length;
-    if (length > 100 * 1024 * 1024)
-      throw new Error("Generated file is too large.");
-    chunks.push(chunk);
-  }
   const dir = path.join(config.dataDir, "media");
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `${id}-source.${video ? "mp4" : "jpg"}`);
-  await writeFile(file, Buffer.concat(chunks));
+  await writeFile(file, bytes);
   return file;
 }

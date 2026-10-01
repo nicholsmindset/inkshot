@@ -3,6 +3,7 @@ import pg from "pg";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config";
+import { supabaseCa } from "./supabase-ca";
 export type Queryable = {
   query<T = Record<string, unknown>>(
     sql: string,
@@ -15,10 +16,21 @@ export type Database = Queryable & {
 };
 export async function createDatabase(
   directory = config.dataDir,
+  forceLocal = false,
 ): Promise<Database> {
   let db: Database;
-  if (process.env.DATABASE_URL) {
-    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  if (process.env.DATABASE_URL && !forceLocal) {
+    const connection = new URL(process.env.DATABASE_URL);
+    const isSupabase = connection.hostname.endsWith('.pooler.supabase.com') || connection.hostname.endsWith('.supabase.co');
+    if (isSupabase) {
+      for (const key of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey']) connection.searchParams.delete(key);
+    }
+    const pool = new pg.Pool({
+      connectionString: connection.toString(),
+      max: 3,
+      connectionTimeoutMillis: 10000,
+      ...(isSupabase ? { ssl: { rejectUnauthorized: true, ca: supabaseCa } } : {}),
+    });
     db = {
       query: async <T>(sql: string, params?: unknown[]) => ({
         rows: (await pool.query(sql, params)).rows as T[],
@@ -43,9 +55,8 @@ export async function createDatabase(
       },
       close: () => pool.end(),
     };
-    await pool.query(
-      await readFile(new URL("./schema.sql", import.meta.url), "utf8"),
-    );
+    // Hosted schemas are managed by migrations, never by application startup.
+    await pool.query('SELECT 1');
   } else {
     await mkdir(directory, { recursive: true });
     const local = await PGlite.create(path.join(directory, "postgres"));

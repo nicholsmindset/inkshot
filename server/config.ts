@@ -3,7 +3,7 @@ import path from "node:path";
 export const config = {
   port: Number(process.env.PORT || 3001),
   origin: process.env.APP_ORIGIN || "http://localhost:5173",
-  dataDir: path.resolve(process.env.DATA_DIR || "data"),
+  dataDir: path.resolve(process.env.DATA_DIR || (process.env.VERCEL ? "/tmp/inkshot" : "data")),
   production: process.env.NODE_ENV === "production",
   mode: (process.env.GENERATION_MODE === "live" ? "live" : "mock") as
     "live" | "mock",
@@ -11,6 +11,8 @@ export const config = {
   hfKey: process.env.HF_API_KEY_ID,
   hfSecret: process.env.HF_API_KEY_SECRET,
   claudeKey: process.env.ANTHROPIC_API_KEY,
+  openrouterKey: process.env.OPENROUTER_API_KEY,
+  openrouterModel: process.env.OPENROUTER_MODEL || "anthropic/claude-opus-5.5",
   claudeModel: process.env.CLAUDE_MODEL || "claude-opus-5-5",
   concurrency: Math.max(
     1,

@@ -35,7 +35,7 @@ async function call(
 }
 before(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-test-"));
-  db = await createDatabase(dir);
+  db = await createDatabase(dir, true);
   server = createApp(db).listen(0, "127.0.0.1");
   await new Promise<void>((r) => server.once("listening", r));
   const address = server.address();
@@ -211,4 +211,30 @@ test("long headlines wrap without dropping words", () => {
     "A carefully written headline that tells your whole story and keeps every single word in the final exported creative.";
   assert.equal(lines(text).join(" "), text);
   assert(lines("a".repeat(100), 24).every((row) => row.length <= 24));
+});
+
+test('subscription invoice grants exactly once across duplicate event IDs', async()=>{
+  const {applyPaymentFact}=await import('../server/billing');
+  await db.query("INSERT INTO billing_accounts(workspace_id,customer_id) VALUES($1,'cus_test_inkshot') ON CONFLICT(workspace_id) DO UPDATE SET customer_id='cus_test_inkshot'",[workspace]);
+  const before=Number((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits);
+  const fact={eventId:'evt_paid_1',eventType:'invoice.paid',created:100,customerId:'cus_test_inkshot',subscriptionId:'sub_test',status:'active',invoiceId:'in_test_1',grantCredits:true};
+  await applyPaymentFact(db,fact);await applyPaymentFact(db,fact);await applyPaymentFact(db,{...fact,eventId:'evt_paid_retry'});
+  assert.equal(Number((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits),before+300);
+});
+test('unpaid and out-of-order billing events cannot grant credits or roll back status',async()=>{
+ const {applyPaymentFact}=await import('../server/billing');
+ const before=(await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits;
+ const fact={eventId:'evt_cancel',eventType:'customer.subscription.deleted',created:300,customerId:'cus_test_inkshot',subscriptionId:'sub_test',status:'canceled',grantCredits:false};
+ await applyPaymentFact(db,fact);
+ await applyPaymentFact(db,{...fact,eventId:'evt_old',created:200,status:'past_due'});
+ assert.equal((await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[workspace])).rows[0].status,'canceled');
+ assert.equal((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits,before);
+});
+test('unknown billing customers are retried rather than assigned to another workspace',async()=>{
+ const {applyPaymentFact}=await import('../server/billing');
+ await assert.rejects(()=>applyPaymentFact(db,{eventId:'evt_unknown',eventType:'invoice.paid',created:400,customerId:'cus_unknown',subscriptionId:'sub_other',status:'active',invoiceId:'in_other',grantCredits:true}),/not linked/);
+ assert.equal((await db.query("SELECT id FROM payment_events WHERE id='evt_unknown'")).rows.length,0);
+});
+test('Stripe webhook requires a signature',async()=>{
+ assert.equal((await call('/webhooks/stripe',{type:'invoice.paid'},'')).status,400);
 });

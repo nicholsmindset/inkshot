@@ -3,19 +3,28 @@ import { brandSchema, sampleConcepts } from "./brand";
 import { z } from "zod";
 import type { Brand, Concept } from "../shared/types";
 async function ask(system: string, input: unknown) {
-  if (!config.claudeKey)
+  if (!config.claudeKey && !config.openrouterKey)
     throw new AppError(
       503,
       "The writing service is not configured yet. You can enter your brief manually.",
     );
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const viaRouter = !!config.openrouterKey;
+  const response = await fetch(viaRouter ? "https://openrouter.ai/api/v1/chat/completions" : "https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "x-api-key": config.claudeKey,
+    headers: viaRouter ? {
+      Authorization: `Bearer ${config.openrouterKey}`,
+      "Content-Type": "application/json",
+      "X-OpenRouter-Title": "Inkshot",
+    } : {
+      "x-api-key": config.claudeKey!,
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify({
+    body: JSON.stringify(viaRouter ? {
+      model: config.openrouterModel,
+      max_tokens: 5000,
+      messages: [{role:"system",content:system},{role:"user",content:JSON.stringify(input)}],
+    } : {
       model: config.claudeModel,
       max_tokens: 5000,
       system,
@@ -26,10 +35,10 @@ async function ask(system: string, input: unknown) {
   if (!response.ok)
     throw new AppError(
       502,
-      "The writing service could not finish. Your work has been saved.",
+      `The writing service could not finish (provider status ${response.status}). Your work has been saved.`,
     );
   const data = await response.json();
-  const text = (data.content || [])
+  const text = viaRouter ? data.choices?.[0]?.message?.content || "" : (data.content || [])
     .filter((p: { type: string }) => p.type === "text")
     .map((p: { text: string }) => p.text)
     .join("");

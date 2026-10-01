@@ -34,7 +34,7 @@ export async function checkout(db:Database,user:User){
   if(!session.url)throw new AppError(502,'Checkout did not return a payment page.');return {url:session.url};
  });
 }
-export async function portal(db:Database,user:User){const stripe=client();const account=(await db.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1',[user.workspaceId])).rows[0];if(!account?.customer_id)throw new AppError(400,'No billing account exists yet.');const session=await stripe.billingPortal.sessions.create({customer:account.customer_id,return_url:`${config.origin}/studio/billing`});return {url:session.url}}
+export async function portal(db:Database,user:User){const stripe=client();const account=(await db.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1',[user.workspaceId])).rows[0];if(!account?.customer_id)throw new AppError(400,'No billing account exists yet.');const session=await stripe.billingPortal.sessions.create({customer:account.customer_id,return_url:`${config.origin}/studio/billing`,configuration:process.env.STRIPE_PORTAL_CONFIGURATION_ID});return {url:session.url}}
 
 export type PaymentFact={eventId:string;eventType:string;created:number;customerId:string;subscriptionId:string;status:string;invoiceId?:string;grantCredits:boolean};
 // Called only after signature verification and provider-side object validation.

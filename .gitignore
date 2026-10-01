@@ -11,3 +11,4 @@ outputs/
 .DS_Store
 .vercel
 .env*
+supabase/.temp/

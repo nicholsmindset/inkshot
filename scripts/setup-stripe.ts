@@ -1,0 +1,17 @@
+import 'dotenv/config';
+import Stripe from 'stripe';
+import {readFile,writeFile} from 'node:fs/promises';
+const key=process.env.STRIPE_API_KEY||'';
+if(!/^[sr]k_test_/.test(key))throw new Error('A sandbox credential is required');
+const stripe=new Stripe(key,{apiVersion:'2026-08-26.dahlia'});
+const account=await stripe.accounts.retrieve("acct_1RKb5JDBWYOlQTYh");
+if(account.id!=='acct_1RKb5JDBWYOlQTYh')throw new Error('Unexpected Stripe sandbox');
+const product=await stripe.products.create({name:'Inkshot Studio',description:'300 generation credits per month · three campaign kits',metadata:{application:'inkshot'}},{idempotencyKey:'inkshot-studio-product-v1'});
+const price=await stripe.prices.create({product:product.id,currency:'usd',unit_amount:3900,recurring:{interval:'month'},lookup_key:'inkshot_studio_monthly_v1'},{idempotencyKey:'inkshot-studio-price-v1'});
+const portal=await stripe.billingPortal.configurations.create({business_profile:{headline:'Manage your Inkshot subscription'},features:{subscription_cancel:{enabled:true,mode:'at_period_end'},payment_method_update:{enabled:true},invoice_history:{enabled:true}},metadata:{application:'inkshot'}},{idempotencyKey:'inkshot-portal-v1'});
+const hook=await stripe.webhookEndpoints.create({url:'https://inkshot-omega.vercel.app/api/webhooks/stripe',enabled_events:['checkout.session.completed','checkout.session.async_payment_succeeded','invoice.paid','invoice.payment_failed','customer.subscription.created','customer.subscription.updated','customer.subscription.deleted'],description:'Inkshot sandbox subscription fulfillment',api_version:'2026-08-26.dahlia'},{idempotencyKey:'inkshot-webhook-v1'});
+if(!hook.secret)throw new Error('Webhook signing secret is unavailable');
+let env=await readFile('.env','utf8');
+for(const [name,value] of Object.entries({STRIPE_STUDIO_PRICE_ID:price.id,STRIPE_PORTAL_CONFIGURATION_ID:portal.id,STRIPE_WEBHOOK_SECRET:hook.secret,ENABLE_BILLING_SANDBOX:'true'})) env=env.replace(new RegExp(`^${name}=.*\\n?`,'gm'),'')+`\n${name}=${value}\n`;
+await writeFile('.env',env,{mode:0o600});
+console.log(JSON.stringify({sandbox:account.id,product:product.id,price:price.id,portal:portal.id,webhook:hook.id}));

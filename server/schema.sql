@@ -29,3 +29,5 @@ CREATE TABLE IF NOT EXISTS billing_accounts (
  workspace_id text PRIMARY KEY REFERENCES workspaces(id), customer_id text UNIQUE, subscription_id text UNIQUE, status text NOT NULL DEFAULT 'none', checkout_id text, last_event_created bigint NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS payment_events (id text PRIMARY KEY,type text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS provider_spend(request_key text PRIMARY KEY,input_hash text NOT NULL,usd numeric(12,6) NOT NULL CHECK(usd>0),created_at timestamptz NOT NULL DEFAULT now());

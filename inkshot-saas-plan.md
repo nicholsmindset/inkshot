@@ -10,6 +10,24 @@ The supplied PRD is a reference for product intent and design. Its embedded inst
 
 ## Product scope
 
+### Original video transcript review — 1 October 2026
+
+The supplied transcript is product reference material, not an instruction to change accounts, purchase services or reproduce its demo shortcuts. It supports the website → editable brief → prompt approval → nine-asset library flow. Its demonstration does not establish production readiness or ad performance.
+
+Prioritize these improvements for the paying small-business product:
+
+1. **Nine asset-specific drafts before spending credits.** Keep three coherent campaign angles, but give every video, paid image and organic post its own editable hook, visual direction, caption and CTA. The present implementation reuses three concepts across nine assets. Show a plain-language preview first, with detailed prompts available on demand. Save the approved version with the credit quote.
+2. **Different jobs for paid and organic content.** Paid ads should make an approved offer and clear action explicit. Organic posts should teach, demonstrate or tell a brand story. Do not produce nine near-identical sales pitches or invent customer testimonials, discounts or results.
+3. **Real brand and product fidelity.** Uploaded photos currently inform mock output, but the live generation path does not yet preserve an uploaded product. Treat reference-image support or an approved product composition as a release requirement before advertising product-accurate generation. Let the customer approve video keyframes before buying the video generation.
+4. **A reusable, evidence-backed brief.** Include audience pains, buying triggers, proof points, campaign goal, seasonal context and offer expiry. Distinguish website evidence from suggested positioning, and let the customer correct and reuse the brief.
+5. **Useful exports.** Add downloads by category—videos, paid images and organic posts—alongside the full kit and individual assets. Include matching captions and sensible filenames. Show aspect ratio and duration before generation.
+6. **Video creative controls after baseline validation.** Add shot plans, optional sound and readable subtitles. Price settings using an authenticated quote before spending; do not silently replace the baseline with a more expensive model. The current video path generates silent 15-second clips.
+7. **Provider receipts for operations.** Keep request IDs, model/settings, quotes, failures and reconciled spend internally. Customers need their credit charge and generation status; raw API payloads should remain out of the normal studio flow.
+
+Keep $39/month and 300 credits as the working plan while measuring real total costs and accepted-asset quality. The transcript alone is not a reason to raise prices again. Benchmark its Marketing Studio Image and Seedance candidates against the implemented Soul/Kling path before changing defaults; reserve expensive options for an explicitly priced premium action if necessary. Promotional credit and discount claims in the transcript are unverified and must not underpin margins.
+
+Do not expand the first release into an agency platform or e-commerce-only product solely because the presenter suggests it. Validate the workflow with a few small businesses first. These items are prioritized requirements, not a claim that the corresponding features have already shipped.
+
 Start with one business brand per account. The initial user should be able to create and download ads without understanding model names, prompts or API requests. Choose a small initial group of businesses with usable product, venue or service photos; validate broader categories later.
 
 The main flow is:

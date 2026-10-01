@@ -1,3 +1,5 @@
+import {useState} from "react";
+import {api} from "../api";
 import {
   Check,
   Feather,
@@ -7,9 +9,16 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useStudio } from "../context";
-import { Highlight, Button, Empty } from "../ui";
+import { Highlight, Button, Empty, Notice } from "../ui";
 export function Billing() {
   const { studio } = useStudio();
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  async function openBilling(action:'checkout'|'portal') {
+    setBusy(true);setError('');
+    try {const {url}=await api<{url:string}>(`/billing/${action}`,{});window.location.assign(url);}
+    catch(e){setError((e as Error).message);setBusy(false);}
+  }
   if (!studio) return null;
   return (
     <>
@@ -49,10 +58,11 @@ export function Billing() {
               </li>
             ))}
           </ul>
-          <Button className="full" disabled>
-            Checkout opens after the preview
+          {error ? <Notice>{error}</Notice> : null}
+          <Button className="full" disabled={!studio.billingEnabled} busy={busy} onClick={()=>openBilling(studio.billingStatus==='none'?'checkout':'portal')}>
+            {studio.billingEnabled ? studio.billingStatus==='none'?'Test subscription checkout':'Manage test subscription' : 'Checkout is not configured yet'}
           </Button>
-          <small>No subscription is active. You have not been charged.</small>
+          <small>Stripe sandbox only. No real payment is collected.</small>
         </section>
         <section className="balance-panel">
           <Feather size={25} />
