@@ -8,10 +8,18 @@ The hosted frontend is a preview, not an operational paid SaaS. API calls return
 
 Next integration work:
 
-1. Restore connector access to the existing Inkshot Supabase project `smpdzhxydnctiyjqojmp`.
+1. Connect the runtime to Inkshot Supabase project `smpdzhxydnctiyjqojmp`. Its 11 tables and two private buckets are created and verified via the signed-in dashboard; all tables have RLS, with no anon/authenticated grants. Connector access still needs the correct organization.
 2. Configure managed authentication, tenant-isolated database access, and private object storage.
 3. Host the durable generation worker with FFmpeg and connect the authenticated API.
 4. Set server-only Higgsfield, Anthropic, and Stripe sandbox credentials; verify generation quotes and signed payment events before live billing.
 5. Replace the temporary API adapter and rewrite, test complete customer flows, and remove the preview noindex header when ready to launch.
 
 Never commit `.env`, `.vercel`, generated customer media, or API credentials. Do not add secret keys with a `VITE_` prefix.
+
+## Verified infrastructure — 1 October 2026
+
+- Private repository: https://github.com/nicholsmindset/inkshot
+- Vercel project: https://vercel.com/nicholsmindset-gmailcoms-projects/inkshot
+- Hosted frontend preview: https://inkshot-omega.vercel.app
+- Native Vercel GitHub integration connected. Initial GitHub Actions build/test run passed.
+- Supabase schema applied through SQL Editor; verification returned 11 tables, 11 with RLS, zero client grants, two private buckets. Local migration file records the equivalent schema; dashboard SQL execution does not register CLI migration history.
