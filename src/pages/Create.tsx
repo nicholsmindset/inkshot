@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Link as LinkIcon,
   ArrowUpRight,
@@ -20,10 +20,11 @@ export function BrandPage() {
 }
 function BrandForm({ initial }: { initial: Brand }) {
   const { studio, refresh, notify } = useStudio();
+  const [searchParams] = useSearchParams();
   const [brand, setBrand] = useState(initial);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [url, setUrl] = useState(initial.website);
+  const [url, setUrl] = useState(searchParams.get("website") || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
     setBrand((b) => ({ ...b, [key]: value }));
   async function read() {
@@ -80,6 +81,9 @@ function BrandForm({ initial }: { initial: Brand }) {
   }
   return (
     <>
+      <div className="journey-steps" aria-label="Campaign setup progress">
+        <span className="active">01 Your site</span><span>02 Your brief</span><span>03 Your kit</span>
+      </div>
       <div className="page-heading">
         <div>
           <span className="eyebrow">THE HEART OF EVERYTHING YOU MAKE</span>
@@ -123,6 +127,8 @@ function BrandForm({ initial }: { initial: Brand }) {
                 Read my site
               </Button>
             </div>
+            {busy === "read" ? <p className="read-progress" role="status"><span className="read-spinner" /> Reading public pages and preparing your editable brief…</p> : null}
+            {!busy && brand.website ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
             {studio?.mode === "mock" ? (
               <small>
                 Preview mode imports page text for you to refine. AI brief

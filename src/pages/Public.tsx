@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
   Play,
@@ -18,6 +18,12 @@ export function Landing() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [website, setWebsite] = useState("");
+  function startWithWebsite(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const value = website.trim();
+    if (value) navigate(`/signup?website=${encodeURIComponent(value)}`);
+  }
   async function demo() {
     setBusy(true);
     try {
@@ -38,7 +44,9 @@ export function Landing() {
         </Link>
         <div className="landing-nav-center">
           <a href="#how">How it works</a>
+          <a href="#examples">What you get</a>
           <a href="#pricing">Pricing</a>
+          <a href="#questions">Questions</a>
         </div>
         <div>
           <Link className="text-link" to={studio ? "/studio" : "/login"}>
@@ -62,20 +70,22 @@ export function Landing() {
             </Highlight>
           </h1>
           <p>
-            You’ve got a business to run. Turn what makes it special into
-            videos, images and posts worth sharing.
+            Start with your website. Check the brand brief and campaign ideas,
+            then make three video ads, three image ads and three organic posts.
           </p>
+          <form className="hero-website" onSubmit={startWithWebsite}>
+            <label className="sr-only" htmlFor="hero-website">Your business website</label>
+            <input id="hero-website" type="text" inputMode="url" placeholder="yourbusiness.com" value={website} onChange={(e) => setWebsite(e.target.value)} required />
+            <Button>Start with my site <ArrowUpRight size={17} /></Button>
+          </form>
           <div className="hero-actions">
-            <Link className="button large" to="/signup">
-              Make something good <ArrowUpRight size={18} />
-            </Link>
             <Button variant="ghost" busy={busy} onClick={() => void demo()}>
-              Explore the sample studio
+              Explore a sample studio
             </Button>
           </div>
           {error ? <Notice>{error}</Notice> : null}
           <div className="hero-note hand">
-            your next campaign starts here <span>↗</span>
+            paste a URL, then make it yours <span>↗</span>
           </div>
           <div className="hero-formats">
             <span>
@@ -131,6 +141,15 @@ export function Landing() {
               <small>Made to feel like you.</small>
             </div>
           </div>
+        </div>
+      </section>
+      <section id="examples" className="format-section">
+        <div className="section-label">ONE BRIEF · THREE WAYS TO SHOW UP</div>
+        <h2>Made for the places your customers look.</h2>
+        <div className="format-grid">
+          <article><Film size={20} /><h3>Paid video ads</h3><p>Three short vertical videos, each with its own hook and message.</p><span>03 videos</span></article>
+          <article><Image size={20} /><h3>Paid image ads</h3><p>Three designed images with a clear offer and next step.</p><span>03 images</span></article>
+          <article><MessageSquare size={20} /><h3>Organic posts</h3><p>Three visual posts with captions written in your brand voice.</p><span>03 posts</span></article>
         </div>
       </section>
       <section id="how" className="how-section">
@@ -211,6 +230,16 @@ export function Landing() {
           </small>
         </div>
       </section>
+      <section id="questions" className="questions-section">
+        <div className="section-label">A FEW GOOD QUESTIONS</div>
+        <h2>Before you begin.</h2>
+        <div className="question-list">
+          <details><summary>Do you need access to my website account?</summary><p>No. Inkshot reads public pages from the URL you provide. You can edit the brief and upload your own photos.</p></details>
+          <details><summary>Can I change the words before making ads?</summary><p>Yes. Review your brand brief and campaign ideas before generation. Text and layout edits to finished assets do not use generation credits.</p></details>
+          <details><summary>What happens if an asset fails?</summary><p>Successful assets remain available. Credits for an asset that could not be completed are returned to your workspace.</p></details>
+          <details><summary>How are generation credits used?</summary><p>One nine-asset kit uses 100 credits. The Studio plan includes 300 monthly credits. We show the credit cost before you approve generation.</p></details>
+        </div>
+      </section>
       <footer className="landing-footer">
         <BrandMark />
         <span>A thoughtful little studio for your next big idea.</span>
@@ -224,18 +253,24 @@ export function Auth({ signup = false }: { signup?: boolean }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [searchParams] = useSearchParams();
+  const requestedWebsite = signup ? searchParams.get("website") : null;
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     setBusy(true);
     const form = new FormData(e.currentTarget);
     try {
-      await api(
+      const result = await api<{confirmationRequired?:boolean}>(
         `/auth/${signup ? "signup" : "login"}`,
         Object.fromEntries(form),
       );
+      if(result.confirmationRequired) {
+        setError('Check your email to confirm your account, then sign in.');
+        return;
+      }
       await refresh();
-      navigate(signup ? "/studio/brand" : "/studio");
+      navigate(signup ? `/studio/brand${requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : ""}` : "/studio");
     } catch (e) {
       setError((e as Error).message);
     } finally {

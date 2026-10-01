@@ -317,10 +317,19 @@ export function Library() {
         </label>
       </div>
       {assets.length ? (
-        <div className="assets-grid">
-          {assets.map((a) => (
-            <AssetCard key={a.id} asset={a} onOpen={() => setSelected(a.id)} />
-          ))}
+        filter === "all" && !query.trim() ? (
+          <div className="library-shelves">
+            {(["video", "image", "post"] as const).map((kind) => {
+              const shelf = assets.filter((a) => a.kind === kind);
+              if (!shelf.length) return null;
+              return <section className="asset-shelf" key={kind}>
+                <div className="section-heading"><h2>{kind === "video" ? "Paid video ads" : kind === "image" ? "Paid image ads" : "Organic posts"}</h2><span className="muted">{shelf.length}</span></div>
+                <div className="assets-grid">{shelf.map((a) => <AssetCard key={a.id} asset={a} onOpen={() => setSelected(a.id)} />)}</div>
+              </section>;
+            })}
+          </div>
+        ) : <div className="assets-grid">
+          {assets.map((a) => <AssetCard key={a.id} asset={a} onOpen={() => setSelected(a.id)} />)}
         </div>
       ) : (
         <Empty
