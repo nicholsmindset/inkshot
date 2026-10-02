@@ -28,3 +28,16 @@ export class AppError extends Error {
     super(message);
   }
 }
+
+export function assertHostedConfiguration() {
+  if (process.env.AUTH_PROVIDER !== "supabase" || process.env.STORAGE_PROVIDER !== "supabase" || !process.env.DATABASE_URL)
+    throw new Error("Hosted identity, database and private storage are required.");
+  const liveBilling = process.env.BILLING_MODE === "live";
+  const liveGeneration = config.mode === "live";
+  if (liveBilling !== liveGeneration)
+    throw new Error("Live billing and generation must be enabled together.");
+  if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !process.env.STRIPE_STUDIO_PRICE_ID || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
+    throw new Error("Live billing requires live Stripe settings and an HTTPS app origin.");
+  if (liveGeneration && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !Number.isFinite(Number(process.env.HF_DAILY_BUDGET_USD)) || Number(process.env.HF_DAILY_BUDGET_USD) <= 0 || (!config.claudeKey && !config.openrouterKey)))
+    throw new Error("Live generation requires provider access, writing access and a spending limit.");
+}

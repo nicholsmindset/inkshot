@@ -98,7 +98,7 @@ export function Dashboard() {
           <span>Available credits</span>
           <strong>
             {studio.balance}
-            <small>/ 300 preview credits</small>
+            <small>{studio.mode === 'live' ? 'available for generation' : '/ 300 preview credits'}</small>
           </strong>
           <p>100 credits makes a complete kit</p>
         </div>

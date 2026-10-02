@@ -33,13 +33,13 @@ export function Billing() {
           </h1>
           <p>Your plan, your credits, and exactly where they go.</p>
         </div>
-        <span className="pill">Preview workspace</span>
+        <span className="pill">{studio.billingMode === 'live' ? 'Your subscription' : 'Preview workspace'}</span>
       </div>
       <div className="billing-grid">
         <section className="plan-card">
           <div className="section-heading">
             <h2>Studio</h2>
-            <span className="pill">Planned launch plan</span>
+            <span className="pill">{studio.billingMode === 'live' ? 'Monthly plan' : 'Planned launch plan'}</span>
           </div>
           <div className="price">
             $39 <small>USD / month</small>
@@ -50,7 +50,7 @@ export function Billing() {
               "300 credits each month · 3 complete kits",
               "Text and layout edits included",
               "Version history and downloads",
-              "Paid top-ups for extra generation",
+              "Extra generation uses credits shown before approval",
             ].map((t) => (
               <li key={t}>
                 <Check size={16} />
@@ -60,9 +60,9 @@ export function Billing() {
           </ul>
           {error ? <Notice>{error}</Notice> : null}
           <Button className="full" disabled={!studio.billingEnabled} busy={busy} onClick={()=>openBilling(studio.billingStatus==='none'?'checkout':'portal')}>
-            {studio.billingEnabled ? studio.billingStatus==='none'?'Test subscription checkout':'Manage test subscription' : 'Checkout is not configured yet'}
+            {studio.billingEnabled ? studio.billingStatus==='none' ? studio.billingMode==='live' ? 'Subscribe for $39/month' : 'Test subscription checkout' : studio.billingMode==='live' ? 'Manage subscription' : 'Manage test subscription' : 'Checkout is not configured yet'}
           </Button>
-          <small>Stripe sandbox only. No real payment is collected.</small>
+          <small>{studio.billingMode === 'live' ? 'Stripe will show the full amount before you pay.' : 'Stripe sandbox only. No real payment is collected.'}</small>
         </section>
         <section className="balance-panel">
           <Feather size={25} />
@@ -70,7 +70,7 @@ export function Billing() {
           <h2>
             <Highlight>{studio.balance}</Highlight>
           </h2>
-          <p>preview credits available</p>
+          <p>{studio.billingMode === 'live' ? 'credits available' : 'preview credits available'}</p>
           <div className="credit-track">
             <i style={{ width: `${Math.min(100, studio.balance / 3)}%` }} />
           </div>
@@ -182,8 +182,7 @@ export function SettingsPage() {
             <strong>{studio.brand.name}</strong>
           </div>
           <p>
-            Account access is protected by a server session. Preview accounts
-            stay on this development instance.
+            Your account uses managed sign-in and is connected to this private workspace.
           </p>
         </section>
         <section className="settings-card">
@@ -218,27 +217,18 @@ export function SettingsPage() {
             </strong>
           </div>
           <p>
-            The sample studio works without provider accounts. Live generation
-            is gated until models, spending limits and output quality are
-            verified. Keys are configured on the server and never displayed
-            here.
+            {studio.mode === 'live' ? 'Creative generation uses server-side provider connections. Keys are never displayed here.' : 'This preview makes sample assets while live generation remains gated. Keys are configured on the server and never displayed here.'}
           </p>
         </section>
         <section className="settings-card">
           <h2>
             <Feather size={20} />
-            About this preview
+            {studio.mode === 'live' ? 'About your studio' : 'About this preview'}
           </h2>
           <p>
-            Your brand, campaigns and exports are saved on this development
-            instance. Billing is not active. Sample video exports use a still
-            image for five seconds; they are not AI-generated motion.
+            {studio.mode === 'live' ? 'Your brand, campaigns and exports are saved in your private workspace.' : 'Your brand, campaigns and exports are saved in your private workspace. Sample video exports use a still image for five seconds; they are not AI-generated motion.'}
           </p>
-          <p>
-            Production launch still requires managed identity and recovery,
-            private cloud media storage, payment fulfillment and live generation
-            validation.
-          </p>
+          {studio.mode !== 'live' ? <p>Live generation and payments remain in launch testing.</p> : null}
           <a
             className="text-link"
             href="https://docs.higgsfield.ai/docs"

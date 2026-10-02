@@ -1,10 +1,11 @@
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {createApp} from '../server/app.js';
 import {hostedDatabase} from '../server/hosted.js';
+import {assertHostedConfiguration} from '../server/config.js';
 let app:ReturnType<typeof createApp>|undefined;
 export default async function handler(req:IncomingMessage,res:ServerResponse){
  try {
-  if(process.env.AUTH_PROVIDER!=='supabase'||process.env.STORAGE_PROVIDER!=='supabase')throw new Error('Managed services are required');
+  assertHostedConfiguration();
   app ||= createApp(await hostedDatabase());
   return app(req,res);
  } catch {

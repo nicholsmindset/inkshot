@@ -77,6 +77,7 @@ export type Studio = {
   mode: "mock" | "live";
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
+  billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };
 export const KIT_CREDITS = 100;

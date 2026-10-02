@@ -5,11 +5,18 @@ import {AppError,config} from './config.js';
 import {changeCredits} from './credits.js';
 import type {User} from '../shared/types.js';
 
-export function billingConfigured(){return !!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&!!process.env.STRIPE_STUDIO_PRICE_ID&&process.env.ENABLE_BILLING_SANDBOX==='true'}
+export type BillingMode = 'off' | 'sandbox' | 'live';
+export function billingMode(): BillingMode {
+ if(process.env.BILLING_MODE==='live')return 'live';
+ if(process.env.ENABLE_BILLING_SANDBOX==='true'||process.env.BILLING_MODE==='sandbox')return 'sandbox';
+ return 'off';
+}
+export function billingConfigured(){return billingMode()!=='off'&&!!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&!!process.env.STRIPE_STUDIO_PRICE_ID}
 function client(){
  const key=process.env.STRIPE_API_KEY||'';
  if(!billingConfigured())throw new AppError(503,'Checkout is not configured yet. You have not been charged.');
- if(!/^[sr]k_test_/.test(key))throw new AppError(503,'This build only accepts Stripe sandbox credentials.');
+ const prefix=billingMode()==='live' ? /^[sr]k_live_/ : /^[sr]k_test_/;
+ if(!prefix.test(key))throw new AppError(503,'The Stripe key does not match the configured billing environment.');
  return new Stripe(key,{apiVersion:'2026-08-26.dahlia',maxNetworkRetries:2,timeout:15000});
 }
 type BillingAccount={workspace_id:string;customer_id:string|null;subscription_id:string|null;status:string;checkout_id:string|null};
@@ -19,7 +26,7 @@ export async function checkout(db:Database,user:User){
  if(user.demo)throw new AppError(400,'Create a permanent account before testing a subscription.');
  const stripe=client();
  const price=await stripe.prices.retrieve(process.env.STRIPE_STUDIO_PRICE_ID!);
- if(price.livemode||!price.active||price.currency!=='usd'||price.unit_amount!==3900||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active sandbox price of $39 USD per month.');
+ if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!=='usd'||price.unit_amount!==3900||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
  return db.transaction(async tx=>{
   await tx.query('INSERT INTO billing_accounts(workspace_id) VALUES($1) ON CONFLICT DO NOTHING',[user.workspaceId]);
   const account=(await tx.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1 FOR UPDATE',[user.workspaceId])).rows[0];
@@ -43,13 +50,13 @@ export async function applyPaymentFact(db:Database,fact:PaymentFact){return db.t
  if(!account)throw new AppError(409,'Billing customer is not linked yet. Retry this event.');
  if((await tx.query('SELECT id FROM payment_events WHERE id=$1',[fact.eventId])).rows.length)return;
  if(!account.subscription_id||account.subscription_id===fact.subscriptionId||account.status==='canceled')await tx.query('UPDATE billing_accounts SET subscription_id=$2,status=$3,last_event_created=$4 WHERE workspace_id=$1 AND last_event_created<=$4',[account.workspace_id,fact.subscriptionId,fact.status,fact.created]);
- if(fact.grantCredits&&fact.invoiceId)await changeCredits(tx,account.workspace_id,300,'subscription','Studio monthly allowance · sandbox',`stripe-invoice:${fact.invoiceId}`);
+ if(fact.grantCredits&&fact.invoiceId)await changeCredits(tx,account.workspace_id,300,'subscription',billingMode()==='live'?'Studio monthly allowance':'Studio monthly allowance · sandbox',`stripe-invoice:${fact.invoiceId}`);
  await tx.query('INSERT INTO payment_events(id,type) VALUES($1,$2)',[fact.eventId,fact.eventType]);
 })}
 export async function webhook(db:Database,body:Buffer,signature:string){
  const stripe=client();let event:Stripe.Event;
  try{event=stripe.webhooks.constructEvent(body,signature,process.env.STRIPE_WEBHOOK_SECRET!)}catch{throw new AppError(400,'Invalid Stripe webhook signature.');}
- if(event.livemode)throw new AppError(400,'Live payments are not enabled in this build.');
+ if(event.livemode!==(billingMode()==='live'))throw new AppError(400,'Payment environment does not match this deployment.');
  let subscriptionId:string|undefined;
  let invoice:Stripe.Invoice|undefined;
  if(event.type==='invoice.paid'||event.type==='invoice.payment_failed'){
@@ -61,10 +68,12 @@ export async function webhook(db:Database,body:Buffer,signature:string){
  }else return;
  if(!subscriptionId)return;
  const subscription=await stripe.subscriptions.retrieve(subscriptionId);
- if(subscription.livemode)return;
+ if(subscription.livemode!==event.livemode)return;
  const customerId=stripeId(subscription.customer);if(!customerId)return;
  const correctPlan=subscription.items.data.some(item=>item.price.id===process.env.STRIPE_STUDIO_PRICE_ID&&item.quantity===1);
  if(!correctPlan)return;
- const grantCredits=event.type==='invoice.paid'&&!!invoice&&invoice.status==='paid'&&invoice.amount_paid>=3900&&invoice.currency==='usd'&&['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'')&&subscription.status==='active';
+ // A paid invoice may have a discounted or zero amount due to an intentional
+ // coupon or customer balance. Entitlement comes from the verified active plan.
+ const grantCredits=event.type==='invoice.paid'&&!!invoice&&invoice.status==='paid'&&invoice.currency==='usd'&&['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'')&&subscription.status==='active';
  await applyPaymentFact(db,{eventId:event.id,eventType:event.type,created:event.created,customerId,subscriptionId,status:subscription.status,invoiceId:invoice?.id,grantCredits});
 }

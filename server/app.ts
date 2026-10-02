@@ -24,7 +24,7 @@ import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
 import { writeBrief, writeConcepts } from "./claude.js";
 import { scrape } from "./scrape.js";
 import { changeCredits } from "./credits.js";
-import {billingConfigured,checkout,portal,webhook} from './billing.js';
+import {billingConfigured,billingMode,checkout,portal,webhook} from './billing.js';
 import {
   KIT_CREDITS,
   VERSION_CREDITS,
@@ -85,12 +85,17 @@ export function createApp(db: Database) {
     next();
   });
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, mode: config.mode }),
+    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
   const authLimit = rateLimit({
     windowMs: 15 * 60000,
     limit: 30,
     message: { error: "Too many attempts. Please try again later." },
+  });
+  const websiteReadLimit = rateLimit({
+    windowMs: 60_000,
+    limit: 8,
+    message: { error: 'Too many website reads. Please wait a minute before trying again.' },
   });
   app.post("/api/auth/demo", authLimit, async (req, res) => {
     if (managedAuthEnabled() || config.production || config.mode !== "mock")
@@ -224,6 +229,7 @@ export function createApp(db: Database) {
         claude: !!config.claudeKey || !!config.openrouterKey,
       },
       billingEnabled: billingConfigured()&&!req.user!.demo,
+      billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
     });
   });
@@ -245,7 +251,7 @@ export function createApp(db: Database) {
     ]);
     res.json(brand);
   });
-  app.post("/api/brand/read", async (req, res) => {
+  app.post("/api/brand/read", websiteReadLimit, async (req, res) => {
     const { url } = z.object({ url: z.url().max(2048) }).parse(req.body);
     const pages = await scrape(url);
     if (pages.reduce((n, p) => n + p.text.length, 0) < 300)

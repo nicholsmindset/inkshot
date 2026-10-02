@@ -1,6 +1,6 @@
 # Inkshot
 
-A small-business ad studio built from the Inkshot PRD and the revised SaaS plan. The agreed launch offer is **$39 USD/month for 300 credits, enough for three nine-asset kits**, with additional generations paid separately. Checkout is not active in this build.
+A small-business ad studio built from the Inkshot PRD and the revised SaaS plan. The planned launch offer is **$39 USD/month for 300 credits, enough for three nine-asset kits**. The hosted app is currently a preview with Stripe test checkout. See [DEPLOYMENT.md](DEPLOYMENT.md) for infrastructure and [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) for the launch decision.
 
 ## Run locally
 
@@ -23,10 +23,10 @@ npm test
 
 ## What works
 
-- Password-based accounts with salted scrypt hashes and opaque, hashed, HTTP-only server sessions.
+- Supabase Auth for hosted accounts, with isolated workspaces. Local development can use salted scrypt hashes and opaque HTTP-only sessions.
 - Account-isolated brands, photo uploads, campaigns, versions, files and credit ledgers.
 - Reading public HTTPS webpages, up to four pages, with pinned DNS resolution, private-IP rejection, redirects and response-size limits.
-- Editable brand brief, sources, campaign goals and three campaign concepts.
+- Editable brand brief, sources and campaign goals, with three campaign concepts for review.
 - Approval before spending credits. One kit reserves exactly 100 preview credits and creates nine asset jobs.
 - Durable PostgreSQL-backed jobs with leases and retries, independent of browser lifetime.
 - Three sample MP4s, three image ads and three organic post images with captions.
@@ -37,13 +37,13 @@ npm test
 
 ## Honest preview boundaries
 
-This is a working development build, not a production launch. `GENERATION_MODE=mock` is the default. Sample outputs reuse an original AI-created candle photograph, or the customer's uploaded photo. Sample videos are five-second still-image MP4s, not Higgsfield motion. Mock revisions demonstrate the versioning workflow and do not interpret creative-direction notes. These limits are disclosed in the interface and sample downloads.
+This is a working hosted preview, not a paid production launch. `GENERATION_MODE=mock` is the default. Sample outputs reuse an original AI-created candle photograph, or the customer's uploaded photo. Sample videos are five-second still-image MP4s, not Higgsfield motion. Mock revisions demonstrate the versioning workflow and do not interpret creative-direction notes. These limits are disclosed in the interface and sample downloads.
 
-No subscription is active, no payment details are collected, and no paid generation calls are made in mock mode. Accounts receive 300 preview credits. Those credits have no monetary value. Paid top-ups are not configured; the build does not invent a top-up price.
+Hosted checkout is in Stripe test mode: no real payment is collected. Test subscription invoices grant 300 preview credits; new hosted accounts otherwise start with zero. Local mock accounts receive 300 preview credits. Paid top-ups are not configured.
 
-The adapters for Claude brief/concept writing and Higgsfield image/video submission, polling and estimates are implemented but not account-tested. Live campaign creation is deliberately disabled in the API until account-level model validation, quotes and spending limits are completed. Setting environment keys alone does not silently enable paid generation.
+Higgsfield image/video generation completed a locally budget-capped kit, and the hosted mock flow completed a nine-asset ZIP. The live hosted writing/generation flow remains disabled because the configured OpenRouter account needs funding and live output/billing still needs verification. Setting environment keys alone does not enable paid generation.
 
-`NODE_ENV=production` currently refuses startup. Remove that gate only after the launch requirements below have been implemented and tested.
+The hosted Vercel functions run with managed Supabase services; the standalone local server still refuses production startup. Hosted live billing and live generation are guarded to activate together.
 
 ## Architecture and storage
 
@@ -51,26 +51,17 @@ The adapters for Claude brief/concept writing and Higgsfield image/video submiss
 - Separate Express API; no Vite dev-server API plugin.
 - PostgreSQL schema in `server/schema.sql`. Local development uses PGlite persisted in `data/postgres`; `DATABASE_URL` switches the adapter to hosted PostgreSQL using `pg`.
 - Durable job rows, credit transactions, workspace ownership checks and provider checkpoint records.
-- Private local media in `data/media` and uploads in `data/uploads`, available only through authenticated API routes.
+- Local media in `data/media`; the hosted deployment persists customer files to private Supabase Storage buckets and serves them through authenticated API routes.
 - Sharp renders image exports; FFmpeg renders video overlays and MP4 sample files.
 - Server-only secrets. API responses do not include filesystem paths, passwords, provider credentials or session tokens.
 
-Local PGlite is single-process. Do not run multiple API processes against the same local data directory. Production PostgreSQL permits separate API and worker processes, but the worker entrypoint and distributed provider concurrency control still need to be extracted and implemented. Current concurrency is process-local.
+Local PGlite is single-process. Do not run multiple API processes against the same local data directory. The hosted deployment uses PostgreSQL and a scheduled Vercel worker. Provider requests have a global database-backed daily dollar reservation, but reconciliation and alerting remain launch work.
 
-Media has a storage boundary in the API but currently uses local disk. Durable private cloud object storage is still required for hosted deployment. Back up both the database and media together; database backup alone does not preserve exports.
+Back up both the database and private media buckets; a database backup alone does not preserve exports.
 
 ## Before accepting paying customers
 
-1. Configure and validate Higgsfield and Claude accounts using server environment variables; never paste secrets into client code or chat. Confirm exact model bodies, portrait video output, durations, actual costs and product-photo fidelity.
-2. Implement authenticated quotes and a per-workspace/provider dollar spending cap. Store estimates and reconciled provider spend separately from customer credits. Validate live retry, cancellation, output download and refund semantics.
-3. Select a managed identity provider or finish email verification, password recovery, session/account lifecycle and abuse controls for the existing authentication implementation.
-4. Add private cloud object storage, short-lived provider input URLs, backups and retention/deletion jobs.
-5. Add Stripe Checkout and signed, deduplicated webhook fulfillment for the $39 subscription and approved top-up prices. Allocate credits after verified payment, never from the success URL. Add cancellation and customer portal handling. Use a dedicated sandbox first.
-6. Validate source-photo/reference support before promising accurate product generation. Keep keyframe approval before video spend where product likeness matters.
-7. Add live visual review, keyframe reuse for video revisions, editable captions/crops and additional brand templates. Current mock review notes are stored but not interpreted.
-8. Add globally bounded workers, provider reconciliation, operations tooling and alerting. Recover copy/export failures independently of regeneration.
-9. Check the provider's commercial-use terms, privacy disclosures, upload permissions and customer support process. Replace preview claims with measured production behavior.
-10. Reassess the three-kit allowance with measured all-in costs. The $39 plan is agreed product positioning, not a claim about verified margins.
+The ordered blockers, evidence and activation sequence are in [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md). Most urgently, fund and validate the writing provider, isolate production data from test credits, provision live Stripe Billing, complete a hosted live kit, and finish account recovery, data deletion, policies, backups and operational monitoring.
 
 ## Verification
 

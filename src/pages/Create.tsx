@@ -521,10 +521,7 @@ export function NewCampaign() {
             <strong>100 credits</strong>
           </div>
           <p>{studio.balance} credits available in your workspace</p>
-          <small>
-            Preview mode makes sample assets. Live videos will target 15 seconds
-            after provider validation.
-          </small>
+          <small>{studio.mode === 'live' ? 'Video generations target 15 seconds. We return credits for assets that fail.' : 'Preview mode makes sample assets. Live videos will target 15 seconds after provider validation.'}</small>
         </aside>
       </div>
     </>

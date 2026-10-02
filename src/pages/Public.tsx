@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -19,6 +19,10 @@ export function Landing() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [website, setWebsite] = useState("");
+  const [publicStatus, setPublicStatus] = useState<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean }>({ billingMode: 'off', demoAvailable: false });
+  useEffect(() => {
+    void api<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean }>('/health').then(setPublicStatus).catch(() => {});
+  }, []);
   function startWithWebsite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const value = website.trim();
@@ -78,11 +82,11 @@ export function Landing() {
             <input id="hero-website" type="text" inputMode="url" placeholder="yourbusiness.com" value={website} onChange={(e) => setWebsite(e.target.value)} required />
             <Button>Start with my site <ArrowUpRight size={17} /></Button>
           </form>
-          <div className="hero-actions">
+          {publicStatus.demoAvailable ? <div className="hero-actions">
             <Button variant="ghost" busy={busy} onClick={() => void demo()}>
               Explore a sample studio
             </Button>
-          </div>
+          </div> : null}
           {error ? <Notice>{error}</Notice> : null}
           <div className="hero-note hand">
             paste a URL, then make it yours <span>↗</span>
@@ -214,7 +218,7 @@ export function Landing() {
               "3 videos, 3 images and 3 posts per kit",
               "Text and layout edits included",
               "Version history and finished downloads",
-              "Additional generation via paid top-ups",
+              "Extra generation uses credits shown before approval",
             ].map((t) => (
               <li key={t}>
                 <Check size={16} />
@@ -226,7 +230,7 @@ export function Landing() {
             Create your studio <ArrowUpRight size={16} />
           </Link>
           <small className="muted">
-            Early preview. Checkout is not active yet.
+            {publicStatus.billingMode === 'live' ? 'Secure checkout is available after you create your studio.' : publicStatus.billingMode === 'sandbox' ? 'Early preview. Checkout is currently in test mode.' : 'Checkout is not available yet.'}
           </small>
         </div>
       </section>
@@ -335,7 +339,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
             </Link>
           </p>
           <small className="muted">
-            Preview access includes sample credits. No card or payment required.
+            You can create an account and review a brand brief before subscribing.
           </small>
         </div>
         <span className="muted">A thoughtful little studio by Inkshot.</span>
