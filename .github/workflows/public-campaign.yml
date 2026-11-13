@@ -1,0 +1,39 @@
+name: Public campaign preview
+on:
+  pull_request:
+    paths:
+      - 'src/pages/Public.tsx'
+      - 'src/pages/CampaignExample.tsx'
+      - 'src/pages/public-studio.css'
+      - 'src/styles.css'
+      - 'public/examples/**'
+      - 'tests/browser/public_campaign.py'
+      - '.github/workflows/public-campaign.yml'
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Test sample media and responsive layouts
+        run: |
+          python -m venv "$RUNNER_TEMP/public-browser"
+          "$RUNNER_TEMP/public-browser/bin/pip" install selenium==4.34.2
+          ./node_modules/.bin/vite preview --port 4173 --strictPort --host 127.0.0.1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:4173/ -o /dev/null
+          "$RUNNER_TEMP/public-browser/bin/python" tests/browser/public_campaign.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-page-screenshots
+          path: ${{ runner.temp }}/inkshot-public/
