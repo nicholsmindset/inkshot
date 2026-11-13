@@ -13,7 +13,17 @@ export const brandSchema = z.object({
     .array(z.object({ url: z.string().max(2048), text: z.string().max(600) }))
     .max(12),
   photoId: z.string().uuid().optional(),
-});
+  logoUrl: z.url().max(2048).optional(),
+}).refine(brand => {
+  if (!brand.logoUrl) return true;
+  try {
+    const logo = new URL(brand.logoUrl);
+    return logo.protocol === "https:" && !logo.username && !logo.password &&
+      logo.origin === new URL(brand.website).origin;
+  } catch {
+    return false;
+  }
+}, { message: "Choose an HTTPS logo from the business website.", path: ["logoUrl"] });
 export const emptyBrand: Brand = {
   name: "My business",
   website: "",
