@@ -618,7 +618,7 @@ function HeadlineVariations({ assetId, version, pending, onCreated }: {
   const [error, setError] = useState("");
   const request = useRef<{ payload: string; id: string } | null>(null);
   const headlines = input.split("\n").map((line) => line.trim()).filter(Boolean);
-  const valid = headlines.length >= 2 && headlines.length <= 5 &&
+  const valid = headlines.length >= 1 && headlines.length <= 5 &&
     headlines.every((line) => line.length <= 120) &&
     new Set(headlines.map((line) => line.toLowerCase())).size === headlines.length;
   async function create() {
@@ -643,7 +643,7 @@ function HeadlineVariations({ assetId, version, pending, onCreated }: {
   }
   return (
     <section className="headline-variations">
-      <Field label="Try different headlines" hint="Enter 2–5 distinct headlines, one per line. Up to 120 characters each. Each version keeps the image and call to action.">
+      <Field label="Try different headlines" hint="Enter 1–5 distinct headlines, one per line. Up to 120 characters each. Each version keeps the image and call to action.">
         <textarea rows={4} value={input} disabled={busy} onChange={(e) => setInput(e.target.value)} />
       </Field>
       <Button variant="secondary" busy={busy} disabled={!valid || pending || version.status !== "ready"} onClick={() => void create()}>
