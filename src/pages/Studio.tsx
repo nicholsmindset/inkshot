@@ -359,8 +359,28 @@ export function Library() {
 }
 export function CampaignDetail() {
   const { id } = useParams();
+  const { studio } = useStudio();
+  if (!id || !studio) return null;
+  return <CampaignScreen key={studio.user.workspaceId + ":" + id} id={id} workspaceId={studio.user.workspaceId} />;
+}
+
+const draftKinds = ["video", "image", "post"] as const;
+const draftLabels = { video: "Video ad", image: "Image ad", post: "Organic post" };
+
+function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }) {
+  const storageKey = "inkshot:campaign-draft:" + workspaceId + ":" + id;
+  const [edits, setEdits] = useState<Record<string, string>>(() => {
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+      return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "string"));
+    } catch {
+      return {};
+    }
+  });
+  const [storageAvailable, setStorageAvailable] = useState(true);
   const { studio, refresh, notify } = useStudio();
-  const [approved, setApproved] = useState(false);
+  const [approved, setApproved] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -383,12 +403,33 @@ export function CampaignDetail() {
     (a) =>
       a.versions.find((v) => v.id === a.current_version_id)?.status === "ready",
   ).length;
+  const drafts = campaign.concepts.flatMap((concept) =>
+    draftKinds.map((kind) => ({
+      conceptId: concept.id,
+      kind,
+      cta: (edits[concept.id + ":" + kind] ?? concept.cta).trim(),
+    })),
+  );
+  const photoId = campaign.mock ? studio.brand.photoId : undefined;
+  const review = JSON.stringify({ drafts, photoId });
+  function editCta(key: string, value: string) {
+    const next = { ...edits, [key]: value };
+    setEdits(next);
+    setApproved("");
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(next));
+      setStorageAvailable(true);
+    } catch {
+      setStorageAvailable(false);
+    }
+  }
   async function generate() {
     setBusy(true);
     setError("");
     try {
-      await api(`/campaigns/${id}/generate`, { approved: true });
+      await api(`/campaigns/${id}/generate`, { approved: true, drafts, photoId });
       await refresh();
+      try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
       notify("Your kit is on its way. You can leave this page.");
     } catch (e) {
       setError((e as Error).message);
@@ -438,36 +479,47 @@ export function CampaignDetail() {
       {campaign.status === "draft" ? (
         <>
           <div className="section-heading">
-            <h2>Find your angle.</h2>
-            <span className="hand">a little variety goes a long way.</span>
+            <h2>Review your nine assets</h2>
           </div>
+          <p>{storageAvailable ? "Call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
           <div className="concept-grid">
-            {campaign.concepts.map((c, i) => (
-              <article className="concept-card" key={c.id}>
-                <span className="hand concept-number">0{i + 1}</span>
-                <span className="eyebrow">{c.title}</span>
-                <h2>“{c.hook}”</h2>
-                <p>{c.description}</p>
-                <span className="concept-cta">
-                  {c.cta} <ArrowUpRight size={14} />
-                </span>
-                <div className="concept-formats">
-                  <Film size={14} />
-                  <Image size={14} />
-                  <MessageSquare size={14} />
-                  <span>One of each format</span>
-                </div>
+            {campaign.concepts.map((concept) => (
+              <article className="concept-card" key={concept.id}>
+                <h3>{concept.title}</h3>
+                <h2>{concept.hook}</h2>
+                <p>{concept.description}</p>
+                {draftKinds.map((kind) => {
+                  const key = concept.id + ":" + kind;
+                  return (
+                    <Field key={key} label={draftLabels[kind] + " call to action"}>
+                      <input
+                        aria-label={concept.title + " " + draftLabels[kind] + " call to action"}
+                        value={edits[key] ?? concept.cta}
+                        disabled={busy}
+                        maxLength={55}
+                        onChange={(event) => editCta(key, event.target.value)}
+                      />
+                    </Field>
+                  );
+                })}
               </article>
             ))}
           </div>
+          {photoId && (
+            <figure>
+              <img src={"/api/uploads/" + encodeURIComponent(photoId)} alt="Brand photo selected for this sample campaign" width={120} />
+              <figcaption>Photo for this sample kit</figcaption>
+            </figure>
+          )}
           <div className="approval-panel">
             <div>
               <h3>A quick check before we make it.</h3>
               <label className="checkbox-label">
                 <input
                   type="checkbox"
-                  checked={approved}
-                  onChange={(e) => setApproved(e.target.checked)}
+                  checked={approved === review}
+                  disabled={busy}
+                  onChange={(e) => setApproved(e.target.checked ? review : "")}
                 />
                 I’ve checked the concepts and confirmed that the offer and
                 claims are accurate.
@@ -475,7 +527,7 @@ export function CampaignDetail() {
             </div>
             <div>
               <Button
-                disabled={!approved || studio.balance < 100}
+                disabled={approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.cta || draft.cta.length > 55) || studio.balance < 100}
                 busy={busy}
                 onClick={() => void generate()}
               >
