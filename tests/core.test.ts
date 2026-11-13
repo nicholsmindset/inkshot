@@ -336,7 +336,9 @@ test("approving a site logo creates a private PNG and saving links it to the bra
   const own = await call("/uploads/" + id);
   assert.equal(own.status, 200);
   assert.equal(own.headers.get("content-type"), "image/png");
-  assert.equal((await call("/uploads/" + id, undefined, cookieB)).status, 404);
+  const other = await call("/auth/demo", {}, "");
+  const otherCookie = other.headers.get("set-cookie")!.split(";")[0];
+  assert.equal((await call("/uploads/" + id, undefined, otherCookie)).status, 404);
   assert.equal((await call("/brand", { ...brand, website: request.website, logoUrl: request.logoUrl, logoId: id }, cookieA, "PUT")).status, 200);
   assert.equal((await (await call("/studio")).json()).brand.logoId, id);
 });
