@@ -41,6 +41,9 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   });
   const studio = async () => (await fetch(api + "/studio", { headers: { cookie } })).json();
   const { user, balance } = await studio();
+  // Local signup grants preview credits. Consume these before testing a paid allowance.
+  const { changeCredits } = await import("../server/credits");
+  await db.transaction(tx => changeCredits(tx, user.workspaceId, -balance, "generation", "Prior kits", "fixture:prior-kits"));
   await db.query("INSERT INTO billing_accounts(workspace_id,customer_id) VALUES($1,'cus_kit')", [user.workspaceId]);
   const invoice = {
     eventId: "evt_paid", eventType: "invoice.paid", created: 100, customerId: "cus_kit",
@@ -48,7 +51,7 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   };
   await applyPaymentFact(db, invoice);
   await applyPaymentFact(db, { ...invoice, eventId: "evt_duplicate" });
-  assert.equal((await studio()).balance, balance + 300);
+  assert.equal((await studio()).balance, 300);
   const website = "https://example.test/bakery";
   const description = "A neighbourhood bakery selling sourdough loaves for weekend collection.";
   assert((await submit("/brand", { ...emptyBrand, name: "Weekend Bakery", website, description,
@@ -66,7 +69,7 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
     return id as string;
   };
   const first = await createKit();
-  assert.equal((await studio()).balance, balance + 200);
+  assert.equal((await studio()).balance, 200);
   for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
   assert.equal(await runWorkerOnce(db), false);
   const url = `${api}/campaigns/${first}/download`;
@@ -106,10 +109,17 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   // Exercise the worker's exhausted-retry path without waiting for five backoffs.
   await db.query("UPDATE versions SET source_path=$2 WHERE id=$1", [failed.id, path.join(dir, "missing.jpg")]);
   await db.query("UPDATE jobs SET available_at=now()+interval '1 hour' WHERE state='queued' AND version_id<>$1", [failed.id]);
-  await db.query("UPDATE jobs SET attempts=5 WHERE version_id=$1", [failed.id]);
+  assert(await runWorkerOnce(db));
+  const retry = (await db.query<{ state: string; attempts: number }>(
+    "SELECT state,attempts FROM jobs WHERE version_id=$1", [failed.id],
+  )).rows[0];
+  assert.equal(retry.state, "queued");
+  assert.equal(retry.attempts, 1);
+  assert.equal((await studio()).balance, 100);
+  await db.query("UPDATE jobs SET attempts=5,available_at=now() WHERE version_id=$1", [failed.id]);
   assert(await runWorkerOnce(db));
   assert.equal(await runWorkerOnce(db), false);
-  assert.equal((await studio()).balance, balance + 100 + failed.credit_cost);
+  assert.equal((await studio()).balance, 100 + failed.credit_cost);
   const refunds = await db.query<{ amount: number }>("SELECT amount FROM ledger WHERE event_key=$1", [`refund:${failed.id}`]);
   assert.deepEqual(refunds.rows.map(row => row.amount), [failed.credit_cost]);
 });

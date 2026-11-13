@@ -19,7 +19,7 @@ function client(){
  if(!prefix.test(key))throw new AppError(503,'The Stripe key does not match the configured billing environment.');
  return new Stripe(key,{apiVersion:'2026-08-26.dahlia',maxNetworkRetries:2,timeout:15000});
 }
-type BillingAccount={workspace_id:string;customer_id:string|null;subscription_id:string|null;status:string;checkout_id:string|null};
+type BillingAccount={workspace_id:string;customer_id:string|null;subscription_id:string|null;status:string;checkout_id:string|null;last_allowance_invoice_created:string|number};
 const stripeId=(value:string|{id:string}|null|undefined)=>typeof value==='string'?value:value?.id;
 
 export async function checkout(db:Database,user:User){
@@ -43,14 +43,29 @@ export async function checkout(db:Database,user:User){
 }
 export async function portal(db:Database,user:User){const stripe=client();const account=(await db.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1',[user.workspaceId])).rows[0];if(!account?.customer_id)throw new AppError(400,'No billing account exists yet.');const session=await stripe.billingPortal.sessions.create({customer:account.customer_id,return_url:`${config.origin}/studio/billing`,configuration:process.env.STRIPE_PORTAL_CONFIGURATION_ID});return {url:session.url}}
 
-export type PaymentFact={eventId:string;eventType:string;created:number;customerId:string;subscriptionId:string;status:string;invoiceId?:string;grantCredits:boolean};
+export type PaymentFact={eventId:string;eventType:string;created:number;customerId:string;subscriptionId:string;status:string;invoiceId?:string;invoiceCreated?:number;grantCredits:boolean};
 // Called only after signature verification and provider-side object validation.
 export async function applyPaymentFact(db:Database,fact:PaymentFact){return db.transaction(async tx=>{
  const account=(await tx.query<BillingAccount>('SELECT * FROM billing_accounts WHERE customer_id=$1 FOR UPDATE',[fact.customerId])).rows[0];
  if(!account)throw new AppError(409,'Billing customer is not linked yet. Retry this event.');
  if((await tx.query('SELECT id FROM payment_events WHERE id=$1',[fact.eventId])).rows.length)return;
  if(!account.subscription_id||account.subscription_id===fact.subscriptionId||account.status==='canceled')await tx.query('UPDATE billing_accounts SET subscription_id=$2,status=$3,last_event_created=$4 WHERE workspace_id=$1 AND last_event_created<=$4',[account.workspace_id,fact.subscriptionId,fact.status,fact.created]);
- if(fact.grantCredits&&fact.invoiceId)await changeCredits(tx,account.workspace_id,300,'subscription',billingMode()==='live'?'Studio monthly allowance':'Studio monthly allowance · sandbox',`stripe-invoice:${fact.invoiceId}`);
+ if (fact.grantCredits && fact.invoiceId) {
+   const invoiceCreated = fact.invoiceCreated ?? fact.created;
+   if (invoiceCreated >= Number(account.last_allowance_invoice_created)) {
+     const balance = (await tx.query<{ credits: number }>(
+       'SELECT credits FROM workspaces WHERE id=$1 FOR UPDATE', [account.workspace_id],
+     )).rows[0].credits;
+     // A zero-value ledger entry still consumes an invoice when the wallet is full.
+     const applied = await changeCredits(tx, account.workspace_id, Math.max(0, 300 - balance),
+       'subscription', billingMode() === 'live' ? 'Studio monthly allowance' : 'Studio monthly allowance · sandbox',
+       `stripe-invoice:${fact.invoiceId}`);
+     if (applied) await tx.query(
+       'UPDATE billing_accounts SET last_allowance_invoice_created=$2 WHERE workspace_id=$1',
+       [account.workspace_id, invoiceCreated],
+     );
+   }
+ }
  await tx.query('INSERT INTO payment_events(id,type) VALUES($1,$2)',[fact.eventId,fact.eventType]);
 })}
 export async function webhook(db:Database,body:Buffer,signature:string){
@@ -75,5 +90,5 @@ export async function webhook(db:Database,body:Buffer,signature:string){
  // A paid invoice may have a discounted or zero amount due to an intentional
  // coupon or customer balance. Entitlement comes from the verified active plan.
  const grantCredits=event.type==='invoice.paid'&&!!invoice&&invoice.status==='paid'&&invoice.currency==='usd'&&['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'')&&subscription.status==='active';
- await applyPaymentFact(db,{eventId:event.id,eventType:event.type,created:event.created,customerId,subscriptionId,status:subscription.status,invoiceId:invoice?.id,grantCredits});
+ await applyPaymentFact(db,{eventId:event.id,eventType:event.type,created:event.created,customerId,subscriptionId,status:subscription.status,invoiceId:invoice?.id,invoiceCreated:invoice?.created,grantCredits});
 }
