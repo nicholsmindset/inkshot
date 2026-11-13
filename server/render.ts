@@ -86,7 +86,7 @@ export async function renderMedia(input: {
             ? 566
             : 1350;
   const heading = lines(input.headline, height < 800 ? 40 : 27);
-  const top = height < 800 ? 130 : 210;
+  const top = height < 800 ? (input.logo ? 166 : 130) : 210;
   const fontSize = Math.min(
     height < 800 ? 43 : 65,
     Math.floor((height * 0.34) / (heading.length * 1.15)),
