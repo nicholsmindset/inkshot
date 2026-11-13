@@ -12,7 +12,7 @@ import sharp from "sharp";
 import archiver from "archiver";
 import { z } from "zod";
 import { config, AppError } from "./config.js";
-import type { Database } from "./db.js";
+import type { Database, Queryable } from "./db.js";
 import {
   requireUser,
   createUser,
@@ -33,8 +33,25 @@ import {
   type Asset,
   type Version,
 } from "../shared/types.js";
+import { isCampaignDestination } from "../shared/destination.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
+async function queueRevision(tx: Queryable, revision: {
+  id: string; assetId: string; workspaceId: string; n: number; prompt: string;
+  headline: string; cta: string; note: string; cost: number; mock: boolean;
+  sourcePath: string | null; checkpoint?: Record<string, string>;
+}) {
+  await tx.query(
+    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+    [revision.id, revision.assetId, revision.workspaceId, revision.n, revision.prompt,
+     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath],
+  );
+  await tx.query(
+    "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
+    [randomUUID(), revision.id, revision.workspaceId, json(revision.checkpoint ?? {})],
+  );
+}
+
 export function createApp(db: Database) {
   const app = express();
   app.disable("x-powered-by");
@@ -197,7 +214,7 @@ export function createApp(db: Database) {
         [w],
       ),
       db.query(
-        "SELECT id,name,goal,offer,status,concepts,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
+        "SELECT id,name,goal,offer,status,concepts,brand,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
         [w],
       ),
       db.query<Asset>(
@@ -235,16 +252,10 @@ export function createApp(db: Database) {
   });
   app.put("/api/brand", async (req, res) => {
     const brand = brandSchema.parse(req.body);
-    if (
-      brand.photoId &&
-      !(
-        await db.query(
-          "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
-          [brand.photoId, req.user!.workspaceId],
-        )
-      ).rows.length
-    )
-      throw new AppError(400, "Please upload that photo again.");
+    for (const uploadId of [brand.photoId, brand.logoId].filter(Boolean)) {
+      const upload = await db.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [uploadId, req.user!.workspaceId]);
+      if (!upload.rows.length) throw new AppError(400, "Choose files uploaded to this workspace.");
+    }
     await db.query("UPDATE workspaces SET brand=$2 WHERE id=$1", [
       req.user!.workspaceId,
       json(brand),
@@ -269,25 +280,25 @@ export function createApp(db: Database) {
   });
   app.post("/api/uploads", upload.single("photo"), async (req, res) => {
     if (!req.file) throw new AppError(400, "Choose a JPG, PNG or WebP photo.");
+    const isLogo = req.body.purpose === "logo";
     let buffer: Buffer;
     try {
-      buffer = await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+      const raster = sharp(req.file.buffer, { limitInputPixels: 40000000 })
         .rotate()
         .resize({
           width: 2400,
           height: 2400,
           fit: "inside",
           withoutEnlargement: true,
-        })
-        .jpeg({ quality: 90 })
-        .toBuffer();
+        });
+      buffer = await (isLogo ? raster.png() : raster.jpeg({ quality: 90 })).toBuffer();
     } catch {
       throw new AppError(400, "That file is not a supported photo.");
     }
     const uploadId = randomUUID();
     const dir = path.join(config.dataDir, "uploads");
     await mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${uploadId}.jpg`);
+    const file = path.join(dir, `${uploadId}.${isLogo ? "png" : "jpg"}`);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(file, buffer);
     const storedFile = await persistMedia(file,req.user!.workspaceId,'brand-uploads');
@@ -347,10 +358,17 @@ export function createApp(db: Database) {
   app.post("/api/campaigns/:id/generate", async (req, res) => {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
-    const { approved } = z
-      .object({ approved: z.literal(true) })
-      .parse(req.body);
-    void approved;
+    const { drafts, photoId, destinationUrl } = z.object({
+      destinationUrl: z.string().trim().refine(isCampaignDestination, "Enter a full HTTPS destination URL.").optional(),
+      approved: z.literal(true),
+      photoId: id.optional(),
+      drafts: z.array(z.object({
+        conceptId: z.string().min(1),
+        kind: z.enum(["video", "image", "post"]),
+        headline: z.string().trim().min(1).max(120).optional(),
+        cta: z.string().trim().min(1).max(55),
+      })).length(9).optional(),
+    }).parse(req.body);
     if (config.mode === "live" && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !(Number(process.env.HF_DAILY_BUDGET_USD)>0)))
       throw new AppError(503,"Generation requires provider credentials and a configured spending limit.");
     await db.transaction(async (tx) => {
@@ -362,6 +380,32 @@ export function createApp(db: Database) {
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
       if (c.status !== "draft") return;
+      const overrides = new Map<string, {headline?: string; cta: string}>();
+      if (drafts) {
+        const concepts = new Set(c.concepts.map((concept) => concept.id));
+        for (const draft of drafts) {
+          const key = `${draft.conceptId}:${draft.kind}`;
+          if (!concepts.has(draft.conceptId) || overrides.has(key))
+            throw new AppError(400, "Review each campaign asset exactly once.");
+          overrides.set(key, draft);
+        }
+        if (concepts.size !== 3)
+          throw new AppError(400, "This campaign needs three distinct concepts.");
+      }
+      if (photoId) {
+        const uploaded = await tx.query(
+          "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
+          [photoId, w],
+        );
+        if (!uploaded.rows.length) throw new AppError(400, "Choose a photo from this workspace.");
+      }
+      if (photoId || destinationUrl) {
+        const approvedBrand = { ...c.brand };
+        if (photoId) approvedBrand.photoId = photoId;
+        await tx.query("UPDATE campaigns SET brand=$2 WHERE id=$1", [
+          cid, json({ ...approvedBrand, ...(destinationUrl && { destinationUrl }) }),
+        ]);
+      }
       await changeCredits(
         tx,
         w,
@@ -382,6 +426,9 @@ export function createApp(db: Database) {
                 : ["1:1", "4:5", "1.91:1"][index];
           const cost =
             VERSION_CREDITS[kind] + (kind === "post" && index === 2 ? 1 : 0);
+          const draft = overrides.get(`${concept.id}:${kind}`);
+          const cta = draft?.cta ?? concept.cta;
+          const headline = draft?.headline ?? concept.hook;
           const prompt = `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -393,14 +440,14 @@ export function createApp(db: Database) {
               concept.title,
               format,
               kind === "post"
-                ? `${concept.hook}\n\n${c.brand.description}\n\n${concept.cta}.`
+                ? `${headline}\n\n${c.brand.description}\n\n${cta}.${destinationUrl ? "\n" + destinationUrl : ""}`
                 : "",
               vid,
             ],
           );
           await tx.query(
             "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8)",
-            [vid, aid, w, prompt, concept.hook, concept.cta, cost, c.mock],
+            [vid, aid, w, prompt, headline, cta, cost, c.mock],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
@@ -471,30 +518,74 @@ export function createApp(db: Database) {
         `${a.title} · ${input.regenerate ? "regeneration" : "text edit"}`,
         `version:${vid}`,
       );
-      await tx.query(
-        "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-        [
-          vid,
-          aid,
-          w,
-          n,
-          source.prompt +
-            (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
-          input.headline,
-          input.cta,
-          input.note || "Text and layout updated",
-          cost,
-          source.mock,
-          input.regenerate ? null : source.source_path,
-        ],
-      );
-      await tx.query(
-        "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
-        [randomUUID(), vid, w],
-      );
+      await queueRevision(tx, {
+        id: vid, assetId: aid, workspaceId: w, n, prompt: source.prompt +
+          (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
+        headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
+        cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
+      });
       return vid;
     });
     res.json({ ok: true, versionId });
+  });
+  app.post("/api/assets/:id/variations", async (req, res) => {
+    const assetId = id.parse(req.params.id);
+    const workspaceId = req.user!.workspaceId;
+    const { versionId, headlines, requestId } = z.object({
+      versionId: id, requestId: id,
+      headlines: z.array(z.string().trim().min(1).max(120)).min(1).max(5),
+    }).parse(req.body);
+    if (new Set(headlines.map(h => h.toLowerCase())).size !== headlines.length)
+      throw new AppError(400, "Give each variation a distinct headline.");
+
+    const versionIds = await db.transaction(async (tx) => {
+      const asset = (await tx.query<{ kind: string }>(
+        "SELECT kind FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+        [assetId, workspaceId],
+      )).rows[0];
+      if (!asset) throw new AppError(404, "Asset not found.");
+      if (asset.kind !== "image") throw new AppError(400, "Choose an image ad for variations.");
+
+      const previous = (await tx.query<{ id: string; headline: string; source: string }>(
+        `SELECT v.id,v.headline,j.checkpoint->>'sourceVersion' AS source
+           FROM versions v JOIN jobs j ON j.version_id=v.id
+          WHERE v.asset_id=$1 AND j.checkpoint->>'variationRequest'=$2 ORDER BY v.n`,
+        [assetId, requestId],
+      )).rows;
+      if (previous.length) {
+        if (previous.length !== headlines.length ||
+            previous.some((v, i) => v.source !== versionId || v.headline !== headlines[i]))
+          throw new AppError(409, "This request was already used for different variations.");
+        return previous.map(v => v.id);
+      }
+      const source = (await tx.query<Version & { source_path: string | null }>(
+        "SELECT * FROM versions WHERE id=$1 AND asset_id=$2",
+        [versionId, assetId],
+      )).rows[0];
+      if (!source) throw new AppError(404, "Version not found.");
+      if (source.status !== "ready" || !source.source_path)
+        throw new AppError(409, "Choose a finished image with saved source media.");
+      const state = (await tx.query<{ next: number; busy: boolean }>(
+        `SELECT coalesce(max(n),0)+1 AS next,
+                bool_or(status IN ('queued','making','rendering')) AS busy
+           FROM versions WHERE asset_id=$1`, [assetId],
+      )).rows[0];
+      if (state.busy) throw new AppError(409, "Wait for the current versions to finish.");
+
+      const ids: string[] = [];
+      for (const [index, headline] of headlines.entries()) {
+        const variationId = randomUUID();
+        await queueRevision(tx, {
+          id: variationId, assetId, workspaceId, n: state.next + index,
+          prompt: source.prompt, headline, cta: source.cta, note: "Headline variation",
+          cost: 0, mock: source.mock, sourcePath: source.source_path,
+          checkpoint: { variationRequest: requestId, sourceVersion: versionId },
+        });
+        ids.push(variationId);
+      }
+      return ids;
+    });
+    res.json({ ok: true, versionIds });
   });
   app.put("/api/assets/:id/current", async (req, res) => {
     const aid = id.parse(req.params.id),
@@ -531,8 +622,8 @@ export function createApp(db: Database) {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
     const c = (
-      await db.query(
-        "SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",
+      await db.query<{ destination: string | null }>(
+        "SELECT brand->>'destinationUrl' AS destination FROM campaigns WHERE id=$1 AND workspace_id=$2",
         [cid, w],
       )
     ).rows[0];
@@ -566,6 +657,7 @@ export function createApp(db: Database) {
         .join("\n\n---\n\n"),
       { name: "captions.txt" },
     );
+    if (c.destination) zip.append(c.destination + "\n", { name: "destination-url.txt" });
     if (rows.some((a) => a.mock))
       zip.append(
         "Sample creatives for product preview. These use a sample photo or your uploaded image. Sample videos are 5-second still-image previews, not Higgsfield generations.",

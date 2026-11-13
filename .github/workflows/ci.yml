@@ -16,3 +16,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Verify an image variation in Chrome
+        timeout-minutes: 8
+        env:
+          GENERATION_MODE: mock
+          APP_ORIGIN: http://127.0.0.1:3001
+          FFMPEG_PATH: ${{ github.workspace }}/node_modules/ffmpeg-static/ffmpeg
+        run: |
+          python -m venv "$RUNNER_TEMP/inkshot-browser"
+          "$RUNNER_TEMP/inkshot-browser/bin/pip" install selenium==4.34.2
+          npm start > "$RUNNER_TEMP/inkshot-smoke.log" 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent "$APP_ORIGIN/api/health"
+          "$RUNNER_TEMP/inkshot-browser/bin/python" tests/browser/image_variations.py || { cat "$RUNNER_TEMP/inkshot-smoke.log"; exit 1; }

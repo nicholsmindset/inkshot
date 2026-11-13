@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -20,6 +20,7 @@ import { useStudio } from "../context";
 import { Button, Highlight, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
 import type { Asset, Version } from "../../shared/types";
+import { isCampaignDestination } from "../../shared/destination";
 import { VERSION_CREDITS } from "../../shared/types";
 const icons = { video: Film, image: Image, post: MessageSquare };
 export function Dashboard() {
@@ -359,8 +360,28 @@ export function Library() {
 }
 export function CampaignDetail() {
   const { id } = useParams();
+  const { studio } = useStudio();
+  if (!id || !studio) return null;
+  return <CampaignScreen key={studio.user.workspaceId + ":" + id} id={id} workspaceId={studio.user.workspaceId} />;
+}
+
+const draftKinds = ["video", "image", "post"] as const;
+const draftLabels = { video: "Video ad", image: "Image ad", post: "Organic post" };
+
+function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }) {
+  const storageKey = "inkshot:campaign-draft:" + workspaceId + ":" + id;
+  const [edits, setEdits] = useState<Record<string, string>>(() => {
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+      return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "string"));
+    } catch {
+      return {};
+    }
+  });
+  const [storageAvailable, setStorageAvailable] = useState(true);
   const { studio, refresh, notify } = useStudio();
-  const [approved, setApproved] = useState(false);
+  const [approved, setApproved] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -383,12 +404,36 @@ export function CampaignDetail() {
     (a) =>
       a.versions.find((v) => v.id === a.current_version_id)?.status === "ready",
   ).length;
+  const drafts = campaign.concepts.flatMap((concept) =>
+    draftKinds.map((kind) => ({
+      conceptId: concept.id,
+      kind,
+      headline: (edits[concept.id + ":" + kind + ":headline"] ?? concept.hook).trim(),
+      cta: (edits[concept.id + ":" + kind] ?? concept.cta).trim(),
+    })),
+  );
+  const photoId = campaign.brand.photoId;
+  const destinationUrl = (edits.destination ?? campaign.brand.website ?? "").trim();
+  const destinationValid = !destinationUrl || isCampaignDestination(destinationUrl);
+  const review = JSON.stringify({ drafts, photoId, destinationUrl });
+  function editCta(key: string, value: string) {
+    const next = { ...edits, [key]: value };
+    setEdits(next);
+    setApproved("");
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(next));
+      setStorageAvailable(true);
+    } catch {
+      setStorageAvailable(false);
+    }
+  }
   async function generate() {
     setBusy(true);
     setError("");
     try {
-      await api(`/campaigns/${id}/generate`, { approved: true });
+      await api(`/campaigns/${id}/generate`, { approved: true, drafts, photoId, destinationUrl: destinationUrl || undefined });
       await refresh();
+      try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
       notify("Your kit is on its way. You can leave this page.");
     } catch (e) {
       setError((e as Error).message);
@@ -438,36 +483,61 @@ export function CampaignDetail() {
       {campaign.status === "draft" ? (
         <>
           <div className="section-heading">
-            <h2>Find your angle.</h2>
-            <span className="hand">a little variety goes a long way.</span>
+            <h2>Review your nine assets</h2>
           </div>
+          <p>{storageAvailable ? "Headline and call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
+          <Field label="Campaign destination URL" hint="Optional. Included in your post captions and download for use when placing your ads.">
+            <input type="url" placeholder="https://yourbusiness.com/offer" value={edits.destination ?? campaign.brand.website ?? ""}
+              maxLength={2048} disabled={busy} aria-invalid={!destinationValid}
+              onChange={(event) => editCta("destination", event.target.value)} />
+          </Field>
+          {!destinationValid && <Notice>Enter a full HTTPS link or leave the destination empty.</Notice>}
           <div className="concept-grid">
-            {campaign.concepts.map((c, i) => (
-              <article className="concept-card" key={c.id}>
-                <span className="hand concept-number">0{i + 1}</span>
-                <span className="eyebrow">{c.title}</span>
-                <h2>“{c.hook}”</h2>
-                <p>{c.description}</p>
-                <span className="concept-cta">
-                  {c.cta} <ArrowUpRight size={14} />
-                </span>
-                <div className="concept-formats">
-                  <Film size={14} />
-                  <Image size={14} />
-                  <MessageSquare size={14} />
-                  <span>One of each format</span>
-                </div>
+            {campaign.concepts.map((concept) => (
+              <article className="concept-card" key={concept.id}>
+                <h3>{concept.title}</h3>
+                <h2>{concept.hook}</h2>
+                <p>{concept.description}</p>
+                {draftKinds.map((kind) => {
+                  const key = concept.id + ":" + kind;
+                  return (
+                    <div key={key}>
+                    <Field label={draftLabels[kind] + " headline"}>
+                      <input value={edits[key + ":headline"] ?? concept.hook} disabled={busy} maxLength={120}
+                        onChange={(event) => editCta(key + ":headline", event.target.value)} />
+                    </Field>
+                    <Field label={draftLabels[kind] + " call to action"}>
+                      <input
+                        aria-label={concept.title + " " + draftLabels[kind] + " call to action"}
+                        value={edits[key] ?? concept.cta}
+                        disabled={busy}
+                        maxLength={55}
+                        onChange={(event) => editCta(key, event.target.value)}
+                      />
+                    </Field>
+                    </div>
+                  );
+                })}
               </article>
             ))}
           </div>
+          {photoId && (
+            <figure>
+              <img src={"/api/uploads/" + encodeURIComponent(photoId)} alt="Approved product photo" width={120} />
+              <figcaption>Photo used for image ads and posts. Live video uses generated footage.</figcaption>
+            </figure>
+          )}
+          {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Logo on exported ads" width={90} />}
+          <p>Brand colour <strong>{campaign.brand.color}</strong></p>
           <div className="approval-panel">
             <div>
               <h3>A quick check before we make it.</h3>
               <label className="checkbox-label">
                 <input
                   type="checkbox"
-                  checked={approved}
-                  onChange={(e) => setApproved(e.target.checked)}
+                  checked={approved === review}
+                  disabled={busy}
+                  onChange={(e) => setApproved(e.target.checked ? review : "")}
                 />
                 I’ve checked the concepts and confirmed that the offer and
                 claims are accurate.
@@ -475,7 +545,7 @@ export function CampaignDetail() {
             </div>
             <div>
               <Button
-                disabled={!approved || studio.balance < 100}
+                disabled={!destinationValid || approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.headline || draft.headline.length > 120 || !draft.cta || draft.cta.length > 55) || studio.balance < 100}
                 busy={busy}
                 onClick={() => void generate()}
               >
@@ -490,6 +560,7 @@ export function CampaignDetail() {
         </>
       ) : (
         <>
+          {campaign.brand.destinationUrl && <p>Campaign destination · <a href={campaign.brand.destinationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: "anywhere" }}>{campaign.brand.destinationUrl}</a></p>}
           <div className="generation-progress">
             <div>
               <span>
@@ -555,10 +626,60 @@ export function AssetEditor({
     </Modal>
   );
 }
+function HeadlineVariations({ assetId, version, pending, onCreated }: {
+  assetId: string;
+  version: Version;
+  pending: boolean;
+  onCreated: (versionId: string, headline: string) => Promise<void>;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const request = useRef<{ payload: string; id: string } | null>(null);
+  const headlines = input.split("\n").map((line) => line.trim()).filter(Boolean);
+  const valid = headlines.length >= 1 && headlines.length <= 5 &&
+    headlines.every((line) => line.length <= 120) &&
+    new Set(headlines.map((line) => line.toLowerCase())).size === headlines.length;
+  async function create() {
+    if (!valid || pending || busy || version.status !== "ready") return;
+    setBusy(true);
+    setError("");
+    try {
+      const payload = JSON.stringify([version.id, headlines]);
+      if (request.current?.payload !== payload) {
+        request.current = { payload, id: crypto.randomUUID() };
+      }
+      const result = await api<{ versionIds: string[] }>(
+        "/assets/" + assetId + "/variations",
+        { versionId: version.id, headlines, requestId: request.current.id },
+      );
+      await onCreated(result.versionIds[0], headlines[0]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="headline-variations">
+      <Field label="Try different headlines" hint="Enter 1–5 distinct headlines, one per line. Up to 120 characters each. Each version keeps the image and call to action.">
+        <textarea rows={4} value={input} disabled={busy} onChange={(e) => setInput(e.target.value)} />
+      </Field>
+      <Button variant="secondary" busy={busy} disabled={!valid || pending || version.status !== "ready"} onClick={() => void create()}>
+        Create headline variations
+      </Button>
+      {error && <Notice>{error}</Notice>}
+    </section>
+  );
+}
+
 function EditorContents({ asset }: { asset: Asset }) {
   const { refresh, notify } = useStudio();
   const [vid, setVid] = useState(asset.current_version_id);
   const v = asset.versions.find((v) => v.id === vid) || asset.versions[0];
+  const original = asset.versions.reduce((first, item) => item.n < first.n ? item : first);
+  const supportsVariations = asset.kind === "image";
+  const compare = supportsVariations && original.status === "ready" && v.id !== original.id;
   const [headline, setHeadline] = useState(v.headline);
   const [cta, setCta] = useState(v.cta);
   const [note, setNote] = useState("");
@@ -607,9 +728,27 @@ function EditorContents({ asset }: { asset: Asset }) {
   }
   return (
     <>
-      <div className="editor-grid">
+      {compare && (
+        <div className="variation-compare" aria-label="Compare image versions">
+          {[original, v].map((item) => (
+            <figure key={item.id}>
+              <figcaption>{item.id === original.id ? "Original" : "Variation"} · Version {item.n}</figcaption>
+              {item.status === "ready" ? (
+                <img src={media(item.id)} alt={item.headline} />
+              ) : (
+                <div className="editor-wait" role="status">
+                  <Status status={item.status} />
+                  {item.error && <p>{item.error}</p>}
+                </div>
+              )}
+              <p>{item.headline}</p>
+            </figure>
+          ))}
+        </div>
+      )}
+      <div className={compare ? "editor-grid comparing" : "editor-grid"}>
         <div className="editor-preview">
-          {v.status === "ready" ? (
+          {compare ? null : v.status === "ready" ? (
             asset.kind === "video" ? (
               <video
                 src={media(v.id)}
@@ -653,6 +792,15 @@ function EditorContents({ asset }: { asset: Asset }) {
             <SlidersHorizontal size={16} />
             <h3>Make it your own</h3>
           </div>
+          {supportsVariations && (
+            <HeadlineVariations key={v.id} assetId={asset.id} version={v} pending={pending || busy} onCreated={async (nextId, nextHeadline) => {
+              await refresh();
+              setVid(nextId);
+              setHeadline(nextHeadline);
+              setCta(v.cta);
+              notify("Headline variations queued.");
+            }} />
+          )}
           <Field label="Headline">
             <textarea
               value={headline}
@@ -727,7 +875,7 @@ function EditorContents({ asset }: { asset: Asset }) {
               ) : null}
             </strong>
             <Status status={version.status} />
-            <small>{version.note || "The original idea"}</small>
+            <small>{supportsVariations ? version.headline : version.note || "The original idea"}</small>
           </button>
         ))}
       </div>
@@ -750,7 +898,7 @@ function EditorContents({ asset }: { asset: Asset }) {
           {v.status === "ready" ? (
             <a className="button" href={`${media(v.id)}?download=true`}>
               <Download size={16} />
-              Download
+              Download version {v.n}
             </a>
           ) : null}
         </div>
