@@ -293,6 +293,15 @@ test("image headline batches preserve media, credits and the original on concurr
   assert.equal((await call(route, body, cookie)).status, 409);
   const source = path.resolve("public/examples/candle.png");
   await db.query("UPDATE versions SET status='ready',source_path=$2 WHERE id=$1", [original.id, source]);
+  const secondImage = studio.assets.find((a: { kind: string; id: string }) => a.kind === "image" && a.id !== image.id);
+  const secondSource = secondImage.versions[0];
+  await db.query("UPDATE versions SET status='ready',source_path=$2 WHERE id=$1", [secondSource.id, source]);
+  const single = await call(`/assets/${secondImage.id}/variations`, {
+    versionId: secondSource.id, requestId: randomUUID(), headlines: ["Pre-order for Friday"],
+  }, cookie);
+  assert.equal(single.status, 200);
+  const singleBatch = await single.json();
+  assert.equal(singleBatch.versionIds.length, 1);
   const responses = await Promise.all([call(route, body, cookie), call(route, body, cookie)]);
   assert(responses.every(r => r.ok));
   const [one, two] = await Promise.all(responses.map(r => r.json()));
