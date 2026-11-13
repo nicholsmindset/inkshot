@@ -22,7 +22,8 @@ import {
 } from "./auth.js";
 import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
 import { writeBrief, writeConcepts } from "./claude.js";
-import { scrape, importedIdentity } from "./scrape.js";
+import { rasterizeSiteLogo } from "./site-logo.js";
+import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
 import {billingConfigured,billingMode,checkout,portal,webhook} from './billing.js';
 import {
@@ -50,6 +51,21 @@ async function queueRevision(tx: Queryable, revision: {
     "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
     [randomUUID(), revision.id, revision.workspaceId, json(revision.checkpoint ?? {})],
   );
+}
+
+async function saveUpload(db: Database, workspaceId: string, buffer: Buffer, isLogo: boolean) {
+    const uploadId = randomUUID();
+    const dir = path.join(config.dataDir, "uploads");
+    await mkdir(dir, { recursive: true });
+    const file = path.join(dir, `${uploadId}.${isLogo ? "png" : "jpg"}`);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(file, buffer);
+    const storedFile = await persistMedia(file,workspaceId,'brand-uploads');
+    await db.query(
+      "INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3)",
+      [uploadId, workspaceId, storedFile],
+    );
+    return uploadId;
 }
 
 export function createApp(db: Database) {
@@ -274,6 +290,20 @@ export function createApp(db: Database) {
     const brief = config.mode === "mock" ? emptyBrand : await writeBrief(pages);
     res.json({ ...brief, color: emptyBrand.color, ...identity });
   });
+  app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
+    const { website, logoUrl } = z.object({
+      website: z.url().max(2048), logoUrl: z.url().max(2048),
+    }).parse(req.body);
+    let logo;
+    try {
+      logo = await fetchSiteLogo(website, logoUrl);
+    } catch {
+      throw new AppError(400, "The logo could not be read from your website. Upload a logo file instead.");
+    }
+    const buffer = await rasterizeSiteLogo(logo.bytes, logo.type);
+    const id = await saveUpload(db, req.user!.workspaceId, buffer, true);
+    res.status(201).json({ id });
+  });
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024, files: 1 },
@@ -295,17 +325,7 @@ export function createApp(db: Database) {
     } catch {
       throw new AppError(400, "That file is not a supported photo.");
     }
-    const uploadId = randomUUID();
-    const dir = path.join(config.dataDir, "uploads");
-    await mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${uploadId}.${isLogo ? "png" : "jpg"}`);
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(file, buffer);
-    const storedFile = await persistMedia(file,req.user!.workspaceId,'brand-uploads');
-    await db.query(
-      "INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3)",
-      [uploadId, req.user!.workspaceId, storedFile],
-    );
+    const uploadId = await saveUpload(db, req.user!.workspaceId, buffer, isLogo);
     res.status(201).json({ id: uploadId });
   });
   app.get("/api/uploads/:id", async (req, res) => {
