@@ -1,0 +1,42 @@
+name: Disposable managed preview
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'supabase/**'
+      - 'scripts/check-managed-preview.ts'
+      - '.github/workflows/managed-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  managed-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.58.5
+      - name: Start disposable Auth, Postgres and Storage
+        run: |
+          supabase init
+          supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Check account and private campaign export
+        env:
+          AUTH_PROVIDER: supabase
+          STORAGE_PROVIDER: supabase
+          GENERATION_MODE: mock
+          ALLOW_LIVE_GENERATION: 'false'
+          FFMPEG_PATH: ${{ github.workspace }}/node_modules/ffmpeg-static/ffmpeg
+        run: |
+          eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|DB_URL)=')"
+          export SUPABASE_URL="$API_URL" SUPABASE_PUBLISHABLE_KEY="$ANON_KEY" SUPABASE_SECRET_KEY="$SERVICE_ROLE_KEY" DATABASE_URL="$DB_URL"
+          npx --no-install tsx scripts/check-managed-preview.ts
+      - if: always()
+        run: supabase stop --no-backup
