@@ -3,12 +3,10 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
   Check,
-  Film,
-  Image,
-  MessageSquare,
   ArrowRight,
 } from "lucide-react";
 import { BrandMark, Highlight, Button, Field, Notice } from "../ui";
+import { CampaignExample } from "./CampaignExample";
 import { api } from "../api";
 import { useStudio } from "../context";
 export function Landing() {
@@ -46,7 +44,7 @@ export function Landing() {
         </Link>
         <div className="landing-nav-center">
           <a href="#how">Example brief</a>
-          <a href="#examples">What you get</a>
+          <a href="#examples">Sample campaign</a>
           <a href="#pricing">Pricing</a>
           <a href="#questions">Questions</a>
         </div>
@@ -61,20 +59,18 @@ export function Landing() {
       </nav>
       <section className="hero">
         <div className="hero-copy">
-          
           <h1>
-            Turn your website into{" "}
+            Ad creative for{" "}
             <Highlight>
-              <em>an ad brief.</em>
+              <em>small businesses.</em>
             </Highlight>
           </h1>
           <p>
-            Enter your business website. Inkshot reads up to four public pages
-            and drafts a description you can edit. Add the offer you want to
-            promote, then review three campaign ideas.
+            Turn one offer into image ads, vertical video ads and social posts with captions.
+            Explore a sample kit, then enter your website to start your own free campaign brief.
           </p>
+          <label className="website-label" htmlFor="hero-website">Your business website</label>
           <form className="hero-website" onSubmit={startWithWebsite}>
-            <label className="sr-only" htmlFor="hero-website">Your business website</label>
             <input id="hero-website" type="text" inputMode="url" placeholder="yourbusiness.com" value={website} onChange={(e) => setWebsite(e.target.value)} required />
             <Button>Build my brief <ArrowUpRight size={17} /></Button>
           </form>
@@ -84,98 +80,24 @@ export function Landing() {
             </Button>
           </div> : null}
           {error ? <Notice>{error}</Notice> : null}
-          <div className="hero-note hand">
+          <div className="public-form-note">
             {studio ? "Opens in your brand workspace." : "Create a free account to review and save your brief."}
           </div>
-          <div className="hero-formats">
-            <span>
-              <Film size={15} />3 video ads
-            </span>
-            <span>
-              <Image size={15} />3 image ads
-            </span>
-            <span>
-              <MessageSquare size={15} />3 posts
-            </span>
-          </div>
         </div>
-        <div
-          className="hero-art"
-          aria-label="Sample ad campaign for the fictional Lumen and Ledger candle studio"
-        >
-          <span className="hand art-note">Sample candle campaign</span>
-          <div className="sample-card sample-back">
-            <img
-              src="/examples/candle.png"
-              alt="Ivory ceramic candle beside linen and an olive branch"
-            />
-            <div>
-              <span>LUMEN & LEDGER</span>
-              <h3>
-                Good things.
-                <br />
-                Thoughtfully made.
-              </h3>
-            </div>
-            <small>Sample image ad</small>
-          </div>
-          <div className="sample-card sample-front">
-            <img src="/examples/candle.png" alt="Sample candle campaign" />
-            <div>
-              <span>LUMEN & LEDGER</span>
-              <h3>
-                Make room
-                <br />
-                for slow.
-              </h3>
-            </div>
-            <small>Video concept · sample</small>
-          </div>
-          <div className="floating-note">
-            <Image size={17} />
-            <div>
-              One candle, two headlines
-              <small>Fictional studio · sample artwork</small>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section id="examples" className="format-section">
-        <h2>Inside a nine-asset campaign kit</h2>
-        <div className="format-grid">
-          <article><Film size={20} /><h3>Paid video ads</h3><p>{publicStatus.mode === "live" ? "Three short vertical videos for a campaign." : "Three five-second MP4 samples made from still images."}</p><span>03 videos</span></article>
-          <article><Image size={20} /><h3>Paid image ads</h3><p>Three images with a headline and call to action included in each download.</p><span>03 images</span></article>
-          <article><MessageSquare size={20} /><h3>Organic posts</h3><p>Three images with matching captions in the kit download.</p><span>03 posts</span></article>
-        </div>
+        <CampaignExample />
       </section>
       <section id="how" className="how-section">
-        <h2>What Inkshot found on a real website</h2>
-        <p>Example from <a href="https://www.smartcalculator.sg/">Smart Calculator</a> and its <a href="https://www.smartcalculator.sg/about">About page</a>.</p>
-        <div className="steps-grid">
-          {[
-            [
-              "01",
-              "Two pages, one business",
-              "For Smart Calculator, Inkshot read the homepage and About page. It identified a Singapore business offering free CPF, tax and housing calculators.",
-            ],
-            [
-              "02",
-              "A colour and a logo reference",
-              "The import found the site’s red theme colour (#b7102a) and its icon. Both appear in the brief so the owner can check whether they belong in the brand profile.",
-            ],
-            [
-              "03",
-              "A brief the owner can check",
-              "The owner can open the source pages, correct the description and save the brief for the next campaign. You can do the same with your site.",
-            ],
-          ].map(([n, title, text]) => (
-            <div key={n}>
-              <span className="step-number hand">{n}</span>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
-          ))}
+        <div className="brief-intro">
+          <h2>See what goes into your brief.</h2>
+          <p>We tried Inkshot with Smart Calculator, a Singapore business. It read two public pages and returned these details for the owner to review.</p>
+          <p className="brief-sources">Sources <a href="https://www.smartcalculator.sg/">Homepage</a> · <a href="https://www.smartcalculator.sg/about">About page</a></p>
         </div>
+        <dl className="import-example">
+          <div><dt>Business name</dt><dd>Smart Calculator</dd></div>
+          <div><dt>What it offers</dt><dd>Free Singapore calculators for CPF, tax, housing and everyday decisions.</dd></div>
+          <div><dt>Brand colour</dt><dd><span className="import-swatch" aria-hidden="true" /> #B7102A</dd></div>
+          <div><dt>Logo reference</dt><dd><a href="https://www.smartcalculator.sg/icon.svg">View the site icon <ArrowUpRight size={14} aria-hidden="true" /></a></dd></div>
+        </dl>
       </section>
       <section id="pricing" className="pricing-section">
         <div>
@@ -186,7 +108,7 @@ export function Landing() {
         <div className="pricing-card">
           <div className="pricing-title">
             <span>Studio</span>
-            <span className="pill">For your small business</span>
+  
           </div>
           <div className="price">
             $39 <small>USD / month</small>
@@ -321,16 +243,13 @@ export function Auth({ signup = false }: { signup?: boolean }) {
           </small>
         </div>
       </div>
-      <div className="auth-image">
-        <img
-          src="/examples/candle.png"
-          alt="A candle in warm afternoon sunlight"
-        />
+      <aside className="auth-example">
         <div>
-          <span className="hand">Sample campaign</span>
-          <h2>Lumen &amp; Ledger candle studio</h2>
+          <h2>One offer, three formats.</h2>
+          <p>Explore the image, video and social post made from this fictional bakery brief.</p>
         </div>
-      </div>
+        <CampaignExample />
+      </aside>
     </div>
   );
 }
