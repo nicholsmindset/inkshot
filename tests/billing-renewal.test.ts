@@ -8,9 +8,11 @@ import { createDatabase } from "../server/db";
 
 test("a recovered renewal grants its allowance once and preserves the initial allowance", async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-renewal-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   const db = await createDatabase(dir, true);
-  t.after(() => db.close());
+  t.after(async () => {
+    await db.close();
+    await rm(dir, { recursive: true, force: true });
+  });
   await db.query("INSERT INTO workspaces (id) VALUES ('renewal')");
   await db.query("INSERT INTO billing_accounts (workspace_id, customer_id) VALUES ('renewal', 'cus_renewal')");
   const fact: PaymentFact = {
