@@ -217,10 +217,9 @@ test("long headlines wrap without dropping words", () => {
 test('subscription invoice grants exactly once across duplicate event IDs', async()=>{
   const {applyPaymentFact}=await import('../server/billing');
   await db.query("INSERT INTO billing_accounts(workspace_id,customer_id) VALUES($1,'cus_test_inkshot') ON CONFLICT(workspace_id) DO UPDATE SET customer_id='cus_test_inkshot'",[workspace]);
-  const before=Number((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits);
   const fact={eventId:'evt_paid_1',eventType:'invoice.paid',created:100,customerId:'cus_test_inkshot',subscriptionId:'sub_test',status:'active',invoiceId:'in_test_1',grantCredits:true};
   await applyPaymentFact(db,fact);await applyPaymentFact(db,fact);await applyPaymentFact(db,{...fact,eventId:'evt_paid_retry'});
-  assert.equal(Number((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits),before+300);
+  assert.equal(Number((await db.query<{credits:number}>('SELECT credits FROM workspaces WHERE id=$1',[workspace])).rows[0].credits),300);
 });
 test('unpaid and out-of-order billing events cannot grant credits or roll back status',async()=>{
  const {applyPaymentFact}=await import('../server/billing');
