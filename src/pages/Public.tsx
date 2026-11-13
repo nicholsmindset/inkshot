@@ -86,18 +86,39 @@ export function Landing() {
         </div>
         <CampaignExample />
       </section>
-      <section id="how" className="how-section">
+      <section id="how" className="how-section" aria-labelledby="brief-heading">
         <div className="brief-intro">
-          <h2>See what goes into your brief.</h2>
-          <p>We tried Inkshot with Smart Calculator, a Singapore business. It read two public pages and returned these details for the owner to review.</p>
-          <p className="brief-sources">Sources <a href="https://www.smartcalculator.sg/">Homepage</a> · <a href="https://www.smartcalculator.sg/about">About page</a></p>
+          <h2 id="brief-heading">Your website becomes<br /><em>the creative brief.</em></h2>
+          <p>Inkshot read Smart Calculator’s homepage and About page to build this profile. Review the details, then choose the offer you want to advertise.</p>
+          <a className="brief-start" href="#hero-website">Start with my website <ArrowRight size={17} aria-hidden="true" /></a>
         </div>
-        <dl className="import-example">
-          <div><dt>Business name</dt><dd>Smart Calculator</dd></div>
-          <div><dt>What it offers</dt><dd>Free Singapore calculators for CPF, tax, housing and everyday decisions.</dd></div>
-          <div><dt>Brand colour</dt><dd><span className="import-swatch" aria-hidden="true" /> #B7102A</dd></div>
-          <div><dt>Logo reference</dt><dd><a href="https://www.smartcalculator.sg/icon.svg">View the site icon <ArrowUpRight size={14} aria-hidden="true" /></a></dd></div>
-        </dl>
+        <article className="campaign-example brand-sheet" aria-label="Smart Calculator sample brand brief">
+          <header className="example-heading">
+            <span>Sample brand brief</span>
+            <b>Smart Calculator</b>
+          </header>
+          <div className="brief-identity">
+            <img src="/examples/smart-calculator-icon.svg" alt="Smart Calculator’s red SG site icon" width="68" height="68" />
+            <div>
+              <span>smartcalculator.sg</span>
+              <h3>Smart Calculator</h3>
+            </div>
+          </div>
+          <div className="brief-facts">
+            <div>
+              <h4>What it offers</h4>
+              <p>Free Singapore calculators for CPF, tax, housing and everyday decisions.</p>
+            </div>
+            <div className="brief-palette">
+              <h4>Brand colour</h4>
+              <p><span className="brand-chip" aria-hidden="true" /><code>#B7102A</code></p>
+            </div>
+          </div>
+          <footer className="brief-provenance">
+            <span>Imported from</span>
+            <strong>Homepage &amp; About page</strong>
+          </footer>
+        </article>
       </section>
       <section id="pricing" className="pricing-section">
         <div>

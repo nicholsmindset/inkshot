@@ -47,6 +47,15 @@ with TemporaryDirectory() as downloads:
                         assert file.read_bytes() == urlopen(link.get_attribute("href")).read()
                 if path == "/":
                     driver.find_element(By.XPATH, "//button[normalize-space(.)='Image ad']").click()
+                    brief = driver.find_element(By.ID, "how")
+                    logo = brief.find_element(By.CSS_SELECTOR, "img")
+                    wait.until(lambda d: d.execute_script("return arguments[0].naturalWidth > 0", logo))
+                    assert not brief.find_elements(By.CSS_SELECTOR, "a[href^='http']")
+                    assert "Smart Calculator" in brief.text and "#B7102A" in brief.text
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'})", brief)
+                    brief.screenshot(str(screens / f"brand-brief-{width}.png"))
+                    brief.find_element(By.LINK_TEXT, "Start with my website").click()
+                    assert driver.switch_to.active_element.get_attribute("id") == "hero-website"
                     driver.execute_script("window.scrollTo(0,0)")
                     driver.save_screenshot(str(screens / f"homepage-{width}.png"))
             print(f"Passed landing, signup and login at {width}px", flush=True)
