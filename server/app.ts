@@ -36,6 +36,9 @@ import {
 import { isCampaignDestination } from "../shared/destination.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
+function socialCaption(headline: string, cta: string, brand: Pick<Brand, "description"> & { destinationUrl?: string }) {
+  return [headline, brand.description, [cta, brand.destinationUrl].filter(Boolean).join("\n")].filter(Boolean).join("\n\n");
+}
 async function queueRevision(tx: Queryable, revision: {
   id: string; assetId: string; workspaceId: string; n: number; prompt: string;
   headline: string; cta: string; note: string; cost: number; mock: boolean;
@@ -213,7 +216,7 @@ export function createApp(db: Database) {
         "SELECT brand,credits FROM workspaces WHERE id=$1",
         [w],
       ),
-      db.query(
+      db.query<Campaign>(
         "SELECT id,name,goal,offer,status,concepts,brand,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
         [w],
       ),
@@ -235,10 +238,14 @@ export function createApp(db: Database) {
       brand: ws.rows[0].brand,
       balance: ws.rows[0].credits,
       campaigns: campaigns.rows,
-      assets: assets.rows.map((a) => ({
-        ...a,
-        versions: versions.rows.filter((v) => v.asset_id === a.id),
-      })),
+      assets: assets.rows.map((asset) => {
+        const history = versions.rows.filter(v => v.asset_id === asset.id);
+        const current = history.find(v => v.id === asset.current_version_id);
+        const brand = campaigns.rows.find(c => c.id === asset.campaign_id)?.brand;
+        const caption = asset.kind === "post" && current && current.n > 1 && brand
+          ? socialCaption(current.headline, current.cta, brand) : asset.caption;
+        return { ...asset, caption, versions: history };
+      }),
       ledger: ledger.rows,
       mode: config.mode,
       providers: {
@@ -440,7 +447,7 @@ export function createApp(db: Database) {
               concept.title,
               format,
               kind === "post"
-                ? `${headline}\n\n${c.brand.description}\n\n${cta}.${destinationUrl ? "\n" + destinationUrl : ""}`
+                ? socialCaption(headline, cta, { ...c.brand, destinationUrl })
                 : "",
               vid,
             ],
@@ -622,8 +629,8 @@ export function createApp(db: Database) {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
     const c = (
-      await db.query<{ destination: string | null }>(
-        "SELECT brand->>'destinationUrl' AS destination FROM campaigns WHERE id=$1 AND workspace_id=$2",
+      await db.query<Pick<Campaign, "brand">>(
+        "SELECT brand FROM campaigns WHERE id=$1 AND workspace_id=$2",
         [cid, w],
       )
     ).rows[0];
@@ -634,10 +641,13 @@ export function createApp(db: Database) {
         kind: string;
         title: string;
         caption: string;
+        n: number;
+        headline: string;
+        cta: string;
         file_path: string;
         mock: boolean;
       }>(
-        "SELECT a.id,a.kind,a.title,a.caption,v.file_path,v.mock FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND a.workspace_id=$2 AND v.status='ready'",
+        "SELECT a.id,a.kind,a.title,a.caption,v.n,v.headline,v.cta,v.file_path,v.mock FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND a.workspace_id=$2 AND v.status='ready'",
         [cid, w],
       )
     ).rows;
@@ -653,11 +663,11 @@ export function createApp(db: Database) {
     zip.append(
       rows
         .filter((a) => a.kind === "post")
-        .map((a) => `${a.title}\n${a.caption}`)
+        .map((a) => `${a.title}\n${a.n > 1 ? socialCaption(a.headline, a.cta, c.brand) : a.caption}`)
         .join("\n\n---\n\n"),
       { name: "captions.txt" },
     );
-    if (c.destination) zip.append(c.destination + "\n", { name: "destination-url.txt" });
+    if (c.brand.destinationUrl) zip.append(c.brand.destinationUrl + "\n", { name: "destination-url.txt" });
     if (rows.some((a) => a.mock))
       zip.append(
         "Sample creatives for product preview. These use a sample photo or your uploaded image. Sample videos are 5-second still-image previews, not Higgsfield generations.",
