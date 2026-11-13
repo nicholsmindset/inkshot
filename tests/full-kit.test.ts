@@ -69,6 +69,16 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   assert.equal((await studio()).balance, balance + 200);
   for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
   assert.equal(await runWorkerOnce(db), false);
+  const post = (await studio()).assets.find((a: { kind: string }) => a.kind === "post");
+  const original = { versionId: post.current_version_id, caption: post.caption };
+  const revised = await submit(`/assets/${post.id}/revise`, {
+    versionId: original.versionId, headline: "Friday pickup is open", cta: "Reserve your loaf!", note: "Approved post wording",
+  });
+  assert(revised.ok);
+  assert(await runWorkerOnce(db));
+  const latestCaption = (await studio()).assets.find((a: { id: string }) => a.id === post.id).caption;
+  assert(latestCaption.startsWith("Friday pickup is open\n"));
+  assert(latestCaption.endsWith("Reserve your loaf!\n" + destinationUrl));
   const url = `${api}/campaigns/${first}/download`;
   assert.equal((await fetch(url)).status, 401);
   const other = await fetch(api + "/auth/demo", { method: "POST" });
@@ -97,6 +107,9 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   }
   assert.equal(execFileSync("unzip", ["-p", archive, "destination-url.txt"], { encoding: "utf8" }).trim(), destinationUrl);
   assert(names.includes("SAMPLE-README.txt"));
+  assert(captions.includes(latestCaption));
+  assert((await submit(`/assets/${post.id}/current`, { versionId: original.versionId }, "PUT")).ok);
+  assert.equal((await studio()).assets.find((a: { id: string }) => a.id === post.id).caption, original.caption);
 
   const second = await createKit();
   const failed = (await db.query<{ id: string; credit_cost: number }>(
