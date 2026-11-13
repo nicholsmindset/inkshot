@@ -22,7 +22,7 @@ import {
 } from "./auth.js";
 import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
 import { writeBrief, writeConcepts } from "./claude.js";
-import { scrape } from "./scrape.js";
+import { scrape, importedIdentity } from "./scrape.js";
 import { changeCredits } from "./credits.js";
 import {billingConfigured,billingMode,checkout,portal,webhook} from './billing.js';
 import {
@@ -270,22 +270,14 @@ export function createApp(db: Database) {
   app.post("/api/brand/read", websiteReadLimit, async (req, res) => {
     const { url } = z.object({ url: z.url().max(2048) }).parse(req.body);
     const pages = await scrape(url);
-    if (pages.reduce((n, p) => n + p.text.length, 0) < 300)
+    const identity = importedIdentity(pages);
+    if (!pages[0].description && pages.reduce((n, p) => n + p.text.length, 0) < 300)
       throw new AppError(
         400,
         "There is very little readable text on this page. Please add your brand details manually.",
       );
-    if (config.mode === "mock")
-      return res.json({
-        ...emptyBrand,
-        name:
-          pages[0].title.split(/[|–—]/)[0].trim().slice(0, 100) ||
-          "My business",
-        website: url,
-        description: pages[0].text.slice(0, 1000),
-        sources: pages.map((p) => ({ url: p.url, text: p.text.slice(0, 400) })),
-      });
-    res.json(await writeBrief(pages));
+    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(pages);
+    res.json({ ...brief, color: emptyBrand.color, ...identity });
   });
   const upload = multer({
     storage: multer.memoryStorage(),

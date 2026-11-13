@@ -9,6 +9,7 @@ export type Brand = {
   proof: string[];
   sources: { url: string; text: string }[];
   photoId?: string;
+  logoUrl?: string;
 };
 export type User = {
   id: string;

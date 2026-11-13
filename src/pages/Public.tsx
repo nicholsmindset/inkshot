@@ -2,15 +2,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
-  Play,
   Check,
-  Film,
-  Image,
-  MessageSquare,
   ArrowRight,
-  Feather,
 } from "lucide-react";
 import { BrandMark, Highlight, Button, Field, Notice } from "../ui";
+import { CampaignExample } from "./CampaignExample";
 import { api } from "../api";
 import { useStudio } from "../context";
 export function Landing() {
@@ -19,9 +15,9 @@ export function Landing() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [website, setWebsite] = useState("");
-  const [publicStatus, setPublicStatus] = useState<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean }>({ billingMode: 'off', demoAvailable: false });
+  const [publicStatus, setPublicStatus] = useState<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean; mode?: 'mock' | 'live' }>({ billingMode: 'off', demoAvailable: false });
   useEffect(() => {
-    void api<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean }>('/health').then(setPublicStatus).catch(() => {});
+    void api<{ billingMode: 'off' | 'sandbox' | 'live'; demoAvailable: boolean; mode?: 'mock' | 'live' }>('/health').then(setPublicStatus).catch(() => {});
   }, []);
   function startWithWebsite(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -47,8 +43,8 @@ export function Landing() {
           <BrandMark />
         </Link>
         <div className="landing-nav-center">
-          <a href="#how">How it works</a>
-          <a href="#examples">What you get</a>
+          <a href="#how">Example brief</a>
+          <a href="#examples">Sample campaign</a>
           <a href="#pricing">Pricing</a>
           <a href="#questions">Questions</a>
         </div>
@@ -56,31 +52,27 @@ export function Landing() {
           <Link className="text-link" to={studio ? "/studio" : "/login"}>
             {studio ? "Your studio" : "Log in"}
           </Link>
-          <Link className="button" to="/signup">
-            Create your studio <ArrowUpRight size={16} />
+          <Link className="button" to={studio ? "/studio/brand" : "/signup"}>
+            {studio ? "Edit my brief" : "Create a brand brief"} <ArrowUpRight size={16} />
           </Link>
         </div>
       </nav>
       <section className="hero">
         <div className="hero-copy">
-          <span className="eyebrow">
-            <Feather size={15} /> A SMALL BUSINESS CREATIVE STUDIO
-          </span>
           <h1>
-            Your website in.
-            <br />A week of{" "}
+            Ad creative for{" "}
             <Highlight>
-              <em>ads out.</em>
+              <em>small businesses.</em>
             </Highlight>
           </h1>
           <p>
-            Start with your website. Check the brand brief and campaign ideas,
-            then make three video ads, three image ads and three organic posts.
+            Turn one offer into image ads, vertical video ads and social posts with captions.
+            Explore a sample kit, then enter your website to start your own free campaign brief.
           </p>
+          <label className="website-label" htmlFor="hero-website">Your business website</label>
           <form className="hero-website" onSubmit={startWithWebsite}>
-            <label className="sr-only" htmlFor="hero-website">Your business website</label>
             <input id="hero-website" type="text" inputMode="url" placeholder="yourbusiness.com" value={website} onChange={(e) => setWebsite(e.target.value)} required />
-            <Button>Start with my site <ArrowUpRight size={17} /></Button>
+            <Button>Build my brief <ArrowUpRight size={17} /></Button>
           </form>
           {publicStatus.demoAvailable ? <div className="hero-actions">
             <Button variant="ghost" busy={busy} onClick={() => void demo()}>
@@ -88,135 +80,66 @@ export function Landing() {
             </Button>
           </div> : null}
           {error ? <Notice>{error}</Notice> : null}
-          <div className="hero-note hand">
-            paste a URL, then make it yours <span>↗</span>
-          </div>
-          <div className="hero-formats">
-            <span>
-              <Film size={15} />3 video ads
-            </span>
-            <span>
-              <Image size={15} />3 image ads
-            </span>
-            <span>
-              <MessageSquare size={15} />3 posts
-            </span>
+          <div className="public-form-note">
+            {studio ? "Opens in your brand workspace." : "Create a free account to review and save your brief."}
           </div>
         </div>
-        <div
-          className="hero-art"
-          aria-label="Sample ad campaign for the fictional Lumen and Ledger candle studio"
-        >
-          <span className="hand art-note">a little less blank page.</span>
-          <div className="sample-card sample-back">
-            <img
-              src="/examples/candle.png"
-              alt="Ivory ceramic candle beside linen and an olive branch"
-            />
-            <div>
-              <span>LUMEN & LEDGER</span>
-              <h3>
-                Good things.
-                <br />
-                Thoughtfully made.
-              </h3>
-            </div>
-            <small>Sample image ad</small>
-          </div>
-          <div className="sample-card sample-front">
-            <img src="/examples/candle.png" alt="Sample candle campaign" />
-            <div>
-              <span>LUMEN & LEDGER</span>
-              <h3>
-                Make room
-                <br />
-                for slow.
-              </h3>
-            </div>
-            <i className="play-circle">
-              <Play size={22} fill="currentColor" />
-            </i>
-            <small>Video concept · sample</small>
-          </div>
-          <div className="floating-note">
-            <Check size={17} />
-            <div>
-              One brand. Nine possibilities.
-              <small>Made to feel like you.</small>
-            </div>
-          </div>
-        </div>
+        <CampaignExample />
       </section>
-      <section id="examples" className="format-section">
-        <div className="section-label">ONE BRIEF · THREE WAYS TO SHOW UP</div>
-        <h2>Made for the places your customers look.</h2>
-        <div className="format-grid">
-          <article><Film size={20} /><h3>Paid video ads</h3><p>Three short vertical videos, each with its own hook and message.</p><span>03 videos</span></article>
-          <article><Image size={20} /><h3>Paid image ads</h3><p>Three designed images with a clear offer and next step.</p><span>03 images</span></article>
-          <article><MessageSquare size={20} /><h3>Organic posts</h3><p>Three visual posts with captions written in your brand voice.</p><span>03 posts</span></article>
+      <section id="how" className="how-section" aria-labelledby="brief-heading">
+        <div className="brief-intro">
+          <h2 id="brief-heading">Your website becomes<br /><em>the creative brief.</em></h2>
+          <p>Inkshot read Smart Calculator’s homepage and About page to build this profile. Review the details, then choose the offer you want to advertise.</p>
+          <a className="brief-start" href="#hero-website">Start with my website <ArrowRight size={17} aria-hidden="true" /></a>
         </div>
-      </section>
-      <section id="how" className="how-section">
-        <div className="section-label">A SIMPLE LITTLE PROCESS</div>
-        <h2>
-          From “where do I start?”
-          <br />
-          to <em>“that’s so us.”</em>
-        </h2>
-        <div className="steps-grid">
-          {[
-            [
-              "01",
-              "Start with your story",
-              "Add your website and a few photos. We’ll help turn them into a brand brief you can make your own.",
-            ],
-            [
-              "02",
-              "Find your angle",
-              "Choose your goal, check the concepts and approve the words before anything gets made.",
-            ],
-            [
-              "03",
-              "Make it yours",
-              "Create your kit, refine what needs a little love and download ads with your brand built in.",
-            ],
-          ].map(([n, title, text]) => (
-            <div key={n}>
-              <span className="step-number hand">{n}</span>
-              <h3>{title}</h3>
-              <p>{text}</p>
+        <article className="campaign-example brand-sheet" aria-label="Smart Calculator sample brand brief">
+          <header className="example-heading">
+            <span>Sample brand brief</span>
+            <b>Smart Calculator</b>
+          </header>
+          <div className="brief-identity">
+            <img src="/examples/smart-calculator-icon.svg" alt="Smart Calculator’s red SG site icon" width="68" height="68" />
+            <div>
+              <span>smartcalculator.sg</span>
+              <h3>Smart Calculator</h3>
             </div>
-          ))}
-        </div>
+          </div>
+          <div className="brief-facts">
+            <div>
+              <h4>What it offers</h4>
+              <p>Free Singapore calculators for CPF, tax, housing and everyday decisions.</p>
+            </div>
+            <div className="brief-palette">
+              <h4>Brand colour</h4>
+              <p><span className="brand-chip" aria-hidden="true" /><code>#B7102A</code></p>
+            </div>
+          </div>
+          <footer className="brief-provenance">
+            <span>Imported from</span>
+            <strong>Homepage &amp; About page</strong>
+          </footer>
+        </article>
       </section>
       <section id="pricing" className="pricing-section">
         <div>
-          <span className="eyebrow">LESS GUESSWORK. MORE MAKING.</span>
-          <h2>
-            A small studio.
-            <br />
-            <em>A little every month.</em>
-          </h2>
-          <p>
-            One straightforward plan. Generation has a limit.
-            <br />
-            Your ideas don’t have to.
-          </p>
+          <h2>{publicStatus.billingMode === "live" ? "Studio pricing" : "Planned Studio pricing"}</h2>
+          <p>Import your site and review your brand brief for free.
+            Each nine-asset kit uses 100 credits when you approve it.</p>
         </div>
         <div className="pricing-card">
           <div className="pricing-title">
             <span>Studio</span>
-            <span className="pill">For your small business</span>
+  
           </div>
           <div className="price">
             $39 <small>USD / month</small>
           </div>
-          <p>Three complete kits. Twenty-seven assets.</p>
+          <p>Enough credits for three complete kits.</p>
           <ul>
             {[
               "300 generation credits each month",
               "3 videos, 3 images and 3 posts per kit",
-              "Text and layout edits included",
+              "Headline edits included",
               "Version history and finished downloads",
               "Extra generation uses credits shown before approval",
             ].map((t) => (
@@ -226,27 +149,25 @@ export function Landing() {
               </li>
             ))}
           </ul>
-          <Link to="/signup" className="button full">
-            Create your studio <ArrowUpRight size={16} />
+          <Link to={studio ? "/studio/brand" : "/signup"} className="button full">
+            {studio ? "Open my brand brief" : "Create a free brief"} <ArrowUpRight size={16} />
           </Link>
           <small className="muted">
-            {publicStatus.billingMode === 'live' ? 'Secure checkout is available after you create your studio.' : publicStatus.billingMode === 'sandbox' ? 'Early preview. Checkout is currently in test mode.' : 'Checkout is not available yet.'}
+            {publicStatus.billingMode === 'live' ? 'Secure checkout is available after you create your studio.' : publicStatus.billingMode === 'sandbox' ? 'Preview checkout uses test payments. No real subscription charge.' : 'Checkout is not available yet.'}
           </small>
         </div>
       </section>
       <section id="questions" className="questions-section">
-        <div className="section-label">A FEW GOOD QUESTIONS</div>
         <h2>Before you begin.</h2>
         <div className="question-list">
           <details><summary>Do you need access to my website account?</summary><p>No. Inkshot reads public pages from the URL you provide. You can edit the brief and upload your own photos.</p></details>
-          <details><summary>Can I change the words before making ads?</summary><p>Yes. Review your brand brief and campaign ideas before generation. Text and layout edits to finished assets do not use generation credits.</p></details>
+          <details><summary>Can I change the words before making ads?</summary><p>Yes. Review your brand brief and campaign ideas before generation. Headline edits to finished assets do not use generation credits.</p></details>
           <details><summary>What happens if an asset fails?</summary><p>Successful assets remain available. Credits for an asset that could not be completed are returned to your workspace.</p></details>
           <details><summary>How are generation credits used?</summary><p>One nine-asset kit uses 100 credits. The Studio plan includes 300 monthly credits. We show the credit cost before you approve generation.</p></details>
         </div>
       </section>
       <footer className="landing-footer">
         <BrandMark />
-        <span>A thoughtful little studio for your next big idea.</span>
         <span>© {new Date().getFullYear()} Inkshot</span>
       </footer>
     </div>
@@ -258,7 +179,8 @@ export function Auth({ signup = false }: { signup?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [searchParams] = useSearchParams();
-  const requestedWebsite = signup ? searchParams.get("website") : null;
+  const requestedWebsite = searchParams.get("website");
+  const websiteQuery = requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : "";
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -274,7 +196,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
         return;
       }
       await refresh();
-      navigate(signup ? `/studio/brand${requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : ""}` : "/studio");
+      navigate(signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -288,15 +210,14 @@ export function Auth({ signup = false }: { signup?: boolean }) {
           <BrandMark />
         </Link>
         <div>
-          <span className="eyebrow">YOUR NEXT CHAPTER</span>
           <h1>
             {signup
-              ? "A little space\nto create."
-              : "Back for\nsomething good."}
+              ? "Create your brand brief"
+              : "Sign in to Inkshot"}
           </h1>
           <p className="muted">
             {signup
-              ? "Create your account. Let’s make your business look like itself."
+              ? (requestedWebsite ? `Create an account to import ${requestedWebsite} and review the draft.` : "Create an account, then add your website to start your brief.")
               : "Sign in and pick up where you left off."}
           </p>
           <form onSubmit={submit}>
@@ -334,7 +255,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
           </form>
           <p className="auth-switch">
             {signup ? "Already have a studio?" : "New around here?"}{" "}
-            <Link to={signup ? "/login" : "/signup"}>
+            <Link to={`${signup ? "/login" : "/signup"}${websiteQuery}`}>
               {signup ? "Log in" : "Create an account"}
             </Link>
           </p>
@@ -342,22 +263,14 @@ export function Auth({ signup = false }: { signup?: boolean }) {
             You can create an account and review a brand brief before subscribing.
           </small>
         </div>
-        <span className="muted">A thoughtful little studio by Inkshot.</span>
       </div>
-      <div className="auth-image">
-        <img
-          src="/examples/candle.png"
-          alt="A candle in warm afternoon sunlight"
-        />
+      <aside className="auth-example">
         <div>
-          <span className="hand">make something worth sharing.</span>
-          <h2>
-            More you.
-            <br />
-            Less blank page.
-          </h2>
+          <h2>One offer, three formats.</h2>
+          <p>Explore the image, video and social post made from this fictional bakery brief.</p>
         </div>
-      </div>
+        <CampaignExample />
+      </aside>
     </div>
   );
 }

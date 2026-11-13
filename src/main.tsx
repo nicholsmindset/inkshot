@@ -8,6 +8,7 @@ import "@fontsource/instrument-serif/400.css";
 import "@fontsource/instrument-serif/400-italic.css";
 import "@fontsource/caveat/500.css";
 import "./styles.css";
+import "./pages/public-studio.css";
 import App from "./App";
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -103,6 +103,81 @@ export async function safePage(
     );
   });
 }
+function clean(value: unknown, max = 1000) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+}
+
+function explicitColor(value: string) {
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(value))
+    return "#" + [...value.slice(1)].map(c => c.repeat(2)).join("").toLowerCase();
+  return "";
+}
+
+function logoReference(value: unknown, page: URL) {
+  if (typeof value !== "string" || !value.trim() || value.length > 2048) return "";
+  try {
+    const target = new URL(value, page);
+    return target.protocol === "https:" && target.origin === page.origin &&
+      !target.username && !target.password ? target.href : "";
+  } catch {
+    return "";
+  }
+}
+
+export function extractPage(page: { url: string; html: string }) {
+  const $ = cheerio.load(page.html);
+  const url = new URL(page.url);
+  let organization = "", site = "", logoUrl = "";
+  $('script[type="application/ld+json"]').each((_, script) => {
+    try {
+      const parsed = JSON.parse($(script).text());
+      const roots = Array.isArray(parsed) ? parsed : [parsed];
+      for (const root of roots) {
+        const nodes = [root, ...(Array.isArray(root?.["@graph"]) ? root["@graph"] : [])];
+        for (const node of nodes) {
+          if (!node || typeof node !== "object") continue;
+          const types = [node["@type"]].flat();
+          if (types.includes("WebSite")) site ||= clean(node.name, 100);
+          if (types.some(t => ["Organization", "LocalBusiness", "Bakery", "Store", "Restaurant"].includes(t))) {
+            organization ||= clean(node.name, 100);
+            logoUrl ||= logoReference(typeof node.logo === "string" ? node.logo : node.logo?.url || node.logo?.contentUrl, url);
+          }
+        }
+      }
+    } catch {
+      // A malformed block should not hide normal HTML metadata.
+    }
+  });
+  if (!logoUrl) {
+    const logo = $('header img[alt*="logo" i], header img[class*="logo" i], header img[itemprop="logo"]').first();
+    logoUrl = logoReference(logo.attr("src"), url);
+  }
+  const meta = (selector: string) => clean($(selector).first().attr("content"));
+  const siteName = meta('meta[property="og:site_name" i]').slice(0, 100) || organization || site;
+  const description = meta('meta[name="description" i]') || meta('meta[property="og:description" i]');
+  const color = explicitColor(meta('meta[name="theme-color" i]:not([media])'));
+  const title = clean($("title").first().text(), 200);
+  $("script,style,nav,footer,header,noscript,aside,form,svg,[role='navigation'],[aria-hidden='true']").remove();
+  $("p,div,li,h1,h2,h3,h4,h5,h6,article,section,td,th,figcaption,dt,dd,br").before(" ").after(" ");
+  const main = $("main,[role='main'],article,#content").first();
+  const body = main.length ? main : $("body");
+  return { url: url.href, title, siteName, description, color, logoUrl, text: clean(body.text(), 10000) };
+}
+
+export function importedIdentity(pages: ReturnType<typeof extractPage>[]) {
+  const home = pages[0];
+  const name = home.siteName || home.title.split(/[|–—]/)[0].trim().slice(0, 100) || "My business";
+  return {
+    name, website: home.url, description: home.description || home.text.slice(0, 1000),
+    ...(home.color ? { color: home.color } : {}),
+    ...(home.logoUrl ? { logoUrl: home.logoUrl } : {}),
+    sources: pages.map(p => ({
+      url: p.url, text: [p.siteName, p.description, p.text].filter(Boolean).join(" · ").slice(0, 600),
+    })),
+  };
+}
+
 export async function scrape(input: string) {
   const first = await safePage(input);
   const $ = cheerio.load(first.html);
@@ -130,15 +205,5 @@ export async function scrape(input: string) {
     first,
     ...extra.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])),
   ];
-  return pages.map((p) => {
-    const d = cheerio.load(p.html);
-    d("script,style,nav,footer,header,noscript,aside,form,svg,[role='navigation'],[aria-hidden='true']").remove();
-    const main = d("main,[role='main'],article,#content").first();
-    const readable = main.length ? main : d("body");
-    return {
-      url: p.url,
-      title: d("title").text().slice(0, 200),
-      text: readable.text().replace(/\s+/g, " ").trim().slice(0, 10000),
-    };
-  });
+  return pages.map(extractPage);
 }
