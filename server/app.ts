@@ -540,7 +540,7 @@ export function createApp(db: Database) {
     const workspaceId = req.user!.workspaceId;
     const { versionId, headlines, requestId } = z.object({
       versionId: id, requestId: id,
-      headlines: z.array(z.string().trim().min(1).max(120)).min(2).max(5),
+      headlines: z.array(z.string().trim().min(1).max(120)).min(1).max(5),
     }).parse(req.body);
     if (new Set(headlines.map(h => h.toLowerCase())).size !== headlines.length)
       throw new AppError(400, "Give each variation a distinct headline.");
