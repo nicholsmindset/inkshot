@@ -274,3 +274,38 @@ test("approved asset CTAs and workspace photo are persisted before generation", 
   const saved = await db.query<{ photo: string }>("SELECT brand->>'photoId' AS photo FROM campaigns WHERE id=$1", [id]);
   assert.equal(saved.rows[0].photo, photoId);
 });
+
+test("image headline batches preserve media, credits and the original on concurrent retries", async () => {
+  const session = await call("/auth/demo", {}, "");
+  const cookie = session.headers.get("set-cookie")!.split(";")[0];
+  const campaign = await (await call("/campaigns", {
+    name: "Headline test", goal: "Sales", offer: "Try a sample",
+  }, cookie)).json();
+  assert((await call(`/campaigns/${campaign.id}/generate`, { approved: true }, cookie)).ok);
+  const studio = await (await call("/studio", undefined, cookie)).json();
+  const image = studio.assets.find((a: { kind: string }) => a.kind === "image");
+  const video = studio.assets.find((a: { kind: string }) => a.kind === "video");
+  const original = image.versions[0];
+  const route = `/assets/${image.id}/variations`;
+  const body = { versionId: original.id, requestId: randomUUID(), headlines: ["See the detail", "Pick your colour"] };
+  assert.equal((await call(route, body, cookieA)).status, 404);
+  assert.equal((await call(`/assets/${video.id}/variations`, body, cookie)).status, 400);
+  assert.equal((await call(route, body, cookie)).status, 409);
+  const source = path.resolve("public/examples/candle.png");
+  await db.query("UPDATE versions SET status='ready',source_path=$2 WHERE id=$1", [original.id, source]);
+  const responses = await Promise.all([call(route, body, cookie), call(route, body, cookie)]);
+  assert(responses.every(r => r.ok));
+  const [one, two] = await Promise.all(responses.map(r => r.json()));
+  assert.deepEqual(one.versionIds, two.versionIds);
+  assert.equal((await call(route, { ...body, headlines: ["Different", "Offer"] }, cookie)).status, 409);
+  const versions = (await db.query<{ headline: string; cta: string; source_path: string; credit_cost: number; id: string }>(
+    "SELECT * FROM versions WHERE asset_id=$1 ORDER BY n", [image.id],
+  )).rows;
+  assert.equal(versions.length, 3);
+  assert.equal(versions[0].id, original.id);
+  assert.equal(versions[0].headline, original.headline);
+  assert.deepEqual(versions.slice(1).map(v => v.id), one.versionIds);
+  assert.deepEqual(versions.slice(1).map(v => v.headline), body.headlines);
+  assert(versions.slice(1).every(v => v.cta === original.cta && v.source_path === source && v.credit_cost === 0));
+  assert.equal((await (await call("/studio", undefined, cookie)).json()).balance, studio.balance);
+});
