@@ -37,7 +37,11 @@ async function call(
 before(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-test-"));
   db = await createDatabase(dir, true);
-  server = createApp(db).listen(0, "127.0.0.1");
+  server = createApp(db, async (website, url) => {
+    assert.equal(website, "https://smartcalculator.sg");
+    assert.equal(url, website + "/icon.svg");
+    return { url, type: "image/svg+xml", bytes: Buffer.from('<svg width="100" height="100"><rect width="100" height="100" fill="#b7102a"/></svg>') };
+  }).listen(0, "127.0.0.1");
   await new Promise<void>((r) => server.once("listening", r));
   const address = server.address();
   assert(address && typeof address !== "string");
@@ -317,4 +321,23 @@ test("image headline batches preserve media, credits and the original on concurr
   assert.deepEqual(versions.slice(1).map(v => v.headline), body.headlines);
   assert(versions.slice(1).every(v => v.cta === original.cta && v.source_path === source && v.credit_cost === 0));
   assert.equal((await (await call("/studio", undefined, cookie)).json()).balance, studio.balance);
+});
+
+
+test("approving a site logo creates a private PNG and saving links it to the brand", async () => {
+  const request = { website: "https://smartcalculator.sg", logoUrl: "https://smartcalculator.sg/icon.svg" };
+  assert.equal((await call("/brand/import-logo", request, "")).status, 401);
+  const imported = await call("/brand/import-logo", request);
+  assert.equal(imported.status, 201);
+  const { id } = await imported.json();
+  const brand = (await (await call("/studio")).json()).brand;
+  assert.notEqual(brand.logoId, id);
+  const own = await call("/uploads/" + id);
+  assert.equal(own.status, 200);
+  assert.equal(own.headers.get("content-type"), "image/png");
+  const other = await call("/auth/demo", {}, "");
+  const otherCookie = other.headers.get("set-cookie")!.split(";")[0];
+  assert.equal((await call("/uploads/" + id, undefined, otherCookie)).status, 404);
+  assert.equal((await call("/brand", { ...brand, website: request.website, logoUrl: request.logoUrl, logoId: id }, cookieA, "PUT")).status, 200);
+  assert.equal((await (await call("/studio")).json()).brand.logoId, id);
 });

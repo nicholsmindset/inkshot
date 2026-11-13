@@ -13,12 +13,13 @@ export function isPublicIp(address: string) {
     return false;
   }
 }
-export async function safePage(
-  input: string,
-  redirects = 0,
-): Promise<{ url: string; html: string }> {
+type ResourcePolicy = { types: string[]; maxBytes: number; origin?: string };
+
+async function fetchPublicResource(input: string, policy: ResourcePolicy, redirects = 0):
+  Promise<{ url: string; bytes: Buffer; type: string }> {
   const url = new URL(input);
   if (
+    (policy.origin && url.origin !== policy.origin) ||
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
@@ -33,7 +34,7 @@ export async function safePage(
     const request = https.get(
       url,
       {
-        headers: { "User-Agent": "InkshotReader/1.0", Accept: "text/html" },
+        headers: { "User-Agent": "InkshotReader/1.0", Accept: policy.types.join(", ") },
         lookup: ((_host: unknown, options: { all?: boolean }, cb: Function) =>
           options.all
             ? cb(null, [selected])
@@ -47,22 +48,20 @@ export async function safePage(
           response.statusCode < 400 &&
           response.headers.location
         ) {
-          response.resume();
+          response.destroy();
           if (redirects >= 3)
             return reject(
               new AppError(400, "That website redirected too many times."),
             );
-          safePage(
-            new URL(response.headers.location, url).href,
-            redirects + 1,
-          ).then(resolve, reject);
+          try {
+            const next = new URL(response.headers.location, url);
+            fetchPublicResource(next.href, policy, redirects + 1).then(resolve, reject);
+          } catch (error) { reject(error); }
           return;
         }
-        if (
-          response.statusCode !== 200 ||
-          !response.headers["content-type"]?.includes("text/html")
-        ) {
-          response.resume();
+        const type = (response.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+        if (response.statusCode !== 200 || !policy.types.includes(type)) {
+          response.destroy();
           reject(
             new AppError(
               400,
@@ -75,7 +74,7 @@ export async function safePage(
         let size = 0;
         response.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size > 1500000) {
+          if (size > policy.maxBytes) {
             request.destroy(new Error("Page too large"));
             return;
           }
@@ -84,12 +83,14 @@ export async function safePage(
         response.on("end", () =>
           resolve({
             url: url.href,
-            html: Buffer.concat(chunks).toString("utf8"),
+            bytes: Buffer.concat(chunks), type,
           }),
         );
         response.on("error", reject);
       },
     );
+    const deadline = setTimeout(() => request.destroy(new Error("Resource took too long")), 10000);
+    request.once("close", () => clearTimeout(deadline));
     request.on("timeout", () =>
       request.destroy(new Error("Website took too long to respond")),
     );
@@ -103,6 +104,19 @@ export async function safePage(
     );
   });
 }
+export async function safePage(input: string, redirects = 0) {
+  const result = await fetchPublicResource(input, { types: ["text/html"], maxBytes: 1500000 }, redirects);
+  return { url: result.url, html: result.bytes.toString("utf8") };
+}
+
+export async function fetchSiteLogo(website: string, logoUrl: string) {
+  return fetchPublicResource(logoUrl, {
+    origin: new URL(website).origin,
+    types: ["image/png", "image/jpeg", "image/webp", "image/svg+xml"],
+    maxBytes: 2 * 1024 * 1024,
+  });
+}
+
 function clean(value: unknown, max = 1000) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 }
