@@ -1,0 +1,29 @@
+name: Verify Smart Calculator live read
+on:
+  push:
+    branches: [qa/smart-calculator-live-read]
+    paths:
+      - scripts/verify-smart-calculator.mjs
+      - .github/workflows/smart-calculator-proof.yml
+permissions:
+  contents: read
+jobs:
+  crawl-and-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Read the public site and verify the approved mock kit
+        run: node --import tsx scripts/verify-smart-calculator.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smart-calculator-live-read
+          path: ${{ runner.temp }}/inkshot-crawl-proof/
+          retention-days: 7
