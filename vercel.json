@@ -34,11 +34,12 @@
   ],
   "functions": {
     "api/[...path].ts": {
-      "maxDuration": 120
+      "maxDuration": 120,
+      "includeFiles": "server/fonts/**"
     },
     "api/cron/worker.ts": {
       "maxDuration": 300,
-      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
+      "includeFiles": "{node_modules/ffmpeg-static/ffmpeg,server/fonts/**}"
     }
   },
   "crons": [

@@ -1,3 +1,4 @@
+import "./render-fonts.js";
 import * as cheerio from "cheerio";
 import sharp from "sharp";
 import { AppError } from "./config.js";
