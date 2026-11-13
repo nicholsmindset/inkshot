@@ -33,6 +33,7 @@ import {
   type Asset,
   type Version,
 } from "../shared/types.js";
+import { isCampaignDestination } from "../shared/destination.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
 async function queueRevision(tx: Queryable, revision: {
@@ -357,7 +358,8 @@ export function createApp(db: Database) {
   app.post("/api/campaigns/:id/generate", async (req, res) => {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
-    const { drafts, photoId } = z.object({
+    const { drafts, photoId, destinationUrl } = z.object({
+      destinationUrl: z.string().trim().refine(isCampaignDestination, "Enter a full HTTPS destination URL.").optional(),
       approved: z.literal(true),
       photoId: id.optional(),
       drafts: z.array(z.object({
@@ -396,8 +398,12 @@ export function createApp(db: Database) {
           [photoId, w],
         );
         if (!uploaded.rows.length) throw new AppError(400, "Choose a photo from this workspace.");
+      }
+      if (photoId || destinationUrl) {
+        const approvedBrand = { ...c.brand };
+        if (photoId) approvedBrand.photoId = photoId;
         await tx.query("UPDATE campaigns SET brand=$2 WHERE id=$1", [
-          cid, json({ ...c.brand, photoId }),
+          cid, json({ ...approvedBrand, ...(destinationUrl && { destinationUrl }) }),
         ]);
       }
       await changeCredits(
@@ -434,7 +440,7 @@ export function createApp(db: Database) {
               concept.title,
               format,
               kind === "post"
-                ? `${headline}\n\n${c.brand.description}\n\n${cta}.`
+                ? `${headline}\n\n${c.brand.description}\n\n${cta}.${destinationUrl ? "\n" + destinationUrl : ""}`
                 : "",
               vid,
             ],
@@ -616,8 +622,8 @@ export function createApp(db: Database) {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
     const c = (
-      await db.query(
-        "SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",
+      await db.query<{ destination: string | null }>(
+        "SELECT brand->>'destinationUrl' AS destination FROM campaigns WHERE id=$1 AND workspace_id=$2",
         [cid, w],
       )
     ).rows[0];
@@ -651,6 +657,7 @@ export function createApp(db: Database) {
         .join("\n\n---\n\n"),
       { name: "captions.txt" },
     );
+    if (c.destination) zip.append(c.destination + "\n", { name: "destination-url.txt" });
     if (rows.some((a) => a.mock))
       zip.append(
         "Sample creatives for product preview. These use a sample photo or your uploaded image. Sample videos are 5-second still-image previews, not Higgsfield generations.",

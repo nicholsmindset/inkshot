@@ -53,13 +53,16 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   const description = "A neighbourhood bakery selling sourdough loaves for weekend collection.";
   assert((await submit("/brand", { ...emptyBrand, name: "Weekend Bakery", website, description,
     sources: [{ url: website, text: description }] }, "PUT")).ok);
+  const destinationUrl = "https://example.test/bakery/friday?utm_source=social";
   const createKit = async () => {
     const draft = await submit("/campaigns", { name: "Friday pickup", goal: "Sales", offer: "Reserve a loaf" });
     assert.equal(draft.status, 201);
     const { id } = await draft.json();
-    const generate = () => submit(`/campaigns/${id}/generate`, { approved: true });
-    assert((await generate()).ok);
-    assert((await generate()).ok);
+    const generate = (url: string) => submit(`/campaigns/${id}/generate`, { approved: true, destinationUrl: url });
+    assert.equal((await generate("javascript:void(0)")).status, 400);
+    assert((await generate(destinationUrl)).ok);
+    assert((await generate("https://example.test/different")).ok);
+    assert.equal((await studio()).campaigns.find((campaign: { id: string }) => campaign.id === id).brand.destinationUrl, destinationUrl);
     return id as string;
   };
   const first = await createKit();
@@ -88,7 +91,11 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   const captions = execFileSync("unzip", ["-p", archive, "captions.txt"], { encoding: "utf8" });
   const posts = (await studio()).assets.filter((a: { kind: string }) => a.kind === "post");
   assert.equal(posts.length, 3);
-  for (const post of posts) assert(captions.includes(post.caption));
+  for (const post of posts) {
+    assert(captions.includes(post.caption));
+    assert(post.caption.endsWith(destinationUrl));
+  }
+  assert.equal(execFileSync("unzip", ["-p", archive, "destination-url.txt"], { encoding: "utf8" }).trim(), destinationUrl);
   assert(names.includes("SAMPLE-README.txt"));
 
   const second = await createKit();

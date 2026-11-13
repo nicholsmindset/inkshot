@@ -20,6 +20,7 @@ import { useStudio } from "../context";
 import { Button, Highlight, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
 import type { Asset, Version } from "../../shared/types";
+import { isCampaignDestination } from "../../shared/destination";
 import { VERSION_CREDITS } from "../../shared/types";
 const icons = { video: Film, image: Image, post: MessageSquare };
 export function Dashboard() {
@@ -412,7 +413,9 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
     })),
   );
   const photoId = campaign.brand.photoId;
-  const review = JSON.stringify({ drafts, photoId });
+  const destinationUrl = (edits.destination ?? campaign.brand.website ?? "").trim();
+  const destinationValid = !destinationUrl || isCampaignDestination(destinationUrl);
+  const review = JSON.stringify({ drafts, photoId, destinationUrl });
   function editCta(key: string, value: string) {
     const next = { ...edits, [key]: value };
     setEdits(next);
@@ -428,7 +431,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
     setBusy(true);
     setError("");
     try {
-      await api(`/campaigns/${id}/generate`, { approved: true, drafts, photoId });
+      await api(`/campaigns/${id}/generate`, { approved: true, drafts, photoId, destinationUrl: destinationUrl || undefined });
       await refresh();
       try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
       notify("Your kit is on its way. You can leave this page.");
@@ -483,6 +486,12 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
             <h2>Review your nine assets</h2>
           </div>
           <p>{storageAvailable ? "Headline and call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
+          <Field label="Campaign destination URL" hint="Optional. Included in your post captions and download for use when placing your ads.">
+            <input type="url" placeholder="https://yourbusiness.com/offer" value={edits.destination ?? campaign.brand.website ?? ""}
+              maxLength={2048} disabled={busy} aria-invalid={!destinationValid}
+              onChange={(event) => editCta("destination", event.target.value)} />
+          </Field>
+          {!destinationValid && <Notice>Enter a full HTTPS link or leave the destination empty.</Notice>}
           <div className="concept-grid">
             {campaign.concepts.map((concept) => (
               <article className="concept-card" key={concept.id}>
@@ -536,7 +545,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
             </div>
             <div>
               <Button
-                disabled={approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.headline || draft.headline.length > 120 || !draft.cta || draft.cta.length > 55) || studio.balance < 100}
+                disabled={!destinationValid || approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.headline || draft.headline.length > 120 || !draft.cta || draft.cta.length > 55) || studio.balance < 100}
                 busy={busy}
                 onClick={() => void generate()}
               >
@@ -551,6 +560,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
         </>
       ) : (
         <>
+          {campaign.brand.destinationUrl && <p>Campaign destination · <a href={campaign.brand.destinationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: "anywhere" }}>{campaign.brand.destinationUrl}</a></p>}
           <div className="generation-progress">
             <div>
               <span>

@@ -33,7 +33,7 @@ export type Campaign = {
   offer: string;
   status: string;
   concepts: Concept[];
-  brand: Brand;
+  brand: Brand & { destinationUrl?: string };
   created_at: string;
   mock: boolean;
 };
