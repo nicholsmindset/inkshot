@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory() as download_dir:
         download = element(".editor-footer a")
         assert download.get_attribute("href") == selected_url + "?download=true"
         download.click()
-        downloaded = wait.until(lambda _: next((p for p in Path(download_dir).iterdir()
+        downloaded = wait.until(lambda _: next((p for p in Path(download_dir).glob(f"inkshot-{selected_id}.*")
             if p.is_file() and p.suffix != ".crdownload" and p.stat().st_size > 0), False))
         cookies = "; ".join(c["name"] + "=" + c["value"] for c in browser.get_cookies())
         def digest(url):
