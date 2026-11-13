@@ -72,6 +72,21 @@ function BrandForm({ initial }: { initial: Brand }) {
     void read(requestedWebsite).finally(() => setSearchParams({}, { replace: true }));
   }, [requestedWebsite, setSearchParams]);
   const logoLink = sameSiteLogo(brand.logoUrl?.trim(), brand.website);
+  async function useSiteLogo() {
+    if (!logoLink) return;
+    setBusy("site-logo");
+    setError("");
+    try {
+      const result = await api<{ id: string }>("/brand/import-logo", { website: brand.website, logoUrl: logoLink });
+      setBrand((current) => sameSiteLogo(current.logoUrl?.trim(), current.website) === logoLink
+        ? { ...current, logoId: result.id } : current);
+      notify("Logo imported. Review the preview and save your brand.");
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy("save");
@@ -283,7 +298,12 @@ function BrandForm({ initial }: { initial: Brand }) {
               />
             </Field>
             {logoLink && (
-              <a href={logoLink} target="_blank" rel="noopener noreferrer">Open logo reference</a>
+              <div className="form-actions">
+                <a href={logoLink} target="_blank" rel="noopener noreferrer">Open logo reference</a>
+                <Button type="button" variant="secondary" busy={busy === "site-logo"} disabled={!!busy} onClick={() => void useSiteLogo()}>
+                  Use this site logo in ads
+                </Button>
+              </div>
             )}
             {error ? <Notice>{error}</Notice> : null}
             <div className="form-actions">
