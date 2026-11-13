@@ -12,7 +12,7 @@ import sharp from "sharp";
 import archiver from "archiver";
 import { z } from "zod";
 import { config, AppError } from "./config.js";
-import type { Database } from "./db.js";
+import type { Database, Queryable } from "./db.js";
 import {
   requireUser,
   createUser,
@@ -35,6 +35,22 @@ import {
 } from "../shared/types.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
+async function queueRevision(tx: Queryable, revision: {
+  id: string; assetId: string; workspaceId: string; n: number; prompt: string;
+  headline: string; cta: string; note: string; cost: number; mock: boolean;
+  sourcePath: string | null; checkpoint?: Record<string, string>;
+}) {
+  await tx.query(
+    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+    [revision.id, revision.assetId, revision.workspaceId, revision.n, revision.prompt,
+     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath],
+  );
+  await tx.query(
+    "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
+    [randomUUID(), revision.id, revision.workspaceId, json(revision.checkpoint ?? {})],
+  );
+}
+
 export function createApp(db: Database) {
   const app = express();
   app.disable("x-powered-by");
@@ -509,30 +525,74 @@ export function createApp(db: Database) {
         `${a.title} · ${input.regenerate ? "regeneration" : "text edit"}`,
         `version:${vid}`,
       );
-      await tx.query(
-        "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-        [
-          vid,
-          aid,
-          w,
-          n,
-          source.prompt +
-            (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
-          input.headline,
-          input.cta,
-          input.note || "Text and layout updated",
-          cost,
-          source.mock,
-          input.regenerate ? null : source.source_path,
-        ],
-      );
-      await tx.query(
-        "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
-        [randomUUID(), vid, w],
-      );
+      await queueRevision(tx, {
+        id: vid, assetId: aid, workspaceId: w, n, prompt: source.prompt +
+          (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
+        headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
+        cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
+      });
       return vid;
     });
     res.json({ ok: true, versionId });
+  });
+  app.post("/api/assets/:id/variations", async (req, res) => {
+    const assetId = id.parse(req.params.id);
+    const workspaceId = req.user!.workspaceId;
+    const { versionId, headlines, requestId } = z.object({
+      versionId: id, requestId: id,
+      headlines: z.array(z.string().trim().min(1).max(120)).min(2).max(5),
+    }).parse(req.body);
+    if (new Set(headlines.map(h => h.toLowerCase())).size !== headlines.length)
+      throw new AppError(400, "Give each variation a distinct headline.");
+
+    const versionIds = await db.transaction(async (tx) => {
+      const asset = (await tx.query<{ kind: string }>(
+        "SELECT kind FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+        [assetId, workspaceId],
+      )).rows[0];
+      if (!asset) throw new AppError(404, "Asset not found.");
+      if (asset.kind !== "image") throw new AppError(400, "Choose an image ad for variations.");
+
+      const previous = (await tx.query<{ id: string; headline: string; source: string }>(
+        `SELECT v.id,v.headline,j.checkpoint->>'sourceVersion' AS source
+           FROM versions v JOIN jobs j ON j.version_id=v.id
+          WHERE v.asset_id=$1 AND j.checkpoint->>'variationRequest'=$2 ORDER BY v.n`,
+        [assetId, requestId],
+      )).rows;
+      if (previous.length) {
+        if (previous.length !== headlines.length ||
+            previous.some((v, i) => v.source !== versionId || v.headline !== headlines[i]))
+          throw new AppError(409, "This request was already used for different variations.");
+        return previous.map(v => v.id);
+      }
+      const source = (await tx.query<Version & { source_path: string | null }>(
+        "SELECT * FROM versions WHERE id=$1 AND asset_id=$2",
+        [versionId, assetId],
+      )).rows[0];
+      if (!source) throw new AppError(404, "Version not found.");
+      if (source.status !== "ready" || !source.source_path)
+        throw new AppError(409, "Choose a finished image with saved source media.");
+      const state = (await tx.query<{ next: number; busy: boolean }>(
+        `SELECT coalesce(max(n),0)+1 AS next,
+                bool_or(status IN ('queued','making','rendering')) AS busy
+           FROM versions WHERE asset_id=$1`, [assetId],
+      )).rows[0];
+      if (state.busy) throw new AppError(409, "Wait for the current versions to finish.");
+
+      const ids: string[] = [];
+      for (const [index, headline] of headlines.entries()) {
+        const variationId = randomUUID();
+        await queueRevision(tx, {
+          id: variationId, assetId, workspaceId, n: state.next + index,
+          prompt: source.prompt, headline, cta: source.cta, note: "Headline variation",
+          cost: 0, mock: source.mock, sourcePath: source.source_path,
+          checkpoint: { variationRequest: requestId, sourceVersion: versionId },
+        });
+        ids.push(variationId);
+      }
+      return ids;
+    });
+    res.json({ ok: true, versionIds });
   });
   app.put("/api/assets/:id/current", async (req, res) => {
     const aid = id.parse(req.params.id),
