@@ -68,7 +68,7 @@ async function saveUpload(db: Database, workspaceId: string, buffer: Buffer, isL
     return uploadId;
 }
 
-export function createApp(db: Database) {
+export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   const app = express();
   app.disable("x-powered-by");
   app.use(
@@ -296,7 +296,7 @@ export function createApp(db: Database) {
     }).parse(req.body);
     let logo;
     try {
-      logo = await fetchSiteLogo(website, logoUrl);
+      logo = await readSiteLogo(website, logoUrl);
     } catch {
       throw new AppError(400, "The logo could not be read from your website. Upload a logo file instead.");
     }
