@@ -9,6 +9,7 @@ export type Brand = {
   proof: string[];
   sources: { url: string; text: string }[];
   photoId?: string;
+  logoId?: string;
 };
 export type User = {
   id: string;
@@ -31,6 +32,7 @@ export type Campaign = {
   offer: string;
   status: string;
   concepts: Concept[];
+  brand: Brand;
   created_at: string;
   mock: boolean;
 };

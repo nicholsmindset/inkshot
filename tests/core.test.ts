@@ -254,7 +254,7 @@ test("approved asset CTAs and workspace photo are persisted before generation", 
   ]);
   const drafts = concepts.flatMap((concept: { id: string; title: string }) =>
     ["video", "image", "post"].map(kind => ({
-      conceptId: concept.id, kind, cta: `Book ${concept.id} ${kind}`,
+      conceptId: concept.id, kind, headline: `Fresh ${kind} for Friday`, cta: `Book ${concept.id} ${kind}`,
     })),
   );
   const submit = (body: object) => call(`/campaigns/${id}/generate`, { approved: true, ...body }, cookie);
@@ -269,6 +269,7 @@ test("approved asset CTAs and workspace photo are persisted before generation", 
     const concept = concepts.find((c: { title: string }) => c.title === asset.title);
     const expected = `Book ${concept.id} ${asset.kind}`;
     assert.equal(asset.versions[0].cta, expected);
+    assert.equal(asset.versions[0].headline, `Fresh ${asset.kind} for Friday`);
     if (asset.kind === "post") assert(asset.caption.includes(expected));
   }
   const saved = await db.query<{ photo: string }>("SELECT brand->>'photoId' AS photo FROM campaigns WHERE id=$1", [id]);

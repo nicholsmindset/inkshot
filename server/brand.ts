@@ -13,6 +13,7 @@ export const brandSchema = z.object({
     .array(z.object({ url: z.string().max(2048), text: z.string().max(600) }))
     .max(12),
   photoId: z.string().uuid().optional(),
+  logoId: z.string().uuid().optional(),
 });
 export const emptyBrand: Brand = {
   name: "My business",

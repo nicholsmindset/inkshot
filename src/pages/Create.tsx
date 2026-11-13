@@ -41,6 +41,7 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBrand({
         ...next,
         ...(brand.photoId ? { photoId: brand.photoId } : {}),
+        ...(brand.logoId ? { logoId: brand.logoId } : {}),
       });
       setReadPreview(next);
       notify(
@@ -73,16 +74,17 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBusy("");
     }
   }
-  async function upload(file?: File) {
+  async function upload(file?: File, purpose: "photo" | "logo" = "photo") {
     if (!file) return;
     setBusy("upload");
     setError("");
     try {
       const data = new FormData();
+      data.append("purpose", purpose);
       data.append("photo", file);
       const result = await api<{ id: string }>("/uploads", data);
-      set("photoId", result.id);
-      notify("Photo added. Save your brief to keep it.");
+      set(purpose === "logo" ? "logoId" : "photoId", result.id);
+      notify("Upload added. Save your brief to keep it.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -235,6 +237,12 @@ function BrandForm({ initial }: { initial: Brand }) {
                 }
               />
             </Field>
+            <Field label="Logo for exported ads" hint="Upload a PNG, JPG or WebP you own. Transparent PNGs retain their background transparency.">
+              <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
+                onChange={(e) => void upload(e.target.files?.[0], "logo")} />
+            </Field>
+            {brand.logoId && <div><img src={"/api/uploads/" + brand.logoId} width={90} alt="Logo for exports" />
+              <button type="button" onClick={() => set("logoId", undefined)}>Remove logo</button></div>}
             <Field label="Brand colour">
               <div className="color-field">
                 <input

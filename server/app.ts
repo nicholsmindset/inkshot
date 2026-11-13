@@ -213,7 +213,7 @@ export function createApp(db: Database) {
         [w],
       ),
       db.query(
-        "SELECT id,name,goal,offer,status,concepts,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
+        "SELECT id,name,goal,offer,status,concepts,brand,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
         [w],
       ),
       db.query<Asset>(
@@ -251,16 +251,10 @@ export function createApp(db: Database) {
   });
   app.put("/api/brand", async (req, res) => {
     const brand = brandSchema.parse(req.body);
-    if (
-      brand.photoId &&
-      !(
-        await db.query(
-          "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
-          [brand.photoId, req.user!.workspaceId],
-        )
-      ).rows.length
-    )
-      throw new AppError(400, "Please upload that photo again.");
+    for (const uploadId of [brand.photoId, brand.logoId].filter(Boolean)) {
+      const upload = await db.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [uploadId, req.user!.workspaceId]);
+      if (!upload.rows.length) throw new AppError(400, "Choose files uploaded to this workspace.");
+    }
     await db.query("UPDATE workspaces SET brand=$2 WHERE id=$1", [
       req.user!.workspaceId,
       json(brand),
@@ -293,25 +287,25 @@ export function createApp(db: Database) {
   });
   app.post("/api/uploads", upload.single("photo"), async (req, res) => {
     if (!req.file) throw new AppError(400, "Choose a JPG, PNG or WebP photo.");
+    const isLogo = req.body.purpose === "logo";
     let buffer: Buffer;
     try {
-      buffer = await sharp(req.file.buffer, { limitInputPixels: 40000000 })
+      const raster = sharp(req.file.buffer, { limitInputPixels: 40000000 })
         .rotate()
         .resize({
           width: 2400,
           height: 2400,
           fit: "inside",
           withoutEnlargement: true,
-        })
-        .jpeg({ quality: 90 })
-        .toBuffer();
+        });
+      buffer = await (isLogo ? raster.png() : raster.jpeg({ quality: 90 })).toBuffer();
     } catch {
       throw new AppError(400, "That file is not a supported photo.");
     }
     const uploadId = randomUUID();
     const dir = path.join(config.dataDir, "uploads");
     await mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${uploadId}.jpg`);
+    const file = path.join(dir, `${uploadId}.${isLogo ? "png" : "jpg"}`);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(file, buffer);
     const storedFile = await persistMedia(file,req.user!.workspaceId,'brand-uploads');
@@ -377,6 +371,7 @@ export function createApp(db: Database) {
       drafts: z.array(z.object({
         conceptId: z.string().min(1),
         kind: z.enum(["video", "image", "post"]),
+        headline: z.string().trim().min(1).max(120).optional(),
         cta: z.string().trim().min(1).max(55),
       })).length(9).optional(),
     }).parse(req.body);
@@ -391,21 +386,19 @@ export function createApp(db: Database) {
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
       if (c.status !== "draft") return;
-      const overrides = new Map<string, string>();
+      const overrides = new Map<string, {headline?: string; cta: string}>();
       if (drafts) {
         const concepts = new Set(c.concepts.map((concept) => concept.id));
         for (const draft of drafts) {
           const key = `${draft.conceptId}:${draft.kind}`;
           if (!concepts.has(draft.conceptId) || overrides.has(key))
             throw new AppError(400, "Review each campaign asset exactly once.");
-          overrides.set(key, draft.cta);
+          overrides.set(key, draft);
         }
         if (concepts.size !== 3)
           throw new AppError(400, "This campaign needs three distinct concepts.");
       }
       if (photoId) {
-        if (!c.mock)
-          throw new AppError(400, "Photo selection is available for preview kits only.");
         const uploaded = await tx.query(
           "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
           [photoId, w],
@@ -435,7 +428,9 @@ export function createApp(db: Database) {
                 : ["1:1", "4:5", "1.91:1"][index];
           const cost =
             VERSION_CREDITS[kind] + (kind === "post" && index === 2 ? 1 : 0);
-          const cta = overrides.get(`${concept.id}:${kind}`) ?? concept.cta;
+          const draft = overrides.get(`${concept.id}:${kind}`);
+          const cta = draft?.cta ?? concept.cta;
+          const headline = draft?.headline ?? concept.hook;
           const prompt = `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -447,14 +442,14 @@ export function createApp(db: Database) {
               concept.title,
               format,
               kind === "post"
-                ? `${concept.hook}\n\n${c.brand.description}\n\n${cta}.`
+                ? `${headline}\n\n${c.brand.description}\n\n${cta}.`
                 : "",
               vid,
             ],
           );
           await tx.query(
             "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8)",
-            [vid, aid, w, prompt, concept.hook, cta, cost, c.mock],
+            [vid, aid, w, prompt, headline, cta, cost, c.mock],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
