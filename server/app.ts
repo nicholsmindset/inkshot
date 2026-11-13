@@ -355,10 +355,15 @@ export function createApp(db: Database) {
   app.post("/api/campaigns/:id/generate", async (req, res) => {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
-    const { approved } = z
-      .object({ approved: z.literal(true) })
-      .parse(req.body);
-    void approved;
+    const { drafts, photoId } = z.object({
+      approved: z.literal(true),
+      photoId: id.optional(),
+      drafts: z.array(z.object({
+        conceptId: z.string().min(1),
+        kind: z.enum(["video", "image", "post"]),
+        cta: z.string().trim().min(1).max(55),
+      })).length(9).optional(),
+    }).parse(req.body);
     if (config.mode === "live" && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !(Number(process.env.HF_DAILY_BUDGET_USD)>0)))
       throw new AppError(503,"Generation requires provider credentials and a configured spending limit.");
     await db.transaction(async (tx) => {
@@ -370,6 +375,30 @@ export function createApp(db: Database) {
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
       if (c.status !== "draft") return;
+      const overrides = new Map<string, string>();
+      if (drafts) {
+        const concepts = new Set(c.concepts.map((concept) => concept.id));
+        for (const draft of drafts) {
+          const key = `${draft.conceptId}:${draft.kind}`;
+          if (!concepts.has(draft.conceptId) || overrides.has(key))
+            throw new AppError(400, "Review each campaign asset exactly once.");
+          overrides.set(key, draft.cta);
+        }
+        if (concepts.size !== 3)
+          throw new AppError(400, "This campaign needs three distinct concepts.");
+      }
+      if (photoId) {
+        if (!c.mock)
+          throw new AppError(400, "Photo selection is available for preview kits only.");
+        const uploaded = await tx.query(
+          "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
+          [photoId, w],
+        );
+        if (!uploaded.rows.length) throw new AppError(400, "Choose a photo from this workspace.");
+        await tx.query("UPDATE campaigns SET brand=$2 WHERE id=$1", [
+          cid, json({ ...c.brand, photoId }),
+        ]);
+      }
       await changeCredits(
         tx,
         w,
@@ -390,6 +419,7 @@ export function createApp(db: Database) {
                 : ["1:1", "4:5", "1.91:1"][index];
           const cost =
             VERSION_CREDITS[kind] + (kind === "post" && index === 2 ? 1 : 0);
+          const cta = overrides.get(`${concept.id}:${kind}`) ?? concept.cta;
           const prompt = `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -401,14 +431,14 @@ export function createApp(db: Database) {
               concept.title,
               format,
               kind === "post"
-                ? `${concept.hook}\n\n${c.brand.description}\n\n${concept.cta}.`
+                ? `${concept.hook}\n\n${c.brand.description}\n\n${cta}.`
                 : "",
               vid,
             ],
           );
           await tx.query(
             "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8)",
-            [vid, aid, w, prompt, concept.hook, concept.cta, cost, c.mock],
+            [vid, aid, w, prompt, concept.hook, cta, cost, c.mock],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
