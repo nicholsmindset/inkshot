@@ -47,12 +47,17 @@ try {
   assert(identity.sources.every(s=>s.text.trim().length));
   const destinationResponse = await fetch(destination);
   assert.equal(destinationResponse.status, 200);
-  const fetchedIcon = await fetch(identity.logoUrl);
-  assert.equal(fetchedIcon.status, 200);
-  const logo = new FormData();
-  logo.set('purpose','logo');
-  logo.set('photo',new Blob([await sharp(Buffer.from(await fetchedIcon.arrayBuffer())).png().toBuffer()],{type:'image/png'}),'reviewed-site-icon.png');
-  const logoId = (await json('/uploads',logo)).id;
+  const logoImport = await request('/brand/import-logo',{website:identity.website,logoUrl:identity.logoUrl});
+  assert.equal(logoImport.status,201);
+  const {id:logoId} = await logoImport.json();
+  const logoUrl = '/uploads/'+logoId;
+  assert.equal((await fetch(api+logoUrl)).status,401);
+  const otherSignup=await request('/auth/signup',{name:'Other isolated QA',email:'other@example.test',password:crypto.randomUUID()});
+  const otherCookie=otherSignup.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(api+logoUrl,{headers:{cookie:otherCookie}})).status,404);
+  const privateLogo=await sharp(Buffer.from(await (await request(logoUrl)).arrayBuffer())).metadata();
+  assert.equal(privateLogo.format,'png');
+  assert(privateLogo.width>0 && privateLogo.height>0);
   const approvedDescription = 'Estimate the budget for your first HDB flat using income, CPF savings and grants.';
   await json('/brand',{...identity,logoId,offer,description:approvedDescription},'PUT');
   const before = await json('/studio');
@@ -93,7 +98,7 @@ try {
   const captions = execFileSync('unzip',['-p',archive,'captions.txt'],{encoding:'utf8'});
   assert(captions.includes(cta)&&captions.includes(destination));
   assert.equal(execFileSync('unzip',['-p',archive,'destination-url.txt'],{encoding:'utf8'}).trim(),destination);
-  const report = {mode:'mock',source:'Inkshot /api/brand/read, live HTTPS and DNS',site,readPages:identity.sources.map(s=>s.url),name:identity.name,colour:identity.color,logo:identity.logoUrl,offer,cta,destination,correctionSaved:true,privateDownload:true,creditsSpent:before.balance-after.balance,archiveEntries:filenames};
+  const report = {mode:'mock',source:'Inkshot /api/brand/read, live HTTPS and DNS',site,readPages:identity.sources.map(s=>s.url),name:identity.name,colour:identity.color,logo:identity.logoUrl,offer,cta,destination,logoImport:{route:"/api/brand/import-logo",format:privateLogo.format,width:privateLogo.width,height:privateLogo.height,anonymousStatus:401,otherWorkspaceStatus:404},correctionSaved:true,privateDownload:true,creditsSpent:before.balance-after.balance,archiveEntries:filenames};
   console.log(JSON.stringify(report,null,2));
   await writeFile(path.join(out,'verification.json'),JSON.stringify(report,null,2));
 } finally {
