@@ -31,3 +31,4 @@ CREATE TABLE IF NOT EXISTS billing_accounts (
 CREATE TABLE IF NOT EXISTS payment_events (id text PRIMARY KEY,type text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
 
 CREATE TABLE IF NOT EXISTS provider_spend(request_key text PRIMARY KEY,input_hash text NOT NULL,usd numeric(12,6) NOT NULL CHECK(usd>0),created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE provider_spend ADD COLUMN IF NOT EXISTS provider_request_id text;
