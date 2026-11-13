@@ -23,7 +23,7 @@ type Work = {
   mock: boolean;
   source_path: string | null;
   credit_cost: number;
-  brand: { name: string; photoId?: string };
+  brand: { name: string; color?: string; photoId?: string; logoId?: string };
   asset_id: string;
   campaign_id: string;
 };
@@ -42,18 +42,18 @@ async function handle(db:Database,job: Job) {
         [work.id],
       );
       let source = work.source_path ? await materializeMedia(work.source_path) : null;
-      if (!source && work.mock) {
-        const uploaded = work.brand.photoId
-          ? (
-              await db.query<{ file_path: string }>(
-                "SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2",
-                [work.brand.photoId, job.workspace_id],
-              )
-            ).rows[0]
-          : null;
-        source =
-          uploaded ? await materializeMedia(uploaded.file_path) : path.resolve("public/examples/candle.png");
+      async function merchantFile(id: string) {
+        const row = (await db.query<{file_path: string}>(
+          "SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2",
+          [id, job.workspace_id],
+        )).rows[0];
+        if (!row) throw new TerminalFailure("The approved brand file is unavailable. Credits returned.");
+        return materializeMedia(row.file_path);
       }
+      if (!source && work.brand.photoId && (work.mock || work.kind !== "video")) {
+        source = await merchantFile(work.brand.photoId);
+      }
+      if (!source && work.mock) source = path.resolve("public/examples/candle.png");
       if (!source && !work.mock) {
         const checkpoint = job.checkpoint;
         const save = async () => {
@@ -131,6 +131,8 @@ async function handle(db:Database,job: Job) {
         headline: work.headline,
         cta: work.cta,
         brandName: work.brand.name,
+        brandColor: work.brand.color,
+        logo: work.brand.logoId ? await merchantFile(work.brand.logoId) : undefined,
         mock: work.mock,
       });
       const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media');

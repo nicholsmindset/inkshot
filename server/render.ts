@@ -69,6 +69,8 @@ export async function renderMedia(input: {
   headline: string;
   cta: string;
   brandName: string;
+  brandColor?: string;
+  logo?: string;
   mock: boolean;
 }) {
   const dir = path.join(config.dataDir, "media");
@@ -93,9 +95,24 @@ export async function renderMedia(input: {
     10,
     Math.min(24, Math.floor(900 / (input.brandName.length * 0.8))),
   );
-  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${Math.min(height - 160, top + heading.length * lineHeight + 25)}" fill="#fbf9f4" fill-opacity=".84"/><text x="76" y="70" font-family="sans-serif" font-size="${brandSize}" letter-spacing="${input.brandName.length > 45 ? 1 : 3}" fill="#34312c">${xml(input.brandName.toUpperCase())}</text>${heading.map((s, i) => `<text x="70" y="${top + i * lineHeight}" font-family="serif" font-size="${fontSize}" fill="#171614">${xml(s)}</text>`).join("")}<rect x="60" y="${height - 132}" width="960" height="80" rx="2" fill="#fbf9f4" fill-opacity=".93"/><text x="540" y="${height - 80}" text-anchor="middle" font-family="sans-serif" font-size="29" fill="#171614">${xml(input.cta)}</text>${input.mock ? `<text x="1030" y="${height - 18}" text-anchor="end" font-family="sans-serif" font-size="18" fill="#34312c">SAMPLE CREATIVE</text>` : ""}</svg>`;
+  const accent = /^#[0-9a-f]{6}$/i.test(input.brandColor || "") ? input.brandColor! : "#78745a";
+  const logo = input.logo ? await sharp(input.logo)
+    .resize(160, 90, { fit: "inside", withoutEnlargement: true }).png().toBuffer() : undefined;
+  const ctaSize = Math.min(29, Math.floor(900 / Math.max(1, [...input.cta].length)));
+  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${width}" height="${Math.min(height - 160, top + heading.length * lineHeight + 25)}" fill="#fbf9f4" fill-opacity=".84"/>
+    <rect x="0" y="0" width="${width}" height="14" fill="${accent}"/>
+    <text x="${logo ? 235 : 76}" y="74" font-family="sans-serif" font-size="${brandSize}" letter-spacing="${input.brandName.length > 45 ? 1 : 3}" fill="#34312c">${xml(input.brandName.toUpperCase())}</text>
+    ${heading.map((s, i) => `<text x="70" y="${top + i * lineHeight}" font-family="serif" font-size="${fontSize}" fill="#171614">${xml(s)}</text>`).join("")}
+    <rect x="60" y="${height - 132}" width="960" height="80" rx="2" fill="#fbf9f4" fill-opacity=".93"/>
+    <rect x="60" y="${height - 132}" width="12" height="80" fill="${accent}"/>
+    <text x="540" y="${height - 80}" text-anchor="middle" font-family="sans-serif" font-size="${ctaSize}" fill="#171614">${xml(input.cta)}</text>
+    ${input.mock ? `<text x="1030" y="${height - 18}" text-anchor="end" font-family="sans-serif" font-size="18" fill="#34312c">SAMPLE CREATIVE</text>` : ""}
+  </svg>`;
   const overlay = path.join(dir, `${input.id}-overlay.png`);
-  await sharp(Buffer.from(svg)).png().toFile(overlay);
+  const graphic = sharp(Buffer.from(svg));
+  if (logo) graphic.composite([{ input: logo, left: 55, top: 24 }]);
+  await graphic.png().toFile(overlay);
   const preview = path.join(dir, `${input.id}.jpg`);
   const output = path.join(dir, `${input.id}.mp4`);
   if (input.kind === "video" && !input.mock && input.source.endsWith(".mp4")) {
@@ -129,7 +146,7 @@ export async function renderMedia(input: {
   } else {
     await sharp(input.source)
       .resize(width, height, { fit: "cover", position: "centre" })
-      .composite([{ input: Buffer.from(svg) }])
+      .composite([{ input: overlay }])
       .jpeg({ quality: 88 })
       .toFile(preview);
     if (input.kind === "video")

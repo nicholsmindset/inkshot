@@ -407,10 +407,11 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
     draftKinds.map((kind) => ({
       conceptId: concept.id,
       kind,
+      headline: (edits[concept.id + ":" + kind + ":headline"] ?? concept.hook).trim(),
       cta: (edits[concept.id + ":" + kind] ?? concept.cta).trim(),
     })),
   );
-  const photoId = campaign.mock ? studio.brand.photoId : undefined;
+  const photoId = campaign.brand.photoId;
   const review = JSON.stringify({ drafts, photoId });
   function editCta(key: string, value: string) {
     const next = { ...edits, [key]: value };
@@ -481,7 +482,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           <div className="section-heading">
             <h2>Review your nine assets</h2>
           </div>
-          <p>{storageAvailable ? "Call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
+          <p>{storageAvailable ? "Headline and call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
           <div className="concept-grid">
             {campaign.concepts.map((concept) => (
               <article className="concept-card" key={concept.id}>
@@ -491,7 +492,12 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
                 {draftKinds.map((kind) => {
                   const key = concept.id + ":" + kind;
                   return (
-                    <Field key={key} label={draftLabels[kind] + " call to action"}>
+                    <div key={key}>
+                    <Field label={draftLabels[kind] + " headline"}>
+                      <input value={edits[key + ":headline"] ?? concept.hook} disabled={busy} maxLength={120}
+                        onChange={(event) => editCta(key + ":headline", event.target.value)} />
+                    </Field>
+                    <Field label={draftLabels[kind] + " call to action"}>
                       <input
                         aria-label={concept.title + " " + draftLabels[kind] + " call to action"}
                         value={edits[key] ?? concept.cta}
@@ -500,6 +506,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
                         onChange={(event) => editCta(key, event.target.value)}
                       />
                     </Field>
+                    </div>
                   );
                 })}
               </article>
@@ -507,10 +514,12 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           </div>
           {photoId && (
             <figure>
-              <img src={"/api/uploads/" + encodeURIComponent(photoId)} alt="Brand photo selected for this sample campaign" width={120} />
-              <figcaption>Photo for this sample kit</figcaption>
+              <img src={"/api/uploads/" + encodeURIComponent(photoId)} alt="Approved product photo" width={120} />
+              <figcaption>Photo used for image ads and posts. Live video uses generated footage.</figcaption>
             </figure>
           )}
+          {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Logo on exported ads" width={90} />}
+          <p>Brand colour <strong>{campaign.brand.color}</strong></p>
           <div className="approval-panel">
             <div>
               <h3>A quick check before we make it.</h3>
@@ -527,7 +536,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
             </div>
             <div>
               <Button
-                disabled={approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.cta || draft.cta.length > 55) || studio.balance < 100}
+                disabled={approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.headline || draft.headline.length > 120 || !draft.cta || draft.cta.length > 55) || studio.balance < 100}
                 busy={busy}
                 onClick={() => void generate()}
               >

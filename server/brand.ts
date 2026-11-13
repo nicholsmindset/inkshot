@@ -13,6 +13,7 @@ export const brandSchema = z.object({
     .array(z.object({ url: z.string().max(2048), text: z.string().max(600) }))
     .max(12),
   photoId: z.string().uuid().optional(),
+  logoId: z.string().uuid().optional(),
   logoUrl: z.url().max(2048).optional(),
 }).refine(brand => {
   if (!brand.logoUrl) return true;
