@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -237,4 +238,39 @@ test('unknown billing customers are retried rather than assigned to another work
 });
 test('Stripe webhook requires a signature',async()=>{
  assert.equal((await call('/webhooks/stripe',{type:'invoice.paid'},'')).status,400);
+});
+
+test("approved asset CTAs and workspace photo are persisted before generation", async () => {
+  const session = await call("/auth/demo", {}, "");
+  const cookie = session.headers.get("set-cookie")!.split(";")[0];
+  const owner = (await (await call("/studio", undefined, cookie)).json()).user.workspaceId;
+  const { id, concepts } = await (await call("/campaigns", {
+    name: "Photo campaign", goal: "Sales", offer: "Book now",
+  }, cookie)).json();
+  const photoId = randomUUID(), foreignId = randomUUID();
+  const file = path.resolve("public/examples/candle.png");
+  await db.query("INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3),($4,$5,$3)", [
+    photoId, owner, file, foreignId, workspace,
+  ]);
+  const drafts = concepts.flatMap((concept: { id: string; title: string }) =>
+    ["video", "image", "post"].map(kind => ({
+      conceptId: concept.id, kind, cta: `Book ${concept.id} ${kind}`,
+    })),
+  );
+  const submit = (body: object) => call(`/campaigns/${id}/generate`, { approved: true, ...body }, cookie);
+  assert.equal((await submit({ drafts, photoId: foreignId })).status, 400);
+  assert.equal((await submit({ drafts: [...drafts.slice(1), drafts[1]], photoId })).status, 400);
+  assert.equal((await (await call("/studio", undefined, cookie)).json()).balance, 300);
+  assert.equal((await submit({ drafts, photoId })).status, 200);
+  const studio = await (await call("/studio", undefined, cookie)).json();
+  assert.equal(studio.balance, 200);
+  assert.equal(studio.assets.length, 9);
+  for (const asset of studio.assets) {
+    const concept = concepts.find((c: { title: string }) => c.title === asset.title);
+    const expected = `Book ${concept.id} ${asset.kind}`;
+    assert.equal(asset.versions[0].cta, expected);
+    if (asset.kind === "post") assert(asset.caption.includes(expected));
+  }
+  const saved = await db.query<{ photo: string }>("SELECT brand->>'photoId' AS photo FROM campaigns WHERE id=$1", [id]);
+  assert.equal(saved.rows[0].photo, photoId);
 });
