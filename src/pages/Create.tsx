@@ -12,6 +12,17 @@ import { useStudio } from "../context";
 import { api } from "../api";
 import { Button, Field, Highlight, Notice } from "../ui";
 import type { Brand } from "../../shared/types";
+function sameSiteLogo(value: string | undefined, website: string) {
+  try {
+    if (!value) return undefined;
+    const logo = new URL(value);
+    return logo.protocol === "https:" && !logo.username && !logo.password &&
+      logo.origin === new URL(website).origin ? logo.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function BrandPage() {
   const { studio } = useStudio();
   return studio ? (
@@ -38,10 +49,10 @@ function BrandForm({ initial }: { initial: Brand }) {
       let address = requestedUrl.trim();
       if (!address.startsWith("https://")) address = `https://${address}`;
       const next = await api<Brand>("/brand/read", { url: address });
-      setBrand({
+      setBrand((current) => ({
         ...next,
-        ...(brand.photoId ? { photoId: brand.photoId } : {}),
-      });
+        ...(current.photoId ? { photoId: current.photoId } : {}),
+      }));
       setReadPreview(next);
       notify(
         studio?.mode === "mock"
@@ -59,12 +70,17 @@ function BrandForm({ initial }: { initial: Brand }) {
     startedWebsiteRead.current = true;
     void read(requestedWebsite).finally(() => setSearchParams({}, { replace: true }));
   }, [requestedWebsite, setSearchParams]);
+  const logoLink = sameSiteLogo(brand.logoUrl?.trim(), brand.website);
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy("save");
     setError("");
     try {
-      await api("/brand", brand, "PUT");
+      const logoUrl = brand.logoUrl?.trim();
+      if (logoUrl && !logoLink) {
+        throw new Error("Choose an HTTPS logo link on the same site as your brand website.");
+      }
+      await api("/brand", { ...brand, logoUrl: logoUrl || undefined }, "PUT");
       await refresh();
       notify("Your brand brief has been saved.");
     } catch (e) {
@@ -141,7 +157,7 @@ function BrandForm({ initial }: { initial: Brand }) {
               </Button>
             </div>
             {busy === "read" ? <p className="read-progress" role="status"><span className="read-spinner" /> Reading public pages and preparing your editable brief…</p> : null}
-            {!busy && brand.website ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
+            {!busy && readPreview ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
             {studio?.mode === "mock" ? (
               <small>
                 Preview mode imports page text for you to refine. AI brief
@@ -157,6 +173,9 @@ function BrandForm({ initial }: { initial: Brand }) {
               <span className="hand">01</span>
               <h2>Your story</h2>
             </div>
+            <Field label="Brand website" hint="You can enter this manually if the site could not be read.">
+              <input type="url" value={brand.website} onChange={(e) => set("website", e.target.value)} placeholder="https://yourbusiness.com" />
+            </Field>
             <Field label="Business name">
               <input
                 required
@@ -246,6 +265,18 @@ function BrandForm({ initial }: { initial: Brand }) {
                 <small>Saved with your brand for future templates</small>
               </div>
             </Field>
+            <Field label="Logo reference" hint="Optional. Paste a link to a logo on your brand website, or clear the field to remove it.">
+              <input
+                type="url"
+                value={brand.logoUrl || ""}
+                placeholder="https://yourbusiness.com/logo.png"
+                onChange={(e) => set("logoUrl", e.target.value)}
+                maxLength={2048}
+              />
+            </Field>
+            {logoLink && (
+              <a href={logoLink} target="_blank" rel="noopener noreferrer">Open logo reference</a>
+            )}
             {error ? <Notice>{error}</Notice> : null}
             <div className="form-actions">
               <span className="muted">
@@ -308,7 +339,7 @@ function BrandForm({ initial }: { initial: Brand }) {
           </div>
           {brand.sources.length ? (
             <div className="source-list">
-              <h3>Where it came from</h3>
+              <h3>Sources for this brief</h3>
               {brand.sources.map((s, i) => (
                 <div key={i}>
                   <a href={s.url} target="_blank" rel="noreferrer">
