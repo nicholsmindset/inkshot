@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -607,10 +607,60 @@ export function AssetEditor({
     </Modal>
   );
 }
+function HeadlineVariations({ assetId, version, pending, onCreated }: {
+  assetId: string;
+  version: Version;
+  pending: boolean;
+  onCreated: (versionId: string, headline: string) => Promise<void>;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const request = useRef<{ payload: string; id: string } | null>(null);
+  const headlines = input.split("\n").map((line) => line.trim()).filter(Boolean);
+  const valid = headlines.length >= 2 && headlines.length <= 5 &&
+    headlines.every((line) => line.length <= 120) &&
+    new Set(headlines.map((line) => line.toLowerCase())).size === headlines.length;
+  async function create() {
+    if (!valid || pending || busy || version.status !== "ready") return;
+    setBusy(true);
+    setError("");
+    try {
+      const payload = JSON.stringify([version.id, headlines]);
+      if (request.current?.payload !== payload) {
+        request.current = { payload, id: crypto.randomUUID() };
+      }
+      const result = await api<{ versionIds: string[] }>(
+        "/assets/" + assetId + "/variations",
+        { versionId: version.id, headlines, requestId: request.current.id },
+      );
+      await onCreated(result.versionIds[0], headlines[0]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="headline-variations">
+      <Field label="Try different headlines" hint="Enter 2–5 distinct headlines, one per line. Up to 120 characters each. Each version keeps the image and call to action.">
+        <textarea rows={4} value={input} disabled={busy} onChange={(e) => setInput(e.target.value)} />
+      </Field>
+      <Button variant="secondary" busy={busy} disabled={!valid || pending || version.status !== "ready"} onClick={() => void create()}>
+        Create headline variations
+      </Button>
+      {error && <Notice>{error}</Notice>}
+    </section>
+  );
+}
+
 function EditorContents({ asset }: { asset: Asset }) {
   const { refresh, notify } = useStudio();
   const [vid, setVid] = useState(asset.current_version_id);
   const v = asset.versions.find((v) => v.id === vid) || asset.versions[0];
+  const original = asset.versions.reduce((first, item) => item.n < first.n ? item : first);
+  const supportsVariations = asset.kind === "image";
+  const compare = supportsVariations && original.status === "ready" && v.id !== original.id;
   const [headline, setHeadline] = useState(v.headline);
   const [cta, setCta] = useState(v.cta);
   const [note, setNote] = useState("");
@@ -659,9 +709,27 @@ function EditorContents({ asset }: { asset: Asset }) {
   }
   return (
     <>
-      <div className="editor-grid">
+      {compare && (
+        <div className="variation-compare" aria-label="Compare image versions">
+          {[original, v].map((item) => (
+            <figure key={item.id}>
+              <figcaption>{item.id === original.id ? "Original" : "Variation"} · Version {item.n}</figcaption>
+              {item.status === "ready" ? (
+                <img src={media(item.id)} alt={item.headline} />
+              ) : (
+                <div className="editor-wait" role="status">
+                  <Status status={item.status} />
+                  {item.error && <p>{item.error}</p>}
+                </div>
+              )}
+              <p>{item.headline}</p>
+            </figure>
+          ))}
+        </div>
+      )}
+      <div className={compare ? "editor-grid comparing" : "editor-grid"}>
         <div className="editor-preview">
-          {v.status === "ready" ? (
+          {compare ? null : v.status === "ready" ? (
             asset.kind === "video" ? (
               <video
                 src={media(v.id)}
@@ -705,6 +773,15 @@ function EditorContents({ asset }: { asset: Asset }) {
             <SlidersHorizontal size={16} />
             <h3>Make it your own</h3>
           </div>
+          {supportsVariations && (
+            <HeadlineVariations key={v.id} assetId={asset.id} version={v} pending={pending || busy} onCreated={async (nextId, nextHeadline) => {
+              await refresh();
+              setVid(nextId);
+              setHeadline(nextHeadline);
+              setCta(v.cta);
+              notify("Headline variations queued.");
+            }} />
+          )}
           <Field label="Headline">
             <textarea
               value={headline}
@@ -779,7 +856,7 @@ function EditorContents({ asset }: { asset: Asset }) {
               ) : null}
             </strong>
             <Status status={version.status} />
-            <small>{version.note || "The original idea"}</small>
+            <small>{supportsVariations ? version.headline : version.note || "The original idea"}</small>
           </button>
         ))}
       </div>
@@ -802,7 +879,7 @@ function EditorContents({ asset }: { asset: Asset }) {
           {v.status === "ready" ? (
             <a className="button" href={`${media(v.id)}?download=true`}>
               <Download size={16} />
-              Download
+              Download version {v.n}
             </a>
           ) : null}
         </div>
