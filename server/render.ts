@@ -1,3 +1,4 @@
+import "./render-fonts.js";
 import staticFfmpeg from 'ffmpeg-static';
 import sharp from "sharp";
 import path from "node:path";
@@ -102,12 +103,12 @@ export async function renderMedia(input: {
   const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <rect width="${width}" height="${Math.min(height - 160, top + heading.length * lineHeight + 25)}" fill="#fbf9f4" fill-opacity=".84"/>
     <rect x="0" y="0" width="${width}" height="14" fill="${accent}"/>
-    <text x="${logo ? 235 : 76}" y="74" font-family="sans-serif" font-size="${brandSize}" letter-spacing="${input.brandName.length > 45 ? 1 : 3}" fill="#34312c">${xml(input.brandName.toUpperCase())}</text>
-    ${heading.map((s, i) => `<text x="70" y="${top + i * lineHeight}" font-family="serif" font-size="${fontSize}" fill="#171614">${xml(s)}</text>`).join("")}
+    <text x="${logo ? 235 : 76}" y="74" font-family="Geist, sans-serif" font-size="${brandSize}" letter-spacing="${input.brandName.length > 45 ? 1 : 3}" fill="#34312c">${xml(input.brandName.toUpperCase())}</text>
+    ${heading.map((s, i) => `<text x="70" y="${top + i * lineHeight}" font-family="Instrument Serif, serif" font-size="${fontSize}" fill="#171614">${xml(s)}</text>`).join("")}
     <rect x="60" y="${height - 132}" width="960" height="80" rx="2" fill="#fbf9f4" fill-opacity=".93"/>
     <rect x="60" y="${height - 132}" width="12" height="80" fill="${accent}"/>
-    <text x="540" y="${height - 80}" text-anchor="middle" font-family="sans-serif" font-size="${ctaSize}" fill="#171614">${xml(input.cta)}</text>
-    ${input.mock ? `<text x="1030" y="${height - 18}" text-anchor="end" font-family="sans-serif" font-size="18" fill="#34312c">SAMPLE CREATIVE</text>` : ""}
+    <text x="540" y="${height - 80}" text-anchor="middle" font-family="Geist, sans-serif" font-size="${ctaSize}" fill="#171614">${xml(input.cta)}</text>
+    ${input.mock ? `<text x="1030" y="${height - 18}" text-anchor="end" font-family="Geist, sans-serif" font-size="18" fill="#34312c">SAMPLE CREATIVE</text>` : ""}
   </svg>`;
   const overlay = path.join(dir, `${input.id}-overlay.png`);
   const graphic = sharp(Buffer.from(svg));

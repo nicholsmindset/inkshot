@@ -1,3 +1,4 @@
+import "./render-fonts.js";
 import {persistMedia,materializeMedia} from './storage.js';
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";

@@ -99,7 +99,7 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   for (const video of videos) {
     const bytes = execFileSync("unzip", ["-p", archive, video], { maxBuffer: 12 * 1024 * 1024 });
     assert.equal(bytes.subarray(4, 8).toString(), "ftyp");
-    execFileSync(ffmpeg, ["-v", "error", "-i", "pipe:0", "-frames:v", "1", "-f", "null", "-"], { input: bytes });
+    execFileSync(ffmpeg, ["-v", "error", "-xerror", "-i", "pipe:0", "-f", "null", "-"], { input: bytes });
   }
   const captions = execFileSync("unzip", ["-p", archive, "captions.txt"], { encoding: "utf8" });
   const posts = (await studio()).assets.filter((a: { kind: string }) => a.kind === "post");

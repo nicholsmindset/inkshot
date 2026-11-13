@@ -12,6 +12,14 @@ test("the Smart Calculator reference rasterizes to a transparent branded PNG", a
   assert.equal(metadata.format, "png");
   assert.equal(metadata.width, 512);
   const sample = async (left: number, top: number) => [...await sharp(png).extract({ left, top, width: 1, height: 1 }).raw().toBuffer()];
+  // The background alone still renders on a host with missing fonts.
+  const { data, info } = await sharp(png).extract({ left: 50, top: 110, width: 412, height: 270 })
+    .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let whitePixels = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240 && data[i + 3] === 255) whitePixels++;
+  }
+  assert.ok(whitePixels > 10000, "SG lettering must be legible in the imported logo");
   assert.equal((await sample(0, 0))[3], 0);
   assert.deepEqual(await sample(256, 48), [183, 16, 42, 255]);
 });
