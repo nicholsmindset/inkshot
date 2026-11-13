@@ -40,13 +40,18 @@ test("a downloaded image uses the selected merchant photo and the approved asset
   const upload = await fetch(api + "/uploads", { method: "POST", headers: { cookie }, body: form });
   assert.equal(upload.status, 201);
   const { id: photoId } = await upload.json();
+  const merchant = await (await fetch(api + "/studio", {headers: {cookie}})).json();
+  const brandColor = "#118799";
+  const saved = await fetch(api + "/brand", {method: "PUT", headers: {cookie, "content-type":"application/json"}, body: JSON.stringify({...merchant.brand, color: brandColor, photoId})});
+  assert.equal(saved.status, 200);
   const response = await post("/campaigns", { name: "Merchant launch", goal: "Sales", offer: "Friday preorder" });
   assert.equal(response.status, 201);
   const { id, concepts } = await response.json();
   const approved = "Reserve the Friday batch";
+  const headline = "Friday is sourdough day";
   const drafts = concepts.flatMap((concept: { id: string; cta: string }, index: number) =>
     ["video", "image", "post"].map(kind => ({
-      conceptId: concept.id, kind, cta: index === 0 && kind === "image" ? approved : concept.cta,
+      conceptId: concept.id, kind, headline, cta: index === 0 && kind === "image" ? approved : concept.cta,
     })),
   );
   const generated = await post(`/campaigns/${id}/generate`, { approved: true, photoId, drafts });
@@ -73,7 +78,7 @@ test("a downloaded image uses the selected merchant photo and the approved asset
   const expected = async (cta: string, label: string) => {
     const rendered = await renderMedia({
       id: label, source: target.photo, kind: "image", format: target.format,
-      headline: concepts[0].hook, cta, brandName: target.name, mock: true,
+      headline, cta, brandName: target.name, brandColor, mock: true,
     });
     return sharp(rendered.file_path).raw().toBuffer();
   };
