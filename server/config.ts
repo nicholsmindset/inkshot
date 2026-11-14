@@ -29,6 +29,14 @@ export class AppError extends Error {
   }
 }
 
+export function writingLimits() {
+  const global = Number(process.env.WRITING_DAILY_REQUEST_LIMIT);
+  const workspace = Number(process.env.WRITING_WORKSPACE_DAILY_REQUEST_LIMIT);
+  if (![global, workspace].every(n => Number.isSafeInteger(n) && n > 0 && n <= 2147483647) || workspace > global)
+    throw new AppError(503, "Daily writing limits are not configured.");
+  return { global, workspace };
+}
+
 export function assertHostedConfiguration() {
   if (process.env.AUTH_PROVIDER !== "supabase" || process.env.STORAGE_PROVIDER !== "supabase" || !process.env.DATABASE_URL)
     throw new Error("Hosted identity, database and private storage are required.");
@@ -40,4 +48,5 @@ export function assertHostedConfiguration() {
     throw new Error("Live billing requires live Stripe settings and an HTTPS app origin.");
   if (liveGeneration && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !Number.isFinite(Number(process.env.HF_DAILY_BUDGET_USD)) || Number(process.env.HF_DAILY_BUDGET_USD) <= 0 || (!config.claudeKey && !config.openrouterKey)))
     throw new Error("Live generation requires provider access, writing access and a spending limit.");
+  if (liveGeneration) writingLimits();
 }

@@ -35,3 +35,10 @@ CREATE TABLE IF NOT EXISTS provider_spend(request_key text PRIMARY KEY,input_has
 ALTER TABLE provider_spend ADD COLUMN IF NOT EXISTS provider_request_id text;
 
 ALTER TABLE public.billing_accounts ADD COLUMN IF NOT EXISTS last_allowance_invoice_created bigint NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS writing_daily_usage (
+  usage_day date NOT NULL,
+  scope text NOT NULL,
+  requests integer NOT NULL CHECK (requests > 0),
+  PRIMARY KEY (usage_day, scope)
+);

@@ -21,6 +21,10 @@ The hosted app is still a **preview**, despite its working auth, storage, API, s
 
 Private credentials belong in ignored `.env` and Vercel server-only environment variables. Never commit `.env`, `.vercel`, generated customer media, or API keys; do not use a `VITE_` prefix for secrets.
 
+## Paid writing limits
+
+Apply the writing-limits migration and configure positive integer `WRITING_DAILY_REQUEST_LIMIT` and `WRITING_WORKSPACE_DAILY_REQUEST_LIMIT` before live activation. The workspace limit must fit within the global limit. Brand reads and campaign drafts share both allowances. Each provider call consumes an allowance before submission, including timeouts and invalid provider replies. Limits reset at midnight UTC. Each call allows up to 128 KiB of prompt text and 5,000 output tokens. To cap a dollar amount, also configure the provider account's spend controls for the selected model and verify its tariff before activation. Request counts alone do not reconcile an invoice.
+
 ## Separate Supabase project for live billing
 
 Keep the existing hosted preview on its current sandbox project. For live customers, provision a new Supabase project with its own database, auth users, private buckets and scoped database login. Apply all migrations before first use. Use a direct Supabase database URL or its Supavisor pooler URL with the project-qualified username. Configure the matching project URL and keys for Auth and Storage. The server and queue worker compare that project reference with the database connection and the database's durable environment marker at startup. The original hosted sandbox can continue serving while its marker migration is being rolled out.

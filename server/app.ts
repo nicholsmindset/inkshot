@@ -10,7 +10,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { z } from "zod";
 import { config, AppError } from "./config.js";
 import type { Database, Queryable } from "./db.js";
@@ -295,7 +295,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "There is very little readable text on this page. Please add your brand details manually.",
       );
-    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(pages);
+    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(db, req.user!.workspaceId, pages);
     res.json({ ...brief, color: emptyBrand.color, ...identity });
   });
   app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
@@ -366,7 +366,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "Add a short description of your business first.",
       );
-    const concepts = await writeConcepts(brand, input.goal, input.offer);
+    const concepts = await writeConcepts(db, w, brand, input.goal, input.offer);
     const cid = randomUUID();
     await db.query(
       "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -675,7 +675,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     if (!rows.length)
       throw new AppError(400, "Your first asset is still being made.");
     res.attachment("inkshot-kit.zip");
-    const zip = archiver("zip", { zlib: { level: 5 } });
+    const zip = new ZipArchive({ zlib: { level: 5 } });
     zip.on("error", () => res.destroy());
     zip.pipe(res);
     for (const [i,a] of rows.entries()) {
