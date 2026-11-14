@@ -26,7 +26,7 @@ import { writeBrief, writeConcepts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
-import {billingConfigured,billingMode,checkout,portal,webhook} from './billing.js';
+import {billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
   KIT_CREDITS,
   VERSION_CREDITS,
@@ -308,6 +308,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         claude: !!config.claudeKey || !!config.openrouterKey,
       },
       billingEnabled: billingConfigured()&&!req.user!.demo,
+      checkoutReleased: checkoutReleased(),
       billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
     });

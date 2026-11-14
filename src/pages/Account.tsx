@@ -22,6 +22,7 @@ export function Billing() {
   if (!studio) return null;
   const canSubscribe = ["none", "canceled", "incomplete_expired"].includes(studio.billingStatus);
   const live = studio.billingMode === "live";
+  const checkoutHeld = live && canSubscribe && !studio.checkoutReleased;
   let billingLabel = live ? "Manage subscription" : "Manage test subscription";
   if (canSubscribe) billingLabel = live ? "Subscribe for US$39/month" : "Test subscription checkout";
   return (
@@ -63,8 +64,8 @@ export function Billing() {
             ))}
           </ul>
           {error ? <Notice>{error}</Notice> : null}
-          <Button className="full" disabled={!studio.billingEnabled} busy={busy} onClick={()=>openBilling(canSubscribe ? 'checkout' : 'portal')}>
-            {studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
+          <Button className="full" disabled={!studio.billingEnabled || checkoutHeld} busy={busy} onClick={()=>openBilling(canSubscribe ? 'checkout' : 'portal')}>
+            {checkoutHeld ? 'Subscriptions open soon' : studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
           </Button>
           <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : 'Stripe sandbox only. No real payment is collected.'}</small>
         </section>

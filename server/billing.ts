@@ -12,6 +12,9 @@ export function billingMode(): BillingMode {
  return 'off';
 }
 export function billingConfigured(){return billingMode()!=='off'&&!!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&!!process.env.STRIPE_STUDIO_PRICE_ID}
+export function checkoutReleased() {
+ return billingMode() !== 'live' || process.env.ENABLE_LIVE_CHECKOUT === 'true';
+}
 function client(){
  const key=process.env.STRIPE_API_KEY||'';
  if(!billingConfigured())throw new AppError(503,'Checkout is not configured yet. You have not been charged.');
@@ -25,6 +28,7 @@ const stripeId=(value:string|{id:string}|null|undefined)=>typeof value==='string
 export async function checkout(db:Database,user:User){
  if(user.demo)throw new AppError(400,'Create a permanent account before testing a subscription.');
  const stripe=client();
+ if (!checkoutReleased()) throw new AppError(503, 'New subscriptions are not open yet. You have not been charged.');
  const price=await stripe.prices.retrieve(process.env.STRIPE_STUDIO_PRICE_ID!);
  if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!=='usd'||price.unit_amount!==3900||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
  return db.transaction(async tx=>{
