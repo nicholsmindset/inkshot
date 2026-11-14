@@ -4,6 +4,14 @@ The current production-readiness assessment is in [PRODUCTION_AUDIT.md](PRODUCTI
 
 Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/inkshot), deployed to [Vercel](https://vercel.com/nicholsmindset-gmailcoms-projects/inkshot) at [inkshot-omega.vercel.app](https://inkshot-omega.vercel.app). GitHub Actions runs the tests and production build on pushes and pull requests. Vercel hosts the frontend and authenticated API; a scheduled Vercel function drains generation jobs. The site remains `noindex` until launch.
 
+## Verify the dedicated live Stripe destination
+
+Keep the existing hosted sandbox and its Stripe endpoint together. On the separate production origin, provision the live database, Auth, Storage, generation providers and limits before opening checkout. In ONN GROUP LLP's **live** Stripe Workbench, select events from **your account** and use the production origin followed by `/api/webhooks/stripe`. Reuse an existing matching destination. Select snapshot events and API version `2026-08-26.dahlia` to match the server integration. Subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`.
+
+Store the destination's signing secret directly in the production project's server-only `STRIPE_WEBHOOK_SECRET`. Set the live price ID `price_1UbbydDjNCv7xF61FEzeGu5I` and portal configuration ID `bpc_1Ubc4cDjNCv7xF61XYQJpfqA` in `STRIPE_STUDIO_PRICE_ID` and `STRIPE_PORTAL_CONFIGURATION_ID` respectively. The signing secret is destination-specific. Leave the sandbox credentials in the sandbox.
+
+After deploying the production configuration, supply a live, read-only Stripe credential through the shell environment and run `node --import tsx scripts/check-live-stripe.ts https://your-production-host`. It checks the account, catalogue, exact event selection, portal and public app health without modifying Stripe or printing credentials. Successful signed delivery, credit accounting and a private campaign download still need an owner-operated acceptance run. See [Stripe's webhook documentation](https://docs.stripe.com/webhooks).
+
 ## Verified on 1 October 2026
 
 - Supabase project `smpdzhxydnctiyjqojmp` holds 12 application tables and two private media buckets. The tables have RLS and no client-role grants. The trusted server uses a scoped `inkshot_app` login, TLS certificate and hostname verification, and application-level workspace checks.
@@ -20,11 +28,3 @@ Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/in
 The hosted app is still a **preview**, despite its working auth, storage, API, sample media export, and Stripe sandbox. Real campaign writing is unavailable because the configured OpenRouter account returned HTTP 402 for insufficient credit. Live generation remains disabled until writing, model pricing, provider budget accounting, full hosted live-media export, and paid billing are validated. Do not promote the Stripe sandbox configuration to live or remove `noindex` before those checks.
 
 Private credentials belong in ignored `.env` and Vercel server-only environment variables. Never commit `.env`, `.vercel`, generated customer media, or API keys; do not use a `VITE_` prefix for secrets.
-
-### Verify the dedicated live Stripe destination
-
-Keep the existing hosted sandbox and its Stripe endpoint together. On the separate production origin, provision the live database, Auth, Storage, generation providers and limits before opening checkout. In ONN GROUP LLP's **live** Stripe Workbench, select events from **your account** and use the production origin followed by `/api/webhooks/stripe`. Reuse an existing matching destination. Select snapshot events and API version `2026-08-26.dahlia` to match the server integration. Subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`.
-
-Store the destination's signing secret directly in the production project's server-only `STRIPE_WEBHOOK_SECRET`. Set the live price ID `price_1UbbydDjNCv7xF61FEzeGu5I` and portal configuration ID `bpc_1Ubc4cDjNCv7xF61XYQJpfqA` in `STRIPE_STUDIO_PRICE_ID` and `STRIPE_PORTAL_CONFIGURATION_ID` respectively. The signing secret is destination-specific. Leave the sandbox credentials in the sandbox.
-
-After deploying the production configuration, supply a live, read-only Stripe credential through the shell environment and run `node --import tsx scripts/check-live-stripe.ts https://your-production-host`. It checks the account, catalogue, exact event selection, portal and public app health without modifying Stripe or printing credentials. Successful signed delivery, credit accounting and a private campaign download still need an owner-operated acceptance run. See [Stripe's webhook documentation](https://docs.stripe.com/webhooks).
