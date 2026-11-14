@@ -80,6 +80,7 @@ export type Studio = {
   mode: "mock" | "live";
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
+  checkoutReleased: boolean;
   billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };

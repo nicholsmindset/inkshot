@@ -10,6 +10,8 @@ Keep the existing hosted sandbox and its Stripe endpoint together. On the separa
 
 Store the destination's signing secret directly in the production project's server-only `STRIPE_WEBHOOK_SECRET`. Set the live price ID `price_1UbbydDjNCv7xF61FEzeGu5I` and portal configuration ID `bpc_1Ubc4cDjNCv7xF61XYQJpfqA` in `STRIPE_STUDIO_PRICE_ID` and `STRIPE_PORTAL_CONFIGURATION_ID` respectively. The signing secret is destination-specific. Leave the sandbox credentials in the sandbox.
 
+Leave `ENABLE_LIVE_CHECKOUT` unset while verifying the live deployment. The customer portal and signed webhooks operate independently of new subscription checkout. Set `ENABLE_LIVE_CHECKOUT=true` in Production and redeploy when ready to accept new subscriptions.
+
 After deploying the production configuration, supply a live, read-only Stripe credential through the shell environment and run `node --import tsx scripts/check-live-stripe.ts https://your-production-host`. It checks the account, catalogue, exact event selection, portal and public app health without modifying Stripe or printing credentials. Successful signed delivery, credit accounting and a private campaign download still need an owner-operated acceptance run. See [Stripe's webhook documentation](https://docs.stripe.com/webhooks).
 
 ## Verified on 1 October 2026
