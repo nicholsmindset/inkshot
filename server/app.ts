@@ -10,7 +10,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { z } from "zod";
 import { config, AppError } from "./config.js";
 import type { Database, Queryable } from "./db.js";
@@ -675,7 +675,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     if (!rows.length)
       throw new AppError(400, "Your first asset is still being made.");
     res.attachment("inkshot-kit.zip");
-    const zip = archiver("zip", { zlib: { level: 5 } });
+    const zip = new ZipArchive({ zlib: { level: 5 } });
     zip.on("error", () => res.destroy());
     zip.pipe(res);
     for (const [i,a] of rows.entries()) {
