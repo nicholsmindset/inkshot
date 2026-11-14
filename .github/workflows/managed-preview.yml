@@ -5,6 +5,8 @@ on:
       - 'server/**'
       - 'supabase/**'
       - 'scripts/check-managed-preview.ts'
+      - 'scripts/check-shared-project.ts'
+      - 'scripts/setup-shared-live.sql'
       - '.github/workflows/managed-preview.yml'
   workflow_dispatch:
 permissions:
@@ -38,5 +40,24 @@ jobs:
           eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|DB_URL)=')"
           export SUPABASE_URL="$API_URL" SUPABASE_PUBLISHABLE_KEY="$ANON_KEY" SUPABASE_SECRET_KEY="$SERVICE_ROLE_KEY" DATABASE_URL="$DB_URL"
           npx --no-install tsx scripts/check-managed-preview.ts
+          npx --no-install tsx scripts/check-shared-project.ts
+      - name: Restore live application schema to a separate disposable database
+        run: |
+          set -euo pipefail
+          mapfile -t dbs < <(docker ps --format '{{.Names}}' | grep '^supabase_db_')
+          test "${#dbs[@]}" = 1
+          db="${dbs[0]}"
+          docker exec "$db" pg_dump -U postgres -d postgres --format=custom --schema=inkshot_live > "$RUNNER_TEMP/live-schema.dump"
+          docker exec "$db" createdb -U postgres inkshot_restore
+          docker exec -i "$db" pg_restore -U postgres -d inkshot_restore --exit-on-error < "$RUNNER_TEMP/live-schema.dump"
+          sql="select w.id, w.credits, u.id, m.file_path, p.id
+               from inkshot_live.workspaces w join inkshot_live.users u on u.workspace_id=w.id
+               join inkshot_live.uploads m on m.workspace_id=w.id cross join inkshot_live.payment_events p
+               order by w.id,m.id,p.id"
+          for database in postgres inkshot_restore; do
+            docker exec "$db" psql -U postgres -d "$database" -Atv ON_ERROR_STOP=1 -c "$sql" > "$RUNNER_TEMP/${database}.rows"
+          done
+          test -s "$RUNNER_TEMP/postgres.rows"
+          cmp "$RUNNER_TEMP/postgres.rows" "$RUNNER_TEMP/inkshot_restore.rows"
       - if: always()
         run: supabase stop --no-backup
