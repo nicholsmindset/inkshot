@@ -41,14 +41,14 @@ async function handle(db:Database,job: Job) {
         "UPDATE versions SET status='making',error=NULL WHERE id=$1",
         [work.id],
       );
-      let source = work.source_path ? await materializeMedia(work.source_path) : null;
+      let source = work.source_path ? await materializeMedia(work.source_path, job.workspace_id, "generated-media") : null;
       async function merchantFile(id: string) {
         const row = (await db.query<{file_path: string}>(
           "SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2",
           [id, job.workspace_id],
         )).rows[0];
         if (!row) throw new TerminalFailure("The approved brand file is unavailable. Credits returned.");
-        return materializeMedia(row.file_path);
+        return materializeMedia(row.file_path, job.workspace_id, "brand-uploads");
       }
       if (!source && work.brand.photoId && (work.mock || work.kind !== "video")) {
         source = await merchantFile(work.brand.photoId);
