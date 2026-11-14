@@ -32,38 +32,8 @@ export async function createDatabase(
       connectionTimeoutMillis: 10000,
       ...(isSupabase ? { ssl: { rejectUnauthorized: true, ca: supabaseCa } } : {}),
     });
-    db = {
-      query: async <T>(sql: string, params?: unknown[]) => ({
-        rows: (await pool.query(sql, params)).rows as T[],
-      }),
-      transaction: async (fn) => {
-        const client = await pool.connect();
-        try {
-          await client.query("BEGIN");
-          const result = await fn({
-            query: async <T>(s: string, p?: unknown[]) => ({
-              rows: (await client.query(s, p)).rows as T[],
-            }),
-          });
-          await client.query("COMMIT");
-          return result;
-        } catch (e) {
-          await client.query("ROLLBACK");
-          throw e;
-        } finally {
-          client.release();
-        }
-      },
-      close: () => pool.end(),
-    };
-    // Hosted schemas are managed by migrations, never by application startup.
-    try {
-      await verifyDeploymentEnvironment(db, process.env.BILLING_MODE === "live" || config.mode === "live",
-        connection.toString(), process.env.SUPABASE_URL || "");
-    } catch (error) {
-      await pool.end();
-      throw error;
-    }
+    return databaseFromPool(pool, process.env.BILLING_MODE === "live" || config.mode === "live",
+      connection.toString(), process.env.SUPABASE_URL || "", process.env.INKSHOT_SHARED_PROJECT_LIVE === "true");
   } else {
     await mkdir(directory, { recursive: true });
     const local = await PGlite.create(path.join(directory, "postgres"));
@@ -75,6 +45,46 @@ export async function createDatabase(
       transaction: (fn) => local.transaction((tx) => fn(tx)),
       close: () => local.close(),
     };
+  }
+  return db;
+}
+
+// SET LOCAL applies on the same checked-out connection as every statement,
+// including single queries made through a transaction-mode pooler.
+export async function databaseFromPool(
+  pool: pg.Pool, live: boolean, databaseUrl: string, supabaseUrl: string, shared: boolean,
+): Promise<Database> {
+  const transaction: Database["transaction"] = async fn => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (shared) await client.query("SET LOCAL search_path = pg_catalog, inkshot_live, pg_temp");
+      const result = await fn({
+        query: async <T>(sql: string, params?: unknown[]) => ({
+          rows: (await client.query(sql, params)).rows as T[],
+        }),
+      });
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  const db: Database = {
+    query: <T>(sql: string, params?: unknown[]) => shared
+      ? transaction(tx => tx.query<T>(sql, params))
+      : pool.query(sql, params).then(result => ({ rows: result.rows as T[] })),
+    transaction,
+    close: () => pool.end(),
+  };
+  try {
+    await verifyDeploymentEnvironment(db, live, databaseUrl, supabaseUrl, shared);
+  } catch (error) {
+    await pool.end();
+    throw error;
   }
   return db;
 }
