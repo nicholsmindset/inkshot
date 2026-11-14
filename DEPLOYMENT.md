@@ -20,3 +20,7 @@ Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/in
 The hosted app is still a **preview**, despite its working auth, storage, API, sample media export, and Stripe sandbox. Real campaign writing is unavailable because the configured OpenRouter account returned HTTP 402 for insufficient credit. Live generation remains disabled until writing, model pricing, provider budget accounting, full hosted live-media export, and paid billing are validated. Do not promote the Stripe sandbox configuration to live or remove `noindex` before those checks.
 
 Private credentials belong in ignored `.env` and Vercel server-only environment variables. Never commit `.env`, `.vercel`, generated customer media, or API keys; do not use a `VITE_` prefix for secrets.
+
+## Paid writing limits
+
+Apply the writing-limits migration and configure positive integer `WRITING_DAILY_REQUEST_LIMIT` and `WRITING_WORKSPACE_DAILY_REQUEST_LIMIT` before live activation. The workspace limit must fit within the global limit. Brand reads and campaign drafts share both allowances. Each provider call consumes an allowance before submission, including timeouts and invalid provider replies. Limits reset at midnight UTC. Each call allows up to 128 KiB of prompt text and 5,000 output tokens. To cap a dollar amount, also configure the provider account's spend controls for the selected model and verify its tariff before activation. Request counts alone do not reconcile an invoice.

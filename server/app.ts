@@ -295,7 +295,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "There is very little readable text on this page. Please add your brand details manually.",
       );
-    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(pages);
+    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(db, req.user!.workspaceId, pages);
     res.json({ ...brief, color: emptyBrand.color, ...identity });
   });
   app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
@@ -366,7 +366,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "Add a short description of your business first.",
       );
-    const concepts = await writeConcepts(brand, input.goal, input.offer);
+    const concepts = await writeConcepts(db, w, brand, input.goal, input.offer);
     const cid = randomUUID();
     await db.query(
       "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
