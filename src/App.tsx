@@ -24,6 +24,7 @@ import {
 import { StudioProvider, useStudio } from "./context";
 import { BrandMark, Button, Notice } from "./ui";
 import { api } from "./api";
+import { PasswordRecovery } from "./pages/PasswordRecovery";
 import { Landing, Auth } from "./pages/Public";
 import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
 import { BrandPage, NewCampaign } from "./pages/Create";
@@ -182,6 +183,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Auth />} />
+        <Route path="/forgot-password" element={<PasswordRecovery key="request" />} />
+        <Route path="/reset-password" element={<PasswordRecovery key="reset" reset />} />
         <Route path="/signup" element={<Auth signup />} />
         <Route path="/studio" element={<Shell />}>
           <Route index element={<Dashboard />} />

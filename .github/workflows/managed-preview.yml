@@ -5,6 +5,7 @@ on:
       - 'server/**'
       - 'supabase/**'
       - 'scripts/check-managed-preview.ts'
+      - 'scripts/check-password-recovery.ts'
       - '.github/workflows/managed-preview.yml'
   workflow_dispatch:
 permissions:
@@ -26,9 +27,11 @@ jobs:
       - name: Start disposable Auth, Postgres and Storage
         run: |
           supabase init
-          supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+          sed -i 's|^additional_redirect_urls = .*|additional_redirect_urls = ["http://127.0.0.1:3001/api/auth/recovery-callback"]|' supabase/config.toml
+          supabase start -x realtime,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
       - name: Check account and private campaign export
         env:
+          APP_ORIGIN: http://127.0.0.1:3001
           AUTH_PROVIDER: supabase
           STORAGE_PROVIDER: supabase
           GENERATION_MODE: mock
