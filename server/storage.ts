@@ -9,25 +9,37 @@ function client(){
  return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
 }
 const PREFIX='supabase://';
-function parse(reference:string){
- const parts=reference.slice(PREFIX.length).split('/'),bucket=parts.shift()!;
- if(!['brand-uploads','generated-media'].includes(bucket)||parts.some(p=>!p||p==='.'||p==='..'))throw new Error('Invalid storage reference');
- return {bucket,key:parts.join('/')};
+type MediaBucket = 'brand-uploads' | 'generated-media';
+
+function bucketName(bucket: MediaBucket) {
+  if (process.env.INKSHOT_SHARED_PROJECT_LIVE === 'true') {
+    if (process.env.BILLING_MODE !== 'live' || config.mode !== 'live')
+      throw new AppError(503, 'Shared production storage requires live billing and generation.');
+    return 'inkshot-live-' + bucket;
+  }
+  return bucket;
 }
-export async function persistMedia(file:string,workspaceId:string,bucket:'brand-uploads'|'generated-media'){
+
+export async function persistMedia(file:string,workspaceId:string,kind:MediaBucket){
  if(!cloudStorageEnabled())return file;
+ const bucket=bucketName(kind);
  const key=`${workspaceId}/${path.basename(file)}`;
  const ext=path.extname(file);
  const {error}=await client().storage.from(bucket).upload(key,await readFile(file),{contentType:ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
  if(error)throw new AppError(503,'Media could not be saved. Please retry.');
  return `${PREFIX}${bucket}/${key}`;
 }
-export async function materializeMedia(reference:string){
+export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket){
  if(!reference.startsWith(PREFIX)) {
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return reference;
  }
- const {bucket,key}=parse(reference);
+ const bucket=bucketName(kind);
+ const [storedBucket, owner, filename, ...extra]=reference.slice(PREFIX.length).split('/');
+ if (storedBucket !== bucket || owner !== workspaceId || !owner || !filename || extra.length ||
+     !/^[a-zA-Z0-9_-]+$/.test(owner) || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(filename))
+   throw new AppError(404,'Media does not exist in this workspace.');
+ const key=`${owner}/${filename}`;
  const target=path.join(config.dataDir,'cache',bucket,key);
  await mkdir(path.dirname(target),{recursive:true});
  const {data,error}=await client().storage.from(bucket).download(key);
