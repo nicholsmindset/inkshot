@@ -3,6 +3,7 @@ import pg from "pg";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
+import { verifyDeploymentEnvironment } from "./deployment-environment.js";
 import { supabaseCa } from "./supabase-ca.js";
 export type Queryable = {
   query<T = Record<string, unknown>>(
@@ -56,7 +57,13 @@ export async function createDatabase(
       close: () => pool.end(),
     };
     // Hosted schemas are managed by migrations, never by application startup.
-    await pool.query('SELECT 1');
+    try {
+      await verifyDeploymentEnvironment(db, process.env.BILLING_MODE === "live" || config.mode === "live",
+        connection.toString(), process.env.SUPABASE_URL || "");
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
   } else {
     await mkdir(directory, { recursive: true });
     const local = await PGlite.create(path.join(directory, "postgres"));
