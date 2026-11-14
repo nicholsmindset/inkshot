@@ -20,6 +20,10 @@ export function Billing() {
     catch(e){setError((e as Error).message);setBusy(false);}
   }
   if (!studio) return null;
+  const canSubscribe = ["none", "canceled", "incomplete_expired"].includes(studio.billingStatus);
+  const live = studio.billingMode === "live";
+  let billingLabel = live ? "Manage subscription" : "Manage test subscription";
+  if (canSubscribe) billingLabel = live ? "Subscribe for US$39/month" : "Test subscription checkout";
   return (
     <>
       <div className="page-heading">
@@ -47,7 +51,7 @@ export function Billing() {
           <p>One small business. Three complete campaigns.</p>
           <ul>
             {[
-              "300 credits each month · 3 complete kits",
+              "Each monthly payment tops your balance up to 300 credits",
               "Text and layout edits included",
               "Version history and downloads",
               "Extra generation uses credits shown before approval",
@@ -59,10 +63,10 @@ export function Billing() {
             ))}
           </ul>
           {error ? <Notice>{error}</Notice> : null}
-          <Button className="full" disabled={!studio.billingEnabled} busy={busy} onClick={()=>openBilling(studio.billingStatus==='none'?'checkout':'portal')}>
-            {studio.billingEnabled ? studio.billingStatus==='none' ? studio.billingMode==='live' ? 'Subscribe for $39/month' : 'Test subscription checkout' : studio.billingMode==='live' ? 'Manage subscription' : 'Manage test subscription' : 'Checkout is not configured yet'}
+          <Button className="full" disabled={!studio.billingEnabled} busy={busy} onClick={()=>openBilling(canSubscribe ? 'checkout' : 'portal')}>
+            {studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
           </Button>
-          <small>{studio.billingMode === 'live' ? 'Stripe will show the full amount before you pay.' : 'Stripe sandbox only. No real payment is collected.'}</small>
+          <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : 'Stripe sandbox only. No real payment is collected.'}</small>
         </section>
         <section className="balance-panel">
           <Feather size={25} />

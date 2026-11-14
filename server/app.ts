@@ -382,7 +382,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!row) throw new AppError(404, "Photo not found.");
-    res.sendFile(await materializeMedia(row.file_path));
+    res.sendFile(await materializeMedia(row.file_path, req.user!.workspaceId, "brand-uploads"));
   });
   app.post("/api/campaigns", async (req, res) => {
     const input = z
@@ -678,7 +678,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!v) throw new AppError(404, "This export is not ready.");
-    const file = await materializeMedia(req.query.preview === "true" ? v.preview_path : v.file_path);
+    const file = await materializeMedia(req.query.preview === "true" ? v.preview_path : v.file_path, req.user!.workspaceId, "generated-media");
     res.setHeader("Cache-Control", "private, max-age=3600");
     if (req.query.download === "true")
       res.download(file, `inkshot-${req.params.id}${path.extname(file)}`);
@@ -717,7 +717,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     zip.on("error", () => res.destroy());
     zip.pipe(res);
     for (const [i,a] of rows.entries()) {
-      zip.file(await materializeMedia(a.file_path), {name:`${i+1}-${a.kind}${path.extname(a.file_path)}`});
+      zip.file(await materializeMedia(a.file_path, w, "generated-media"), {name:`${i+1}-${a.kind}${path.extname(a.file_path)}`});
     }
     zip.append(
       rows
