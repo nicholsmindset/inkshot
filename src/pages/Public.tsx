@@ -253,6 +253,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               <ArrowRight size={16} />
             </Button>
           </form>
+          {!signup && <p className="auth-switch"><Link to="/forgot-password">Forgot your password?</Link></p>}
           <p className="auth-switch">
             {signup ? "Already have a studio?" : "New around here?"}{" "}
             <Link to={`${signup ? "/login" : "/signup"}${websiteQuery}`}>

@@ -44,6 +44,8 @@ try {
   assert.equal(health.mode, "mock");
   const cookie = await account();
   const other = await account();
+  const { checkPasswordRecovery } = await import("./check-password-recovery");
+  await checkPasswordRecovery(base, cookie);
   const headers = { cookie };
   const get = (route: string) => fetch(base + route, { headers });
   const post = (route: string, body: object, method = "POST") => fetch(base + route, {

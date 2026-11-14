@@ -7,16 +7,20 @@ import type { User } from '../shared/types.js';
 import { config, AppError } from './config.js';
 import { emptyBrand } from './brand.js';
 export const managedAuthEnabled = () => process.env.AUTH_PROVIDER === 'supabase';
-export function authClient(req: Request, res: Response) {
+export const recoveryStorageKey = "inkshot-recovery";
+export function authClient(req: Request, res: Response, recovery = false) {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new AppError(503, 'Sign-in is not configured yet.');
   return createServerClient(url, key, {
-    cookieOptions: { httpOnly: true, secure: config.production, sameSite: 'lax', path: '/' },
+    cookieOptions: { ...(recovery && { name: recoveryStorageKey }), httpOnly: true, secure: config.production, sameSite: 'lax', path: '/' },
     cookies: {
       getAll: () => Object.entries(req.cookies || {}).map(([name, value]) => ({ name, value: String(value) })),
       setAll: (cookies) => { for (const {name, value, options} of cookies) {
+        // Recovery can update a password only inside this request. Never leave
+        // a recovery access/refresh token in the browser or overwrite its login.
+        if (recovery && !name.startsWith(recoveryStorageKey + "-code-verifier")) continue;
         req.cookies[name] = value;
-        res.cookie(name, value, { ...options, maxAge: options.maxAge === undefined ? undefined : options.maxAge * 1000 });
+        res.cookie(name, value, { ...options, maxAge: options.maxAge === undefined ? undefined : (recovery ? Math.min(options.maxAge, 3600) : options.maxAge) * 1000 });
       } },
     },
   });

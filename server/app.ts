@@ -180,6 +180,44 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     await session(db, userId, res);
     res.status(201).json({ ok: true });
   });
+  const recoveryCode = "inkshot-reset-code";
+  const codeFormat = z.string().min(16).max(512).regex(/^[a-zA-Z0-9_-]+$/);
+  const recoveryPath = "/api/auth/reset-password";
+  app.post("/api/auth/forgot-password", authLimit, async (req, res) => {
+    if (!managedAuthEnabled()) throw new AppError(503, "Password recovery is unavailable in the local preview.");
+    const { email } = z.object({ email: z.email().max(254) }).parse(req.body);
+    const { error } = await authClient(req, res, true).auth.resetPasswordForEmail(email, {
+      redirectTo: `${config.origin}/api/auth/recovery-callback`,
+    });
+    if (error && (!error.status || error.status >= 500))
+      throw new AppError(503, "Recovery email is temporarily unavailable. Please try again.");
+    // Identical response for existing and unknown accounts, including per-user throttles.
+    res.json({ ok: true });
+  });
+  app.get("/api/auth/recovery-callback", (req, res) => {
+    res.set("Cache-Control", "no-store").set("Referrer-Policy", "no-referrer");
+    const code = codeFormat.safeParse(req.query.code);
+    if (!managedAuthEnabled() || !code.success || !Object.keys(req.cookies).some(name =>
+      name.startsWith("inkshot-recovery-code-verifier"))) return res.redirect("/forgot-password?expired=1");
+    // Exchange on form submission so a link preview cannot consume the reset.
+    res.cookie(recoveryCode, code.data, {
+      httpOnly: true, secure: config.production, sameSite: "lax", path: recoveryPath, maxAge: 15 * 60000,
+    });
+    res.redirect("/reset-password");
+  });
+  app.post(recoveryPath, authLimit, async (req, res) => {
+    const { password } = z.object({ password: z.string().min(12).max(128) }).parse(req.body);
+    const code = codeFormat.safeParse(req.cookies[recoveryCode]);
+    if (!managedAuthEnabled() || !code.success) throw new AppError(401, "Request a new recovery link and open it in this browser.");
+    const auth = authClient(req, res, true).auth;
+    const { data, error } = await auth.exchangeCodeForSession(code.data);
+    res.clearCookie(recoveryCode, { path: recoveryPath });
+    if (error || !data.user || !("redirectType" in data) || data.redirectType !== "recovery") throw new AppError(401, "Request a new recovery link and open it in this browser.");
+    const result = await auth.updateUser({ password });
+    if (result.error) throw new AppError(400, "Password could not be changed. Request a new link and choose a different password.");
+    await auth.signOut();
+    res.json({ ok: true });
+  });
   app.post("/api/auth/login", authLimit, async (req, res) => {
     const input = z
       .object({
