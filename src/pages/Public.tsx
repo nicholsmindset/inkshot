@@ -1,3 +1,4 @@
+import { SupportContact } from "../SupportContact";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -169,6 +170,7 @@ export function Landing() {
       <footer className="landing-footer">
         <BrandMark />
         <span>© {new Date().getFullYear()} Inkshot</span>
+        <SupportContact />
       </footer>
     </div>
   );

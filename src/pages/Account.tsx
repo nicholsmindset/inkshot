@@ -1,3 +1,4 @@
+import { SupportContact } from "../SupportContact";
 import {useState} from "react";
 import {api} from "../api";
 import {
@@ -67,6 +68,7 @@ export function Billing() {
             {studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
           </Button>
           <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : 'Stripe sandbox only. No real payment is collected.'}</small>
+          <SupportContact />
         </section>
         <section className="balance-panel">
           <Feather size={25} />
