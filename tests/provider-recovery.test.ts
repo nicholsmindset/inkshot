@@ -7,39 +7,51 @@ import { createDatabase } from "../server/db";
 import { runWorkerOnce } from "../server/worker";
 import { MODELS } from "../server/higgsfield";
 import { submitBudgeted } from "../server/provider-budget";
+import { config } from "../server/config";
 
-test("provider receipts resume jobs without a second paid submission", async () => {
+test("lost acceptance receipts replay the same provider intent without duplicate spending", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-receipts-"));
   const db = await createDatabase(dir, true);
   const oldCap = process.env.HF_DAILY_BUDGET_USD;
   process.env.HF_DAILY_BUDGET_USD = "3";
-  let submissions = 0;
+  const accepted = new Map<string, string>();
+  const attempts = new Map<string, number>();
   const provider = {
     estimate: async () => ({ usd: "1", credits: "1" }),
     submit: async (_model: string, _input: unknown, key: string) => {
-      submissions++;
-      if (key === "lost") throw new Error("Lost acknowledgement");
-      return { request_id: "receipt-1", status: "queued" };
+      attempts.set(key, (attempts.get(key) ?? 0) + 1);
+      if (!accepted.has(key)) {
+        accepted.set(key, `receipt-${key}`);
+        if (key === "lost" || key === "older") throw new Error("Lost acknowledgement");
+      }
+      return { request_id: accepted.get(key)!, status: "queued" };
     },
   };
   try {
     const send = (key: string, input = "draft") => submitBudgeted(db, "model", input, key, provider);
-    const parallel = await Promise.allSettled([send("known"), send("known")]);
-    assert(parallel.some(result => result.status === "fulfilled"));
-    assert.equal(submissions, 1);
-    assert.equal((await send("known")).request_id, "receipt-1");
+    const parallel = await Promise.all([send("known"), send("known")]);
+    assert(parallel.every(result => result.request_id === "receipt-known"));
+    assert.equal(accepted.size, 1);
     await assert.rejects(send("known", "changed"), /input changed/);
-    assert.equal(submissions, 1);
     await assert.rejects(send("lost"), /Lost acknowledgement/);
-    await assert.rejects(send("lost"), /awaiting confirmation/);
-    assert.equal(submissions, 2);
-    const reservations = (await db.query<{ request_key: string; provider_request_id: string | null }>(
-      "SELECT request_key,provider_request_id FROM provider_spend ORDER BY request_key",
+    await assert.rejects(send("lost", "changed"), /input changed/);
+    assert.equal(attempts.get("lost"), 1);
+    assert.equal((await send("lost")).request_id, "receipt-lost");
+    assert.equal(attempts.get("lost"), 2);
+    assert.equal((await send("lost")).request_id, "receipt-lost");
+    assert.equal(attempts.get("lost"), 2, "known receipts resume without another HTTP submission");
+    assert.equal(accepted.size, 2, "provider accepted only the two distinct intents");
+    const reservations = (await db.query<{ request_key: string; provider_request_id: string | null; usd: string }>(
+      "SELECT request_key,provider_request_id,usd::text FROM provider_spend ORDER BY request_key",
     )).rows;
-    assert.deepEqual(reservations, [
-      { request_key: "known", provider_request_id: "receipt-1" },
-      { request_key: "lost", provider_request_id: null },
+    assert.deepEqual(reservations.map(row => ({ ...row, usd: Number(row.usd) })), [
+      { request_key: "known", provider_request_id: "receipt-known", usd: 1 },
+      { request_key: "lost", provider_request_id: "receipt-lost", usd: 1 },
     ]);
+    await assert.rejects(send("older"), /Lost acknowledgement/);
+    await db.query("UPDATE provider_spend SET created_at=now()-interval '2 days' WHERE request_key='older'");
+    await assert.rejects(send("older"), /needs reconciliation/);
+    assert.equal(attempts.get("older"), 1, "old ambiguous requests cannot bypass today's spending ceiling");
   } finally {
     if (oldCap === undefined) delete process.env.HF_DAILY_BUDGET_USD;
     else process.env.HF_DAILY_BUDGET_USD = oldCap;
@@ -53,6 +65,21 @@ test("an ambiguous live image submission exhausts retry budget and refunds the a
   const db = await createDatabase(dir, true);
   const oldCap = process.env.HF_DAILY_BUDGET_USD;
   process.env.HF_DAILY_BUDGET_USD = "2";
+  const originalFetch = globalThis.fetch;
+  const originalConfig = { liveAllowed: config.liveAllowed, hfKey: config.hfKey, hfSecret: config.hfSecret };
+  config.liveAllowed = true;
+  config.hfKey = "test-key";
+  config.hfSecret = "test-secret";
+  let replayCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), `https://api.higgsfield.ai/${MODELS.image}`);
+    assert.equal(new Headers(init?.headers).get("Idempotency-Key"), "v:image");
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      prompt: "approved photo", resolution: "1080p", aspect_ratio: "3:4",
+    });
+    replayCalls++;
+    throw new Error("Lost acknowledgement again");
+  };
   try {
     await db.query("INSERT INTO workspaces(id,credits) VALUES('ws',90)");
     await db.query("INSERT INTO campaigns(id,workspace_id,name,goal,status,concepts,brand,mock) VALUES('kit','ws','Campaign','Sales','generating','[]','{}',false)");
@@ -76,7 +103,10 @@ test("an ambiguous live image submission exhausts retry budget and refunds the a
     assert.equal((await db.query("SELECT amount FROM ledger WHERE kind='refund'")).rows.length, 1);
     assert.equal(await runWorkerOnce(db), false);
     assert.equal(sent, 1);
+    assert.equal(replayCalls, 2);
   } finally {
+    globalThis.fetch = originalFetch;
+    Object.assign(config, originalConfig);
     if (oldCap === undefined) delete process.env.HF_DAILY_BUDGET_USD;
     else process.env.HF_DAILY_BUDGET_USD = oldCap;
     await db.close();

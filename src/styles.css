@@ -3595,3 +3595,23 @@ th:last-child {
   .studio-campaign-row > svg:last-child { display: none; }
   .studio-campaign-row .campaign-icon { display: none; }
 }
+
+.asset-version-summary { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); padding: 0 0 20px; margin-bottom: 20px; }
+.asset-version-summary > div:last-child { text-align: right; }
+.asset-version-summary strong, .asset-version-summary span { display: block; }
+.asset-version-summary strong { font-size: 15px; }
+.asset-version-summary span { font-size: 13px; color: #55564c; margin-top: 6px; line-height: 1.5; }
+.asset-progress-notice { display: flex; align-items: center; gap: 12px; padding: 15px; background: #f1eee4; border-radius: 6px; margin-bottom: 22px; font-size: 14px; line-height: 1.6; }
+.asset-progress-notice > svg { flex-shrink: 0; }
+.asset-credit-balance { color: #55564c; font-size: 13px; line-height: 1.5; margin: 12px 0; }
+.asset-prompt-details { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 15px; }
+.asset-prompt-details summary { cursor: pointer; font-weight: 500; font-size: 14px; }
+.asset-prompt-details h4 { margin: 16px 0 8px; font-size: 13px; }
+.asset-prompt-details p { font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.version-list .version-current-label { color: #39583d; font-weight: 500; }
+.versions-heading > span { font-size: 14px; color: #55564c; }
+.editor-wait > p { font-size: 15px; line-height: 1.6; }
+@media (max-width: 600px) {
+  .asset-version-summary { flex-direction: column; gap: 12px; }
+  .asset-version-summary > div:last-child { text-align: left; }
+}

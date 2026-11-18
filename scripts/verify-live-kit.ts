@@ -6,6 +6,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {startWorker} from '../server/worker';
 import {writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
+import {validateKitArchive,waitForReadyKit,type VerificationAsset} from './live-kit-validation';
 const db=await createDatabase(path.resolve('data/live-verification'),true);
 const password=randomBytes(24).toString('hex');
 const email=`verification-${Date.now()}@inkshot.invalid`;
@@ -47,20 +48,26 @@ try{
  await call(`/campaigns/${campaign.id}/generate`,{approved:true,draftRevision:savedDraft.revision});
  console.log(JSON.stringify({campaignId:campaign.id,workspaceId,status:'queued',maxProviderBudgetUSD:process.env.HF_DAILY_BUDGET_USD}));
  stop=startWorker(db);
- const deadline=Date.now()+25*60*1000;let last='';
- while(Date.now()<deadline){
-  const rows=(await db.query<{status:string;count:string}>('SELECT status,count(*)::text AS count FROM versions WHERE workspace_id=$1 GROUP BY status',[workspaceId])).rows;
-  const summary=JSON.stringify(rows);if(summary!==last){console.log(summary);last=summary;}
-  const pending=rows.some(r=>['queued','making','rendering'].includes(r.status));
-  if(!pending){
-   const failures=(await db.query('SELECT error FROM versions WHERE workspace_id=$1 AND status=\'failed\'',[workspaceId])).rows;
-   if(failures.length)throw new Error(JSON.stringify(failures));
-   await mkdir('outputs',{recursive:true});
-   const zip=await call(`/campaigns/${campaign.id}/download`);
-   await writeFile('outputs/live-kit.zip',Buffer.from(await zip.arrayBuffer()));
-   const spend=(await db.query('SELECT sum(usd)::text AS reserved_usd FROM provider_spend')).rows;
-   console.log(JSON.stringify({verified:true,assets:9,spend,zip:'outputs/live-kit.zip'}));break;
-  }
-  await new Promise(r=>setTimeout(r,5000));
- }
+ let last = '';
+ const assets = await waitForReadyKit(async () => (await db.query<VerificationAsset>(
+   `SELECT a.id,a.kind,v.status,v.file_path,v.mock,v.error
+    FROM assets a LEFT JOIN versions v ON v.id=a.current_version_id
+    WHERE a.campaign_id=$1 AND a.workspace_id=$2 ORDER BY a.id`,
+   [campaign.id, workspaceId],
+ )).rows, {
+   timeoutMs: 25 * 60 * 1000,
+   intervalMs: 5000,
+   onProgress: rows => {
+     const summary = JSON.stringify(rows.map(asset => ({id:asset.id,kind:asset.kind,status:asset.status})));
+     if (summary !== last) { console.log(summary); last = summary; }
+   },
+ });
+ const zip = await call(`/campaigns/${campaign.id}/download`);
+ const bytes = Buffer.from(await zip.arrayBuffer());
+ validateKitArchive(bytes);
+ await mkdir('outputs', {recursive:true});
+ await writeFile('outputs/live-kit.zip', bytes);
+ const spend = (await db.query('SELECT sum(usd)::text AS reserved_usd FROM provider_spend')).rows;
+ console.log(JSON.stringify({verified:true,assets:assets.length,spend,zip:'outputs/live-kit.zip'}));
+
 } finally {stop();server.close();await new Promise(r=>setTimeout(r,1200));await db.close();}

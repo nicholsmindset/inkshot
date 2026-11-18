@@ -157,13 +157,7 @@ export function AssetCard({
       </div>
       <div className="asset-card-footer">
         <Status status={v.status} />
-        <span>
-          {asset.kind === "video"
-            ? v.mock
-              ? "5s preview"
-              : "15 seconds"
-            : asset.format}
-        </span>
+        <span>{asset.versions.length} {asset.versions.length === 1 ? "version" : "versions"}</span>
       </div>
     </button>
   );
@@ -538,6 +532,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
     (a) =>
       a.versions.find((v) => v.id === a.current_version_id)?.status === "ready",
   ).length;
+  const summary = assetCounts(assets);
   return (
     <>
       <Link to="/studio" className="back-link">
@@ -553,7 +548,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           <p>
             {campaign.status === "draft"
               ? "Choose your angles, then review every prompt before generation."
-              : `${done} of 9 assets ready. Each one gets its own finishing touches.`}
+              : `${summary.ready} ready · ${summary.running} in progress · ${summary.failed} need attention`}
           </p>
         </div>
         {done ? (
@@ -585,11 +580,11 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           <div className="generation-progress">
             <div>
               <span>
-                {done === 9
-                  ? "Your kit is ready."
-                  : "Good things are taking shape."}
+                {done === 9 ? "Your kit is ready." : summary.running
+                  ? "Your remaining assets are being prepared."
+                  : "Open the failed assets to review or try another generation."}
               </span>
-              <b>{done} / 9</b>
+              <b>{done} / 9 ready</b>
             </div>
             <div className="progress-track">
               <i style={{ width: `${(done / 9) * 100}%` }} />
@@ -641,7 +636,7 @@ export function AssetEditor({
       open={!!asset}
       onClose={onClose}
       title={asset?.title || "Your asset"}
-      description="Keep what works. Give the rest a little attention."
+      description="Review the creative, edit its text or make a new version."
     >
       {asset ? <EditorContents key={asset.id} asset={asset} /> : null}
     </Modal>
@@ -695,7 +690,7 @@ function HeadlineVariations({ assetId, version, pending, onCreated }: {
 }
 
 function EditorContents({ asset }: { asset: Asset }) {
-  const { refresh, notify } = useStudio();
+  const { studio, refresh, notify } = useStudio();
   const [vid, setVid] = useState(asset.current_version_id);
   const v = asset.versions.find((v) => v.id === vid) || asset.versions[0];
   const original = asset.versions.reduce((first, item) => item.n < first.n ? item : first);
@@ -705,12 +700,14 @@ function EditorContents({ asset }: { asset: Asset }) {
   const [cta, setCta] = useState(v.cta);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<"edit" | "generate" | "select" | "refresh" | "">("");
   const [error, setError] = useState("");
   const pending = asset.versions.some((v) =>
     ["queued", "making", "rendering"].includes(v.status),
   );
   async function revise(regenerate: boolean) {
     setBusy(true);
+    setOperation(regenerate ? "generate" : "edit");
     setError("");
     try {
       const result = await api<{ versionId: string }>(
@@ -719,6 +716,7 @@ function EditorContents({ asset }: { asset: Asset }) {
       );
       await refresh();
       setVid(result.versionId);
+      setNote("");
       notify(
         regenerate
           ? "A fresh version is in the works."
@@ -728,10 +726,13 @@ function EditorContents({ asset }: { asset: Asset }) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setOperation("");
     }
   }
   async function makeCurrent() {
     setBusy(true);
+    setOperation("select");
+    setError("");
     try {
       await api(`/assets/${asset.id}/current`, { versionId: v.id }, "PUT");
       await refresh();
@@ -740,15 +741,35 @@ function EditorContents({ asset }: { asset: Asset }) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setOperation("");
     }
+  }
+  async function refreshStatus() {
+    setBusy(true);
+    setOperation("refresh");
+    setError("");
+    try { await refresh(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); setOperation(""); }
   }
   function select(version: Version) {
     setVid(version.id);
     setHeadline(version.headline);
     setCta(version.cta);
+    setNote("");
+    setError("");
   }
+  const generationCost = VERSION_CREDITS[asset.kind];
+  const canAffordGeneration = (studio?.balance ?? 0) >= generationCost;
+  const validCopy = !!headline.trim() && !!cta.trim();
   return (
     <>
+      <div className="asset-version-summary">
+        <div><strong>Version {v.n}</strong><span>{asset.current_version_id === v.id ? "Selected for campaign downloads" : "Viewing an alternate version"}</span></div>
+        <div><strong>{v.credit_cost === 0 ? "Free text edit" : `${v.credit_cost} credits at creation`}</strong><span>{v.status === "failed" ? "Check credit history for returned credits" : v.mock ? "Sample mode" : draftLabels[asset.kind]}</span></div>
+      </div>
+      {pending && <div className="asset-progress-notice" role="status"><LoaderCircle size={18} className="spin" /><span>A version is being prepared. You can keep reviewing existing versions while it finishes.</span></div>}
+      {v.status === "failed" && <Notice>{v.error || "This version could not be completed."}<p>You can choose an earlier ready version or request a new generation below.</p></Notice>}
       {compare && (
         <div className="variation-compare" aria-label="Compare image versions">
           {[original, v].map((item) => (
@@ -781,14 +802,14 @@ function EditorContents({ asset }: { asset: Asset }) {
               <img src={media(v.id)} alt={asset.title} />
             )
           ) : (
-            <div className="editor-wait">
+            <div className="editor-wait" role="status">
               <Status status={v.status} />
-              {v.error ? <p>{v.error}</p> : <LoaderCircle className="spin" />}
+              {v.status === "failed" ? <p>Choose another version below, or generate a new one.</p> : <LoaderCircle className="spin" />}
             </div>
           )}
           {asset.caption ? (
             <div className="caption">
-              <span className="eyebrow">YOUR CAPTION</span>
+              <strong>Post caption</strong>
               <p>{asset.caption}</p>
               <Button
                 variant="small secondary"
@@ -811,7 +832,7 @@ function EditorContents({ asset }: { asset: Asset }) {
         <div className="editor-controls">
           <div className="editor-section-title">
             <SlidersHorizontal size={16} />
-            <h3>Make it your own</h3>
+            <h3>Edit the words</h3>
           </div>
           {supportsVariations && (
             <HeadlineVariations key={v.id} assetId={asset.id} version={v} pending={pending || busy} onCreated={async (nextId, nextHeadline) => {
@@ -825,6 +846,7 @@ function EditorContents({ asset }: { asset: Asset }) {
           <Field label="Headline">
             <textarea
               value={headline}
+              disabled={busy}
               onChange={(e) => setHeadline(e.target.value)}
               maxLength={120}
               rows={3}
@@ -833,16 +855,15 @@ function EditorContents({ asset }: { asset: Asset }) {
           <Field label="Call to action">
             <input
               value={cta}
+              disabled={busy}
               onChange={(e) => setCta(e.target.value)}
               maxLength={55}
             />
           </Field>
           <Button
             className="full"
-            busy={busy}
-            disabled={
-              pending || v.status !== "ready" || !headline.trim() || !cta.trim()
-            }
+            busy={operation === "edit"}
+            disabled={busy || pending || v.status !== "ready" || !validCopy}
             onClick={() => void revise(false)}
           >
             Save a new version <span className="button-credit">Free edit</span>
@@ -855,13 +876,14 @@ function EditorContents({ asset }: { asset: Asset }) {
             label="Want a different creative?"
             hint={
               v.mock
-                ? "Preview mode reuses the same photo. Live creative revisions are not enabled yet."
-                : "A new generation uses credits."
+                ? "Sample mode reuses the same photo and spends preview credits."
+                : "Describe the visual changes. This creates a separately priced version."
             }
           >
             <textarea
               placeholder="Tell us what you’d like to change…"
               value={note}
+              disabled={busy || pending}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               maxLength={500}
@@ -869,24 +891,30 @@ function EditorContents({ asset }: { asset: Asset }) {
           </Field>
           <Button
             variant="secondary full"
-            busy={busy}
-            disabled={pending}
+            busy={operation === "generate"}
+            disabled={busy || pending || !validCopy || !canAffordGeneration}
             onClick={() => void revise(true)}
           >
-            Regenerate sample <span>{VERSION_CREDITS[asset.kind]} credits</span>
+            {v.status === "failed" ? "Generate a new attempt" : v.mock ? "Generate sample version" : "Generate a new creative"} <span>{generationCost} credits</span>
           </Button>
+          <p className="asset-credit-balance">{studio?.balance ?? 0} credits available{!canAffordGeneration ? ` · This generation needs ${generationCost - (studio?.balance ?? 0)} more credits.` : ""}</p>
+          {!canAffordGeneration && <Link className="text-link" to="/studio/billing">View billing <ArrowUpRight size={14} /></Link>}
+          <details className="asset-prompt-details"><summary>View generation instructions</summary><h4>{asset.kind === "video" ? "First-frame prompt" : "Visual prompt"}</h4><p>{v.prompt}</p>{v.motion_prompt && <><h4>Motion prompt</h4><p>{v.motion_prompt}</p></>}</details>
           {error ? <Notice>{error}</Notice> : null}
+          {(error || pending) && <Button variant="secondary small" busy={operation === "refresh"} disabled={busy} onClick={() => void refreshStatus()}>Refresh status</Button>}
         </div>
       </div>
       <div className="versions-heading">
-        <h3>Every version has a place.</h3>
-        <span className="hand">keep the one that feels right.</span>
+        <h3>Version history</h3>
+        <span>{asset.versions.length} {asset.versions.length === 1 ? "version" : "versions"}</span>
       </div>
       <div className="version-list">
         {asset.versions.map((version) => (
           <button
             key={version.id}
             className={v.id === version.id ? "selected" : ""}
+            aria-pressed={v.id === version.id}
+            disabled={busy}
             onClick={() => select(version)}
           >
             <strong>
@@ -896,7 +924,9 @@ function EditorContents({ asset }: { asset: Asset }) {
               ) : null}
             </strong>
             <Status status={version.status} />
-            <small>{supportsVariations ? version.headline : version.note || "The original idea"}</small>
+            <small>{supportsVariations ? version.headline : version.note || "Initial generation"}</small>
+            <small>{version.credit_cost === 0 ? "Free edit" : `${version.credit_cost} credits at creation`}</small>
+            {asset.current_version_id === version.id && <small className="version-current-label">Selected for downloads</small>}
           </button>
         ))}
       </div>
@@ -910,7 +940,8 @@ function EditorContents({ asset }: { asset: Asset }) {
           {v.status === "ready" && v.id !== asset.current_version_id ? (
             <Button
               variant="secondary"
-              busy={busy}
+              busy={operation === "select"}
+              disabled={busy}
               onClick={() => void makeCurrent()}
             >
               Use this version
