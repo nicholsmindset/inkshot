@@ -69,8 +69,15 @@ try {
   assert((await post("/brand", { ...emptyBrand, name: "Test merchant", description: "Test product photo", photoId }, "PUT")).ok);
   const draft = await post("/campaigns", { name: "Test campaign", goal: "Sales", offer: "Order a sample" });
   assert.equal(draft.status, 201);
-  const { id } = await draft.json();
-  assert((await post(`/campaigns/${id}/generate`, { approved: true })).ok);
+  const { id, concepts } = await draft.json();
+  assert.equal(concepts.length, 6);
+  const prompts = await post(`/campaigns/${id}/prompts`, {
+    revision: 0, selectedConceptIds: concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+  });
+  assert.equal(prompts.status, 200);
+  const savedDraft = await prompts.json();
+  assert.equal(savedDraft.assets.length, 9);
+  assert((await post(`/campaigns/${id}/generate`, { approved: true, draftRevision: savedDraft.revision })).ok);
   for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
   const results = await (await get("/studio")).json();
   assert.equal(results.balance, 0);

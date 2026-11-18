@@ -40,7 +40,7 @@ test("paid writing reserves global and workspace slots atomically, including a f
   await assert.rejects(writeBrief(db, "c", []), /daily writing limit/);
   assert.equal(transport.mock.callCount(), 2);
   config.mode = "mock";
-  assert.equal((await req()).length, 3);
+  assert.equal((await req()).length, 6);
   assert.equal(transport.mock.callCount(), 2);
   const usage = await db.query("SELECT scope,requests FROM writing_daily_usage ORDER BY scope");
   assert.deepEqual(usage.rows, [{ scope: "global", requests: 2 }, { scope: "workspace:a", requests: 1 }, { scope: "workspace:b", requests: 1 }]);

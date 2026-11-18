@@ -40,7 +40,12 @@ function BrandForm({ initial }: { initial: Brand }) {
   const [readPreview, setReadPreview] = useState<Brand | null>(null);
   const [url, setUrl] = useState(searchParams.get("website") || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
-    setBrand((b) => ({ ...b, [key]: value }));
+    setBrand((b) => ({
+      ...b,
+      [key]: value,
+      evidence: (b.evidence || []).filter(item => item.field !== key),
+      inferredFields: (b.inferredFields || []).filter(field => field !== key),
+    }));
   async function read(requestedUrl = url) {
     setBusy("read");
     setError("");
@@ -129,14 +134,11 @@ function BrandForm({ initial }: { initial: Brand }) {
       </div>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">THE HEART OF EVERYTHING YOU MAKE</span>
+
           <h1>
-            Unmistakably{" "}
-            <Highlight>
-              <em>you.</em>
-            </Highlight>
+            Your brand brief
           </h1>
-          <p>A few thoughtful details make a world of difference.</p>
+          <p>Review your business facts and creative direction before making a campaign.</p>
         </div>
         <Link to="/studio/new" className="button secondary">
           New campaign
@@ -220,6 +222,15 @@ function BrandForm({ initial }: { initial: Brand }) {
                 onChange={(e) => set("audience", e.target.value)}
                 maxLength={1000}
               />
+            </Field>
+            <Field label="What problem do customers need solved?" hint={brand.inferredFields?.includes("pain") ? "Suggested from your website. Review and edit to confirm." : "Describe the customer problem your offering addresses."}>
+              <textarea rows={3} value={brand.pain || ""} maxLength={1000} onChange={e => set("pain", e.target.value)} />
+            </Field>
+            <Field label="When do they look for a solution?" hint={brand.inferredFields?.includes("trigger") ? "Suggested buying occasion. Review and edit to confirm." : "A situation or occasion that brings customers to you."}>
+              <textarea rows={2} value={brand.trigger || ""} maxLength={1000} onChange={e => set("trigger", e.target.value)} />
+            </Field>
+            <Field label="Visual direction" hint={brand.inferredFields?.includes("visualDirection") ? "Suggested creative direction. Review and edit to confirm." : "Describe the setting, people, materials and mood suitable for your ads."}>
+              <textarea rows={3} value={brand.visualDirection || ""} maxLength={1500} onChange={e => set("visualDirection", e.target.value)} />
             </Field>
             <div className="form-section-heading">
               <span className="hand">02</span>
@@ -365,6 +376,19 @@ function BrandForm({ initial }: { initial: Brand }) {
               with something true.
             </p>
           </div>
+          {brand.inferredFields?.length ? <Notice>Suggested fields needing review: {brand.inferredFields.map(field => (({ pain: "customer problem", trigger: "buying occasion", visualDirection: "visual direction", audience: "audience", voice: "voice" } as Record<string, string>)[field] || field)).join(", ")}. Edit a field to confirm your wording.</Notice> : null}
+          {brand.evidence?.length ? (
+            <div className="source-list">
+              <h3>Evidence by field</h3>
+              {brand.evidence.map((item, index) => (
+                <details key={index}>
+                  <summary>{(({ description: "Offering", audience: "Audience", pain: "Customer problem", trigger: "Buying occasion", visualDirection: "Visual direction", voice: "Voice", offer: "Offer", proof: "Proof" } as Record<string, string>)[item.field] || item.field)}</summary>
+                  <p>{item.excerpt}</p>
+                  <a href={item.sourceUrl} target="_blank" rel="noreferrer">Read source <ArrowUpRight size={13} /></a>
+                </details>
+              ))}
+            </div>
+          ) : null}
           {brand.sources.length ? (
             <div className="source-list">
               <h3>Sources for this brief</h3>

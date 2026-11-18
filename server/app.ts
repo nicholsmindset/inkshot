@@ -22,7 +22,7 @@ import {
   tokenHash,
 } from "./auth.js";
 import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
-import { writeBrief, writeConcepts } from "./claude.js";
+import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
@@ -32,10 +32,12 @@ import {
   VERSION_CREDITS,
   type Brand,
   type Campaign,
+  type CampaignDraft,
   type Asset,
   type Version,
 } from "../shared/types.js";
 import { isCampaignDestination } from "../shared/destination.js";
+import { campaignDraftSchema, selectedConceptIdsSchema, currentDraft, validateDraft, requireDraftRevision } from "./campaign-drafts.js";
 const id = z.string().uuid();
 const json = (data: unknown) => JSON.stringify(data);
 function socialCaption(headline: string, cta: string, brand: Pick<Brand, "description"> & { destinationUrl?: string }) {
@@ -44,12 +46,12 @@ function socialCaption(headline: string, cta: string, brand: Pick<Brand, "descri
 async function queueRevision(tx: Queryable, revision: {
   id: string; assetId: string; workspaceId: string; n: number; prompt: string;
   headline: string; cta: string; note: string; cost: number; mock: boolean;
-  sourcePath: string | null; checkpoint?: Record<string, string>;
+  sourcePath: string | null; motionPrompt?: string | null; checkpoint?: Record<string, string>;
 }) {
   await tx.query(
-    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path,motion_prompt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     [revision.id, revision.assetId, revision.workspaceId, revision.n, revision.prompt,
-     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath],
+     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath, revision.motionPrompt ?? null],
   );
   await tx.query(
     "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
@@ -272,7 +274,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         [w],
       ),
       db.query<Campaign>(
-        "SELECT id,name,goal,offer,status,concepts,brand,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
+        "SELECT id,name,goal,offer,status,concepts,brand,draft,mock,created_at FROM campaigns WHERE workspace_id=$1 ORDER BY created_at DESC",
         [w],
       ),
       db.query<Asset>(
@@ -280,7 +282,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         [w],
       ),
       db.query<Version>(
-        "SELECT id,asset_id,n,status,prompt,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
+        "SELECT id,asset_id,n,status,prompt,motion_prompt,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
         [w],
       ),
       db.query(
@@ -296,9 +298,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       assets: assets.rows.map((asset) => {
         const history = versions.rows.filter(v => v.asset_id === asset.id);
         const current = history.find(v => v.id === asset.current_version_id);
-        const brand = campaigns.rows.find(c => c.id === asset.campaign_id)?.brand;
-        const caption = asset.kind === "post" && current && current.n > 1 && brand
-          ? socialCaption(current.headline, current.cta, brand) : asset.caption;
+        const campaign = campaigns.rows.find(c => c.id === asset.campaign_id);
+        const caption = asset.kind === "post" && current && current.n > 1 && campaign && !campaign.draft
+          ? socialCaption(current.headline, current.cta, campaign.brand) : asset.caption;
         return { ...asset, caption, versions: history };
       }),
       ledger: ledger.rows,
@@ -422,10 +424,56 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     );
     res.status(201).json({ id: cid, concepts });
   });
+  async function ownedCampaign(tx: Queryable, campaignId: string, workspaceId: string, lock = false) {
+    const campaign = (await tx.query<Campaign>(
+      "SELECT * FROM campaigns WHERE id=$1 AND workspace_id=$2" + (lock ? " FOR UPDATE" : ""),
+      [campaignId, workspaceId],
+    )).rows[0];
+    if (!campaign) throw new AppError(404, "Campaign not found.");
+    return campaign;
+  }
+  async function saveDraft(tx: Queryable, campaign: Campaign, workspaceId: string, draft: CampaignDraft) {
+    requireDraftRevision(campaign, draft.revision);
+    validateDraft(campaign, draft);
+    if (draft.photoId && !(await tx.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [draft.photoId, workspaceId])).rows.length)
+      throw new AppError(400, "Choose a photo from this workspace.");
+    const saved = { ...draft, revision: draft.revision + 1 };
+    await tx.query("UPDATE campaigns SET draft=$2 WHERE id=$1", [campaign.id, json(saved)]);
+    return saved;
+  }
+  app.get("/api/campaigns/:id/draft", async (req, res) => {
+    const campaign = await ownedCampaign(db, id.parse(req.params.id), req.user!.workspaceId);
+    res.json(currentDraft(campaign));
+  });
+  app.patch("/api/campaigns/:id/draft", async (req, res) => {
+    const input = campaignDraftSchema.parse(req.body);
+    const workspaceId = req.user!.workspaceId;
+    const campaignId = id.parse(req.params.id);
+    const saved = await db.transaction(async tx => saveDraft(tx,
+      await ownedCampaign(tx, campaignId, workspaceId, true), workspaceId, input));
+    res.json(saved);
+  });
+  app.post("/api/campaigns/:id/prompts", async (req, res) => {
+    const input = z.object({ revision: z.number().int().min(0), selectedConceptIds: selectedConceptIdsSchema }).parse(req.body);
+    const workspaceId = req.user!.workspaceId;
+    const campaignId = id.parse(req.params.id);
+    const campaign = await ownedCampaign(db, campaignId, workspaceId);
+    requireDraftRevision(campaign, input.revision);
+    const draft = { ...currentDraft(campaign), selectedConceptIds: input.selectedConceptIds, assets: [] };
+    validateDraft(campaign, draft);
+    const selected = input.selectedConceptIds.map(conceptId => campaign.concepts.find(concept => concept.id === conceptId)!);
+    const assets = await writeAssetPrompts(db, workspaceId, campaign.brand, selected, campaign.goal, campaign.offer);
+    const complete = campaignDraftSchema.parse({ ...draft, assets });
+    validateDraft(campaign, complete, true);
+    const saved = await db.transaction(async tx => saveDraft(tx,
+      await ownedCampaign(tx, campaignId, workspaceId, true), workspaceId, complete));
+    res.json(saved);
+  });
   app.post("/api/campaigns/:id/generate", async (req, res) => {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
-    const { drafts, photoId, destinationUrl } = z.object({
+    const input = z.object({
+      draftRevision: z.number().int().min(1).optional(),
       destinationUrl: z.string().trim().refine(isCampaignDestination, "Enter a full HTTPS destination URL.").optional(),
       approved: z.literal(true),
       photoId: id.optional(),
@@ -447,9 +495,24 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
       if (c.status !== "draft") return;
+      let { drafts, photoId, destinationUrl } = input;
+      let conceptsToGenerate = c.concepts.slice(0, 3);
+      let approvedDraft: CampaignDraft | undefined;
+      if (c.concepts.length !== 3 || c.draft || input.draftRevision !== undefined) {
+        if (input.draftRevision === undefined || !c.draft)
+          throw new AppError(409, "Save and approve the current draft before generating.");
+        requireDraftRevision(c, input.draftRevision);
+        approvedDraft = campaignDraftSchema.parse(c.draft);
+        validateDraft(c, approvedDraft, true);
+        photoId = approvedDraft.photoId;
+        destinationUrl = approvedDraft.destinationUrl;
+        drafts = approvedDraft.assets;
+        conceptsToGenerate = approvedDraft.selectedConceptIds.map(conceptId => c.concepts.find(concept => concept.id === conceptId)!);
+      }
+      const approvedAssets = new Map(approvedDraft?.assets.map(asset => [`${asset.conceptId}:${asset.kind}`, asset]));
       const overrides = new Map<string, {headline?: string; cta: string}>();
       if (drafts) {
-        const concepts = new Set(c.concepts.map((concept) => concept.id));
+        const concepts = new Set(conceptsToGenerate.map((concept) => concept.id));
         for (const draft of drafts) {
           const key = `${draft.conceptId}:${draft.kind}`;
           if (!concepts.has(draft.conceptId) || overrides.has(key))
@@ -466,8 +529,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         );
         if (!uploaded.rows.length) throw new AppError(400, "Choose a photo from this workspace.");
       }
-      if (photoId || destinationUrl) {
+      if (approvedDraft || photoId || destinationUrl) {
         const approvedBrand = { ...c.brand };
+        if (approvedDraft) {
+          delete approvedBrand.photoId;
+          delete approvedBrand.destinationUrl;
+        }
         if (photoId) approvedBrand.photoId = photoId;
         await tx.query("UPDATE campaigns SET brand=$2 WHERE id=$1", [
           cid, json({ ...approvedBrand, ...(destinationUrl && { destinationUrl }) }),
@@ -481,7 +548,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         `${c.name} · nine-asset kit`,
         `kit:${cid}`,
       );
-      for (const [index, concept] of c.concepts.entries()) {
+      for (const [index, concept] of conceptsToGenerate.entries()) {
         for (const kind of ["video", "image", "post"] as const) {
           const aid = randomUUID(),
             vid = randomUUID();
@@ -496,7 +563,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           const draft = overrides.get(`${concept.id}:${kind}`);
           const cta = draft?.cta ?? concept.cta;
           const headline = draft?.headline ?? concept.hook;
-          const prompt = `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
+          const approvedAsset = approvedAssets.get(`${concept.id}:${kind}`);
+          const prompt = approvedAsset?.prompt ?? `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
             [
@@ -507,14 +575,14 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
               concept.title,
               format,
               kind === "post"
-                ? socialCaption(headline, cta, { ...c.brand, destinationUrl })
+                ? approvedAsset?.caption ?? socialCaption(headline, cta, { ...c.brand, destinationUrl })
                 : "",
               vid,
             ],
           );
           await tx.query(
-            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8)",
-            [vid, aid, w, prompt, headline, cta, cost, c.mock],
+            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock,motion_prompt) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9)",
+            [vid, aid, w, prompt, headline, cta, cost, c.mock, approvedAsset?.motionPrompt ?? null],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
@@ -590,6 +658,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
         headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
         cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
+        motionPrompt: source.motion_prompt,
       });
       return vid;
     });
@@ -689,8 +758,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const cid = id.parse(req.params.id),
       w = req.user!.workspaceId;
     const c = (
-      await db.query<Pick<Campaign, "brand">>(
-        "SELECT brand FROM campaigns WHERE id=$1 AND workspace_id=$2",
+      await db.query<Pick<Campaign, "brand" | "draft">>(
+        "SELECT brand,draft FROM campaigns WHERE id=$1 AND workspace_id=$2",
         [cid, w],
       )
     ).rows[0];
@@ -723,7 +792,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     zip.append(
       rows
         .filter((a) => a.kind === "post")
-        .map((a) => `${a.title}\n${a.n > 1 ? socialCaption(a.headline, a.cta, c.brand) : a.caption}`)
+        .map((a) => `${a.title}\n${a.n > 1 && !c.draft ? socialCaption(a.headline, a.cta, c.brand) : a.caption}`)
         .join("\n\n---\n\n"),
       { name: "captions.txt" },
     );

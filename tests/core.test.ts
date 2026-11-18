@@ -101,10 +101,14 @@ test("campaign creation and repeated generation spend exactly 100 credits", asyn
     offer: "Explore the collection",
   });
   assert.equal(result.status, 201);
-  campaignId = (await result.json()).id;
+  const campaign = await result.json();
+  campaignId = campaign.id;
+  const draft = await (await call(`/campaigns/${campaignId}/prompts`, {
+    revision: 0, selectedConceptIds: campaign.concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+  })).json();
   const responses = await Promise.all([
-    call(`/campaigns/${campaignId}/generate`, { approved: true }),
-    call(`/campaigns/${campaignId}/generate`, { approved: true }),
+    call(`/campaigns/${campaignId}/generate`, { approved: true, draftRevision: draft.revision }),
+    call(`/campaigns/${campaignId}/generate`, { approved: true, draftRevision: draft.revision }),
   ]);
   assert(responses.every((r) => r.ok));
   const studio = await (await call("/studio")).json();
@@ -243,13 +247,15 @@ test('Stripe webhook requires a signature',async()=>{
  assert.equal((await call('/webhooks/stripe',{type:'invoice.paid'},'')).status,400);
 });
 
-test("approved asset CTAs and workspace photo are persisted before generation", async () => {
+test("legacy three-concept drafts preserve approved CTAs and workspace photo", async () => {
   const session = await call("/auth/demo", {}, "");
   const cookie = session.headers.get("set-cookie")!.split(";")[0];
   const owner = (await (await call("/studio", undefined, cookie)).json()).user.workspaceId;
   const { id, concepts } = await (await call("/campaigns", {
     name: "Photo campaign", goal: "Sales", offer: "Book now",
   }, cookie)).json();
+  concepts.splice(3);
+  await db.query("UPDATE campaigns SET concepts=$2 WHERE id=$1", [id, JSON.stringify(concepts)]);
   const photoId = randomUUID(), foreignId = randomUUID();
   const file = path.resolve("public/examples/candle.png");
   await db.query("INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3),($4,$5,$3)", [
@@ -285,7 +291,10 @@ test("image headline batches preserve media, credits and the original on concurr
   const campaign = await (await call("/campaigns", {
     name: "Headline test", goal: "Sales", offer: "Try a sample",
   }, cookie)).json();
-  assert((await call(`/campaigns/${campaign.id}/generate`, { approved: true }, cookie)).ok);
+  const draft = await (await call(`/campaigns/${campaign.id}/prompts`, {
+    revision: 0, selectedConceptIds: campaign.concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+  }, cookie)).json();
+  assert((await call(`/campaigns/${campaign.id}/generate`, { approved: true, draftRevision: draft.revision }, cookie)).ok);
   const studio = await (await call("/studio", undefined, cookie)).json();
   const image = studio.assets.find((a: { kind: string }) => a.kind === "image");
   const video = studio.assets.find((a: { kind: string }) => a.kind === "video");

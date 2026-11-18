@@ -8,6 +8,11 @@ export type Brand = {
   color: string;
   proof: string[];
   sources: { url: string; text: string }[];
+  pain?: string;
+  trigger?: string;
+  visualDirection?: string;
+  evidence?: { field: string; sourceUrl: string; excerpt: string }[];
+  inferredFields?: string[];
   photoId?: string;
   logoUrl?: string;
   logoId?: string;
@@ -26,7 +31,24 @@ export type Concept = {
   description: string;
   cta: string;
 };
+export type AssetDraft = {
+  conceptId: string;
+  kind: "video" | "image" | "post";
+  headline: string;
+  cta: string;
+  prompt: string;
+  motionPrompt?: string;
+  caption?: string;
+};
+export type CampaignDraft = {
+  revision: number;
+  selectedConceptIds: string[];
+  assets: AssetDraft[];
+  destinationUrl?: string;
+  photoId?: string;
+};
 export type Campaign = {
+  draft?: CampaignDraft | null;
   id: string;
   name: string;
   goal: string;
@@ -43,6 +65,7 @@ export type Version = {
   n: number;
   status: string;
   prompt: string;
+  motion_prompt?: string | null;
   headline: string;
   cta: string;
   note: string;

@@ -42,7 +42,11 @@ with tempfile.TemporaryDirectory() as download_dir:
         assert api("/health")["demoAvailable"]
         api("/auth/demo", {})
         campaign = api("/campaigns", {"name": "Bakery launch", "goal": "Sales", "offer": "Friday pre-orders"})
-        api(f"/campaigns/{campaign['id']}/generate", {"approved": True})
+        draft = api(f"/campaigns/{campaign['id']}/prompts", {
+            "revision": 0,
+            "selectedConceptIds": [concept["id"] for concept in campaign["concepts"][:3]],
+        })
+        api(f"/campaigns/{campaign['id']}/generate", {"approved": True, "draftRevision": draft["revision"]})
 
         def ready_image(_):
             return next((a for a in api("/studio")["assets"] if a["kind"] == "image"

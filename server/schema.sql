@@ -42,3 +42,6 @@ CREATE TABLE IF NOT EXISTS writing_daily_usage (
   requests integer NOT NULL CHECK (requests > 0),
   PRIMARY KEY (usage_day, scope)
 );
+
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS draft jsonb;
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS motion_prompt text;

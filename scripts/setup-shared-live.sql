@@ -75,4 +75,6 @@ BEGIN
     THEN RAISE EXCEPTION 'Cross-environment grant on %',tbl; END IF;
   END LOOP;
 END $setup$;
+ALTER TABLE inkshot_live.campaigns ADD COLUMN IF NOT EXISTS draft jsonb;
+ALTER TABLE inkshot_live.versions ADD COLUMN IF NOT EXISTS motion_prompt text;
 COMMIT;

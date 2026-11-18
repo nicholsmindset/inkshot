@@ -20,6 +20,7 @@ type Work = {
   headline: string;
   cta: string;
   prompt: string;
+  motion_prompt?: string | null;
   mock: boolean;
   source_path: string | null;
   credit_cost: number;
@@ -98,7 +99,7 @@ async function handle(db:Database,job: Job) {
               hf.MODELS.video,
               {
                 image_url: image.images[0].url,
-                prompt: `Slow deliberate camera movement. ${work.prompt}. No text or logos.`,
+                prompt: work.motion_prompt || `Slow deliberate camera movement. ${work.prompt}. No text or logos.`,
                 duration: 15,
                 sound: "off",
               },
