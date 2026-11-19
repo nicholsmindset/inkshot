@@ -67,7 +67,7 @@ test('real PostgreSQL metrics distinguish old pending work, completed work and n
     ('processing',now()-interval '20 minutes'),('done',now()-interval '1 day'),('failed',now()-interval '1 day');`);
   const db: Database = { query: (sql, params) => local.query(sql, params),
     transaction: fn => local.transaction(tx => fn(tx)), close: () => local.close() };
-  assert.deepEqual(await readOpsMetrics(db), { queuedOver15Minutes: 1, processingOver15Minutes: 1, lastStripeEventAgeSeconds: null });
+  assert.deepEqual(await readOpsMetrics(db), { queuedOver15Minutes: 1, processingOver15Minutes: 1, lastStripeEventAgeSeconds: null, provider: { enabled: false, actualChargeReconciliationSupported: false } });
   await local.exec("INSERT INTO payment_events VALUES(now()-interval '5 minutes'),(now()-interval '1 hour')");
   const handler = createOpsStatusHandler(async () => db);
   const r = request('Bearer ops-secret-fixture'); await handler(r.req, r.res);

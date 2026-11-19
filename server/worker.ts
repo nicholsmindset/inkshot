@@ -1,4 +1,5 @@
 import { reportOpsAlert } from './ops.js';
+import { wakeProviderJobs } from './provider-webhooks.js';
 import {submitBudgeted} from './provider-budget.js';
 import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
 import path from "node:path";
@@ -210,6 +211,7 @@ async function handle(db:Database,job: Job) {
   }
 
 export async function runWorkerOnce(db:Database):Promise<boolean> {
+ await wakeProviderJobs(db);
  if(process.env.DATABASE_URL && !cloudStorageEnabled())
   throw new Error('A managed database requires private cloud media storage.');
  const job=await db.transaction(async tx=>{
