@@ -14,7 +14,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { ZipArchive } from "archiver";
 import { z } from "zod";
-import { config, AppError } from "./config.js";
+import { config, AppError, videoDurationSeconds } from "./config.js";
 import type { Database, Queryable } from "./db.js";
 import {
   requireUser,
@@ -62,12 +62,12 @@ function socialCaption(headline: string, cta: string, brand: Pick<Brand, "descri
 async function queueRevision(tx: Queryable, revision: {
   id: string; assetId: string; workspaceId: string; n: number; prompt: string;
   headline: string; cta: string; note: string; cost: number; mock: boolean;
-  sourcePath: string | null; motionPrompt?: string | null; checkpoint?: Record<string, string>;
+  sourcePath: string | null; videoDuration?: number; firstFrameSource?: string | null; motionPrompt?: string | null; checkpoint?: Record<string, string>;
 }) {
   await tx.query(
-    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path,motion_prompt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path,motion_prompt,video_duration_seconds,first_frame_source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     [revision.id, revision.assetId, revision.workspaceId, revision.n, revision.prompt,
-     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath, revision.motionPrompt ?? null],
+     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath, revision.motionPrompt ?? null, revision.videoDuration ?? 15, revision.firstFrameSource ?? null],
   );
   await tx.query(
     "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
@@ -355,7 +355,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         [w],
       ),
       db.query<Version>(
-        "SELECT id,asset_id,n,status,prompt,motion_prompt,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
+        "SELECT id,asset_id,n,status,prompt,motion_prompt,video_duration_seconds,first_frame_source,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
         [w],
       ),
       db.query(
@@ -378,6 +378,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       }),
       ledger: ledger.rows,
       mode: config.mode,
+      videoDurationSeconds: videoDurationSeconds(),
       providers: {
         higgsfield: !!config.hfKey && !!config.hfSecret,
         claude: !!config.claudeKey || !!config.openrouterKey,
@@ -482,8 +483,10 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       );
     const concepts = await writeConcepts(db, w, brand, input.goal, input.offer);
     const cid = randomUUID();
+    const initialDraft = currentDraft({ id: cid, name: input.name, goal: input.goal,
+      offer: input.offer, concepts, brand, status: 'draft', mock: config.mode === 'mock', created_at: '' });
     await db.query(
-      "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock,draft) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
       [
         cid,
         w,
@@ -493,6 +496,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         json(concepts),
         json(brand),
         config.mode === "mock",
+        json(initialDraft),
       ],
     );
     res.status(201).json({ id: cid, concepts });
@@ -510,7 +514,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     validateDraft(campaign, draft);
     if (draft.photoId && !(await tx.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [draft.photoId, workspaceId])).rows.length)
       throw new AppError(400, "Choose a photo from this workspace.");
-    const saved = { ...draft, revision: draft.revision + 1 };
+    const saved = { ...draft, videoDurationSeconds: currentDraft(campaign).videoDurationSeconds, revision: draft.revision + 1 };
     await tx.query("UPDATE campaigns SET draft=$2 WHERE id=$1", [campaign.id, json(saved)]);
     return saved;
   }
@@ -535,7 +539,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const draft = { ...currentDraft(campaign), selectedConceptIds: input.selectedConceptIds, assets: [] };
     validateDraft(campaign, draft);
     const selected = input.selectedConceptIds.map(conceptId => campaign.concepts.find(concept => concept.id === conceptId)!);
-    const assets = await writeAssetPrompts(db, workspaceId, campaign.brand, selected, campaign.goal, campaign.offer);
+    const assets = await writeAssetPrompts(db, workspaceId, campaign.brand, selected, campaign.goal, campaign.offer, draft.videoDurationSeconds);
     const complete = campaignDraftSchema.parse({ ...draft, assets });
     validateDraft(campaign, complete, true);
     const saved = await db.transaction(async tx => saveDraft(tx,
@@ -575,7 +579,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         if (input.draftRevision === undefined || !c.draft)
           throw new AppError(409, "Save and approve the current draft before generating.");
         requireDraftRevision(c, input.draftRevision);
-        approvedDraft = campaignDraftSchema.parse(c.draft);
+        approvedDraft = campaignDraftSchema.parse(currentDraft(c));
         validateDraft(c, approvedDraft, true);
         photoId = approvedDraft.photoId;
         destinationUrl = approvedDraft.destinationUrl;
@@ -654,8 +658,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
             ],
           );
           await tx.query(
-            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock,motion_prompt) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9)",
-            [vid, aid, w, prompt, headline, cta, cost, c.mock, approvedAsset?.motionPrompt ?? null],
+            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock,motion_prompt,video_duration_seconds) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9,$10)",
+            [vid, aid, w, prompt, headline, cta, cost, c.mock, approvedAsset?.motionPrompt ?? null, approvedDraft?.videoDurationSeconds ?? 15],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
@@ -731,7 +735,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
         headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
         cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
-        motionPrompt: source.motion_prompt,
+        motionPrompt: source.motion_prompt, videoDuration: source.video_duration_seconds,
+        firstFrameSource: input.regenerate ? null : source.first_frame_source,
       });
       return vid;
     });

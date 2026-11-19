@@ -34,3 +34,20 @@ test("draft rejects duplicated or foreign concept pairs and stale revisions", ()
   assert.throws(() => requireDraftRevision({ ...campaign, draft: { ...initial, revision: 2 } }, 1), /another session/);
   assert.throws(() => requireDraftRevision({ ...campaign, status: "generating" }, 0), /already started/);
 });
+
+test('new drafts use validated configured duration while legacy approved prompts retain fifteen seconds', async t => {
+  const { videoDurationSeconds } = await import('../server/config.js');
+  const original = process.env.VIDEO_DURATION_SECONDS;
+  t.after(() => { if (original === undefined) delete process.env.VIDEO_DURATION_SECONDS; else process.env.VIDEO_DURATION_SECONDS = original; });
+  delete process.env.VIDEO_DURATION_SECONDS;
+  assert.equal(videoDurationSeconds(), 10);
+  process.env.VIDEO_DURATION_SECONDS = '8';
+  assert.equal(currentDraft(campaign).videoDurationSeconds, 8);
+  const legacy = { ...campaign, draft: { revision: 2, selectedConceptIds: [], assets: [{ conceptId: 'old', kind: 'video' as const, headline: 'Old', cta: 'Shop', prompt: 'Frame' }] } };
+  assert.equal(currentDraft(legacy).videoDurationSeconds, 15);
+  assert.equal(currentDraft({ ...legacy, draft: { ...legacy.draft, videoDurationSeconds: 10 } }).videoDurationSeconds, 10);
+  for (const value of ['2', '16', '10.5', 'bad']) {
+    process.env.VIDEO_DURATION_SECONDS = value;
+    assert.throws(videoDurationSeconds, /integer from 3 to 15/);
+  }
+});

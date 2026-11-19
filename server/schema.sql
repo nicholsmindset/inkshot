@@ -52,3 +52,6 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS rate_limit_buckets_expiry ON rate_limit_buckets(expires_at);
+
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS video_duration_seconds integer NOT NULL DEFAULT 15 CHECK(video_duration_seconds BETWEEN 3 AND 15);
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS first_frame_source text CHECK(first_frame_source IN ('merchant_photo','generated','sample'));
