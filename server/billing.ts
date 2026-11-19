@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import {randomBytes} from 'node:crypto';
-import type {Database} from './db.js';
+import type {Database,Queryable} from './db.js';
 import {AppError,config} from './config.js';
 import {changeCredits} from './credits.js';
 import type {User} from '../shared/types.js';
@@ -25,6 +25,31 @@ function client(){
 type BillingAccount={workspace_id:string;customer_id:string|null;subscription_id:string|null;status:string;checkout_id:string|null;last_allowance_invoice_created:string|number};
 const stripeId=(value:string|{id:string}|null|undefined)=>typeof value==='string'?value:value?.id;
 
+export type DeletionBillingReader=(customerId:string,checkoutId:string|null)=>Promise<{checkoutStatus:string|null;subscriptionStatuses:string[]}>;
+// Read-only reconciliation also covers legacy rows whose checkout ID was never cleared.
+const readDeletionBilling:DeletionBillingReader=async(customerId,checkoutId)=>{
+ const stripe=client();
+ const session=checkoutId?await stripe.checkout.sessions.retrieve(checkoutId):null;
+ if(session && (stripeId(session.customer)!==customerId || session.livemode!==(billingMode()==='live') || !session.status))throw new Error('Billing identity mismatch');
+ const subscriptions=await stripe.subscriptions.list({customer:customerId,status:'all',limit:100});
+ // Conservatively require review if the complete history cannot be checked in one bounded request.
+ if(subscriptions.has_more || subscriptions.data.some(s=>stripeId(s.customer)!==customerId || s.livemode!==(billingMode()==='live')))throw new Error('Billing history incomplete');
+ return {checkoutStatus:session?.status??null,subscriptionStatuses:subscriptions.data.map(s=>s.status)};
+};
+export async function reconcileBillingForDeletion(tx:Queryable,workspaceId:string,read:DeletionBillingReader=readDeletionBilling){
+ const account=(await tx.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1 FOR UPDATE',[workspaceId])).rows[0];
+ if(!account)return;
+ if(!account.customer_id){
+  if(account.checkout_id || account.subscription_id || !['none','canceled','incomplete_expired'].includes(account.status))throw new AppError(409,'Your subscription or checkout needs reconciliation before account deletion.');
+  return;
+ }
+ let current:Awaited<ReturnType<DeletionBillingReader>>;
+ try{current=await read(account.customer_id,account.checkout_id);}catch{throw new AppError(409,'Billing status could not be verified. Please retry account deletion shortly.');}
+ if(current.checkoutStatus==='open' || current.subscriptionStatuses.some(status=>!['canceled','incomplete_expired'].includes(status)))throw new AppError(409,'Close any pending checkout and cancel your subscription before requesting deletion.');
+ if(account.checkout_id && !['expired','complete'].includes(current.checkoutStatus??''))throw new AppError(409,'Checkout status needs reconciliation before account deletion.');
+ await tx.query("UPDATE billing_accounts SET checkout_id=NULL,status=$2 WHERE workspace_id=$1",[workspaceId,account.subscription_id?'canceled':'none']);
+}
+
 export async function checkout(db:Database,user:User){
  if(user.demo)throw new AppError(400,'Create a permanent account before testing a subscription.');
  const stripe=client();
@@ -32,6 +57,10 @@ export async function checkout(db:Database,user:User){
  const price=await stripe.prices.retrieve(process.env.STRIPE_STUDIO_PRICE_ID!);
  if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!=='usd'||price.unit_amount!==3900||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
  return db.transaction(async tx=>{
+  // Same lock order as deletion: a checkout cannot open after the workspace freezes.
+  await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[user.workspaceId]);
+  const frozen=(await tx.query<{deletion_requested_at:unknown}>('SELECT deletion_requested_at FROM workspaces WHERE id=$1',[user.workspaceId])).rows[0];
+  if(frozen?.deletion_requested_at)throw new AppError(410,'Account deletion has been requested.');
   await tx.query('INSERT INTO billing_accounts(workspace_id) VALUES($1) ON CONFLICT DO NOTHING',[user.workspaceId]);
   const account=(await tx.query<BillingAccount>('SELECT * FROM billing_accounts WHERE workspace_id=$1 FOR UPDATE',[user.workspaceId])).rows[0];
   let customerId=account.customer_id;

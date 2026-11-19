@@ -1,3 +1,4 @@
+import { AccountDeletion } from "./AccountDeletion";
 import {useState} from "react";
 import {api} from "../api";
 import {
@@ -169,6 +170,7 @@ export function SettingsPage() {
         </div>
       </div>
       <div className="settings-stack">
+        <AccountDeletion enabled={Boolean(studio.accountDeletionEnabled)} />
         <section className="settings-card">
           <h2>
             <ShieldCheck size={20} />
