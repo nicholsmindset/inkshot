@@ -765,7 +765,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
         headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
         cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
-        motionPrompt: source.motion_prompt, videoDuration: source.video_duration_seconds,
+        motionPrompt: source.motion_prompt && a.kind === "video" && input.regenerate && input.note
+          ? `${source.motion_prompt} Revision: ${input.note}` : source.motion_prompt,
+        videoDuration: source.video_duration_seconds,
         firstFrameSource: input.regenerate ? null : source.first_frame_source,
       });
       return vid;
