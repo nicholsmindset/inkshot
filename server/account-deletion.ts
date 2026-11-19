@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Database, Queryable } from './db.js';
 import type { User } from '../shared/types.js';
 import { AppError } from './config.js';
+import { reconcileBillingForDeletion, type DeletionBillingReader } from './billing.js';
 
 export const deletionEnabled = () => process.env.ENABLE_ACCOUNT_DELETION === 'true' && process.env.INKSHOT_SHARED_PROJECT_LIVE !== 'true';
 export const identityHash = (id: string) => createHash('sha256').update(id).digest('hex');
@@ -13,7 +14,7 @@ export async function rejectFrozenWorkspace(db: Queryable, workspaceId: string) 
   if ((await db.query('SELECT id FROM workspaces WHERE id=$1 AND deletion_requested_at IS NOT NULL',[workspaceId])).rows.length)
     throw new AppError(410, 'Account deletion has been requested. Your studio is closed while deletion is processed.');
 }
-export async function requestDeletion(db: Database, user: User) {
+export async function requestDeletion(db: Database, user: User, readBilling?: DeletionBillingReader) {
   if (!deletionEnabled()) throw new AppError(503,'Account deletion is not enabled for this environment.');
   if (user.demo) throw new AppError(400,'Preview demo accounts cannot request deletion.');
   return db.transaction(async tx => {
@@ -22,9 +23,7 @@ export async function requestDeletion(db: Database, user: User) {
     if(existing) return existing;
     const members = (await tx.query<{id:string}>('SELECT id FROM users WHERE workspace_id=$1',[user.workspaceId])).rows;
     if(members.length!==1 || members[0].id!==user.id) throw new AppError(409,'Shared workspaces require an ownership review before deletion.');
-    const billing=(await tx.query<{status:string;checkout_id:string|null}>('SELECT status,checkout_id FROM billing_accounts WHERE workspace_id=$1',[user.workspaceId])).rows[0];
-    if(billing && (!['none','canceled','incomplete_expired'].includes(billing.status) || billing.checkout_id))
-      throw new AppError(409,'Close any pending checkout and cancel your subscription before requesting deletion.');
+    await reconcileBillingForDeletion(tx,user.workspaceId,readBilling);
     if((await tx.query("SELECT id FROM jobs WHERE workspace_id=$1 AND state IN ('queued','processing') LIMIT 1",[user.workspaceId])).rows.length)
       throw new AppError(409,'Wait for current creative jobs to finish before deleting your account.');
     if((await tx.query<{present:boolean}>("SELECT to_regclass('campaign_exports') IS NOT NULL AS present")).rows[0].present &&

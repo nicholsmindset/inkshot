@@ -110,3 +110,27 @@ test('cleanup erases workspace linkage without resetting spent provider budget',
  assert(spend.request_key.startsWith('deleted:'));assert(!spend.request_key.includes('version:image'));assert.equal(spend.input_hash,'deleted');assert.equal(spend.provider_request_id,null);assert.equal(Number(spend.usd),3.5);
  assert.deepEqual((await db.query('SELECT scope FROM writing_daily_usage')).rows,[{scope:'global'}]);
 });
+
+
+test('legacy checkout reconciliation permits terminal sessions only with no active subscriptions',async t=>{
+ flags(t);
+ for(const checkoutStatus of ['expired','complete'] as const){
+  const {pg,db,user}=await fixture(t);
+  await pg.exec("INSERT INTO billing_accounts(workspace_id,customer_id,subscription_id,status,checkout_id)VALUES('own','cus_owner','sub_old','canceled','cs_old')");
+  const result=await requestDeletion(db,user,async(customer,id)=>{assert.equal(customer,'cus_owner');assert.equal(id,'cs_old');return {checkoutStatus,subscriptionStatuses:['canceled']};});
+  assert.equal(result.state,'pending');
+  assert.equal((await db.query<{checkout_id:null}>('SELECT checkout_id FROM billing_accounts')).rows[0].checkout_id,null);
+ }
+ for(const [checkoutStatus,subscriptionStatuses] of [['open',['canceled']],['complete',['active']],['expired',['past_due']],['complete',['incomplete']]] as const){
+  const {pg,db,user}=await fixture(t);
+  await pg.exec("INSERT INTO billing_accounts(workspace_id,customer_id,status,checkout_id)VALUES('own','cus_owner','canceled','cs_old')");
+  await assert.rejects(requestDeletion(db,user,async()=>({checkoutStatus,subscriptionStatuses:[...subscriptionStatuses]})),/cancel your subscription/);
+  assert.equal((await db.query('SELECT id FROM account_deletions')).rows.length,0);
+  assert.equal((await db.query<{checkout_id:string}>('SELECT checkout_id FROM billing_accounts')).rows[0].checkout_id,'cs_old');
+ }
+ const {pg,db,user}=await fixture(t);
+ await pg.exec("INSERT INTO billing_accounts(workspace_id,customer_id,status,checkout_id)VALUES('own','cus_owner','canceled','cs_old')");
+ await assert.rejects(requestDeletion(db,user,async()=>{throw new Error('private key or Stripe outage');}),/could not be verified/);
+ await assert.rejects(requestDeletion(db,user,async()=>({checkoutStatus:null,subscriptionStatuses:[]})),/needs reconciliation/);
+ assert.equal((await db.query('SELECT id FROM account_deletions')).rows.length,0);
+});
