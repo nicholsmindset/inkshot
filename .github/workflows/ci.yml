@@ -30,3 +30,4 @@ jobs:
           curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent "$APP_ORIGIN/api/health"
           "$RUNNER_TEMP/inkshot-browser/bin/python" tests/browser/image_variations.py || { cat "$RUNNER_TEMP/inkshot-smoke.log"; exit 1; }
           "$RUNNER_TEMP/inkshot-browser/bin/python" tests/browser/auth_journey.py || { cat "$RUNNER_TEMP/inkshot-smoke.log"; exit 1; }
+          "$RUNNER_TEMP/inkshot-browser/bin/python" tests/browser/confirmation_recovery.py || { cat "$RUNNER_TEMP/inkshot-smoke.log"; exit 1; }

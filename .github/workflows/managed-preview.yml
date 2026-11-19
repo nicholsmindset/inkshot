@@ -38,8 +38,13 @@ jobs:
           import re
           text = re.sub(r'^additional_redirect_urls = .*$', 'additional_redirect_urls = ["http://127.0.0.1:3001/api/auth/callback", "http://127.0.0.1:3001/api/auth/recovery-callback"]', text, flags=re.M)
           text = re.sub(r'(\[auth\.email\][\s\S]*?^enable_confirmations = )false', r'\g<1>true', text, count=1, flags=re.M)
+          # Keep real resend testing fast only in this disposable local stack.
+          text = re.sub(r'(\[auth\.email\][\s\S]*?^max_frequency = )"[^"]*"', r'\g<1>"1s"', text, count=1, flags=re.M)
+          text += '\n[auth.email.template.confirmation]\nsubject = "Confirm your Inkshot email"\ncontent_path = "./supabase/templates/confirmation.html"\n'
           import tomllib
           assert tomllib.loads(text)['auth']['email']['enable_confirmations'] is True
+          assert tomllib.loads(text)['auth']['email']['max_frequency'] == '1s'
+          assert tomllib.loads(text)['auth']['email']['template']['confirmation']['content_path'] == './supabase/templates/confirmation.html'
           config.write_text(text)
           PY
           supabase start -x realtime,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor

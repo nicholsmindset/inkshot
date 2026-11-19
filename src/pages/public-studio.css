@@ -89,6 +89,13 @@
 .auth-example > div > p { color: #3d443a; line-height: 1.55; margin-top: 9px; font-size: 16px; }
 .auth-page .auth-form { justify-content: center; }
 .auth-form .muted { overflow-wrap: anywhere; }
+.auth-confirmation { display: grid; gap: 14px; margin-top: 24px; }
+.auth-confirmation h2, .auth-confirmation p { margin: 0; }
+.auth-confirmation p, .auth-confirmation small { line-height: 1.6; }
+.auth-confirmation .confirmation-address { font-weight: 600; overflow-wrap: anywhere; }
+.auth-confirmation form { display: grid; gap: 14px; }
+.auth-text-button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.auth-text-button:disabled { opacity: .55; cursor: wait; }
 @media (max-width: 880px) {
   .landing .hero { grid-template-columns: 1fr; }
   .hero .hero-copy { max-width: 620px; }

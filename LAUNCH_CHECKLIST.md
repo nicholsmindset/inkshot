@@ -11,7 +11,7 @@ The existing 15-second video product and credit prices remain unchanged. Preview
 ## Deployment order
 
 1. Restore administrator access to the existing Inkshot Supabase project `smpdzhxydnctiyjqojmp`. The current connection returns permission denied for that project; it lists two other projects that must not be used as substitutes.
-2. Confirm the intended sandbox/live namespaces and take the normal database backup. Apply `supabase/migrations/20261119090000_campaign_planning.sql`. It only adds `campaigns.draft` and `versions.motion_prompt` to `public` and an existing `inkshot_live` schema. It does not copy customer rows or credits.
+2. Confirm the intended sandbox/live namespaces and take the normal database backup. Apply `supabase/migrations/20261119090000_campaign_planning.sql`, then `supabase/migrations/20261119100000_shared_rate_limits.sql`. The first adds campaign drafts and motion prompts; the second adds private shared abuse counters with scoped runtime grants. Neither copies customer rows or credits. Both must precede this application release.
 3. Verify the columns below, plus the existing runtime-role grants, before deploying the branch. A live schema that has not been provisioned is a separate setup task; this migration does not create it.
 4. Review the passing checks for the final PR commit, deploy the matching application version, and check authentication, saved drafts, private downloads and workspace isolation in the hosted environment.
 5. Keep new live checkout closed until funded writing, hosted media delivery and signed Stripe fulfillment pass their acceptance checks. Deploying the application is separate from enabling checkout.
@@ -38,6 +38,21 @@ For each served origin, set `APP_ORIGIN` to its exact HTTPS origin and allow its
 The dedicated `confirmed-auth-journey` CI job requires email confirmation using a disposable Supabase server and captured local mailbox. It checks signup, blocked login before confirmation, callback website continuation, first login, signout, returning login to the same workspace, incorrect passwords and single-use password recovery. Chrome checks also cover form state, a late anonymous response after signup and a failed signout followed by a successful retry.
 
 Hosted startup failures emit only a safe stage/configuration code and customer reference. Match the reference in Vercel runtime logs to distinguish missing configuration, database access and application startup failures. Do not diagnose a customer's password from a generic service failure, or call the hosted issue resolved from local tests alone.
+
+### Confirmation recovery and abuse controls
+
+- Copy `supabase/templates/confirmation.html` into the hosted Supabase **Confirm signup** email template. It preserves the existing confirmation link and adds `{{ .Token }}` for code entry from another browser/device. Verify the sender and inbox delivery before inviting customers. The code feature cannot be called ready until the deployed template includes the code.
+- Signup and login expose resend and existing-code entry. Resend returns the same receipt for unknown, confirmed and waiting addresses. Editing the signup email starts a new signup; it does not update another account.
+- Verification accepts the latest code once through Supabase, then provisions the verified identity. Email codes never appear in query strings or application logs. Existing confirmation links and password recovery retain their original browser-bound PKCE flow; cross-device password recovery is not part of this change.
+- All app, auth and website-read counters use PostgreSQL across instances. Additional normalized-address limits allow one resend per minute and ten verification attempts per 15 minutes. A storage failure blocks the request; there is no memory fallback. Keys are hashed and expired counters are removed in bounded batches.
+- On Vercel, only the platform-overwritten single `x-vercel-forwarded-for` IP is used. Outside Vercel, forwarding headers are ignored. IPv6 callers are grouped by subnet. Verify this against hosted traffic before launch; other reverse proxies need an explicit trusted-proxy configuration.
+
+### Remaining launch and growth work
+
+- Keep public indexing disabled until the canonical production origin and public pages are approved. The current `vercel.json` sends `noindex, nofollow` site-wide. When opening marketing pages, keep studio, auth and preview pages excluded; verify served headers as well as page metadata.
+- Confirm a support address you control. Do not publish `hello@inkshot.com` as a working contact until ownership and delivery are verified.
+- Add production alerts for startup failures, Stripe delivery failures and stuck generation jobs. Existing safe diagnostic logs do not establish that alert routing is configured.
+- Add a minimal conversion funnel (signup, verified account, saved brief, approved campaign, checkout, completed download) after choosing the analytics destination and privacy settings. This release does not install tracking or send customer data to a new vendor.
 
 ## Paid acceptance evidence
 

@@ -5,6 +5,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
+import { PostgresRateLimitStore, clientRateLimitKey } from "./rate-limit.js";
 import multer from "multer";
 import { randomUUID, randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -117,6 +118,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.use(
     "/api",
     rateLimit({
+      store: new PostgresRateLimitStore(db, "api"),
+      keyGenerator: clientRateLimitKey,
+      passOnStoreError: false,
       windowMs: 60000,
       limit: 180,
       standardHeaders: "draft-7",
@@ -145,14 +149,34 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
   const authLimit = rateLimit({
+    store: new PostgresRateLimitStore(db, "auth"),
+    keyGenerator: clientRateLimitKey,
+    passOnStoreError: false,
     windowMs: 15 * 60000,
     limit: 30,
     message: { error: "Too many attempts. Please try again later." },
   });
   const websiteReadLimit = rateLimit({
+    store: new PostgresRateLimitStore(db, "website-read"),
+    keyGenerator: clientRateLimitKey,
+    passOnStoreError: false,
     windowMs: 60_000,
     limit: 8,
     message: { error: 'Too many website reads. Please wait a minute before trying again.' },
+  });
+  const resendLimit = rateLimit({
+    store: new PostgresRateLimitStore(db, "confirmation-resend"),
+    keyGenerator: req => authEmail.parse(req.body?.email),
+    passOnStoreError: false,
+    windowMs: 60_000, limit: 1,
+    message: { error: "Please wait a minute before requesting another confirmation email." },
+  });
+  const verificationLimit = rateLimit({
+    store: new PostgresRateLimitStore(db, "email-verification"),
+    keyGenerator: req => authEmail.parse(req.body?.email),
+    passOnStoreError: false,
+    windowMs: 15 * 60_000, limit: 10,
+    message: { error: "Too many verification attempts. Please try again later." },
   });
   app.post("/api/auth/demo", authLimit, async (req, res) => {
     if (managedAuthEnabled() || config.production || config.mode !== "mock")
@@ -204,6 +228,28 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { userId } = await createUser(db, input, emptyBrand);
     await session(db, userId, res);
     res.status(201).json({ ok: true });
+  });
+  app.post("/api/auth/resend-confirmation", authLimit, resendLimit, async (req, res) => {
+    const { email } = z.object({ email: authEmail }).parse(req.body);
+    if (!managedAuthEnabled()) throw new AppError(503, "Confirmation email is unavailable in the local preview.");
+    const { error } = await authClient(req, res).auth.resend({
+      type: "signup", email, options: { emailRedirectTo: `${config.origin}/api/auth/callback` },
+    });
+    if (error && (!error.status || error.status >= 500))
+      throw new AppError(503, "Confirmation email is temporarily unavailable. Please try again.");
+    // Do not reveal whether this address is registered, confirmed or throttled.
+    res.json({ ok: true });
+  });
+  app.post("/api/auth/verify-email", authLimit, verificationLimit, async (req, res) => {
+    const { email, token } = z.object({ email: authEmail, token: z.string().trim().regex(/^\d{6,10}$/) }).parse(req.body);
+    if (!managedAuthEnabled()) throw new AppError(503, "Email verification is unavailable in the local preview.");
+    // A manually entered email code works without the original browser's PKCE
+    // verifier. The existing confirmation-link flow stays browser-bound.
+    const { data, error } = await authClient(req, res).auth.verifyOtp({ email, token, type: "email" });
+    if (error || !data.user || !data.session || !data.user.email_confirmed_at)
+      throw new AppError(401, "That code is invalid or has expired. Request a new confirmation email.");
+    await provisionManagedUser(db, data.user);
+    res.json({ ok: true });
   });
   const recoveryCode = "inkshot-reset-code";
   const codeFormat = z.string().min(16).max(512).regex(/^[a-zA-Z0-9_-]+$/);
