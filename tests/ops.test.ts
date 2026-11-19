@@ -117,3 +117,17 @@ test('hosted catch-all routes status before the application startup guard', asyn
   assert.equal(body.databaseReachable, false);
   assert(!allowed.response.body.includes('ops-secret-fixture'));
 });
+
+
+test('a hung database initializer returns a safe failure within the status deadline', async t => {
+  environment(t, { CRON_SECRET: 'ops-secret-fixture', OPS_ALERTS_ENABLED: 'true' });
+  const logs: string[] = []; t.mock.method(console, 'error', (value: string) => logs.push(value));
+  const handler = createOpsStatusHandler(() => new Promise<Database>(() => {}), 10);
+  const r = request('Bearer ops-secret-fixture');
+  const started = Date.now(); await handler(r.req, r.res);
+  assert(Date.now() - started < 1000);
+  assert.equal(r.response.statusCode, 503);
+  assert.equal(JSON.parse(r.response.body).databaseReachable, false);
+  assert.equal(JSON.parse(logs[0]).event, 'inkshot_service_unavailable');
+  assert(!r.response.body.includes('ops-secret-fixture'));
+});

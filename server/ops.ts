@@ -54,7 +54,7 @@ export async function monitorStuckJobs(db: Database) {
   return metrics;
 }
 
-export function createOpsStatusHandler(database: () => Promise<Database>) {
+export function createOpsStatusHandler(database: () => Promise<Database>, timeoutMs = 15000) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
@@ -64,8 +64,13 @@ export function createOpsStatusHandler(database: () => Promise<Database>) {
       return;
     }
     const settings = Object.fromEntries(settingNames.map(name => [name, Boolean(process.env[name]?.trim())]));
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const metrics = await monitorStuckJobs(await database());
+      // Bound initialization as well as metrics; the deadline does not cancel work.
+      const metrics = await Promise.race([
+        Promise.resolve().then(database).then(monitorStuckJobs),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Ops deadline exceeded")), timeoutMs); }),
+      ]);
       const ok = metrics.queuedOver15Minutes + metrics.processingOver15Minutes === 0;
       res.statusCode = ok ? 200 : 503;
       res.end(JSON.stringify({ ok, settings, databaseReachable: true, ...metrics }));
@@ -74,6 +79,8 @@ export function createOpsStatusHandler(database: () => Promise<Database>) {
       res.statusCode = 503;
       res.end(JSON.stringify({ ok: false, settings, databaseReachable: false,
         queuedOver15Minutes: null, processingOver15Minutes: null, lastStripeEventAgeSeconds: null }));
+    } finally {
+      clearTimeout(timer);
     }
   };
 }
