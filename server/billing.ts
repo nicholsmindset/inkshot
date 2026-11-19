@@ -29,9 +29,9 @@ export type DeletionBillingReader=(customerId:string,checkoutId:string|null)=>Pr
 // Read-only reconciliation also covers legacy rows whose checkout ID was never cleared.
 const readDeletionBilling:DeletionBillingReader=async(customerId,checkoutId)=>{
  const stripe=client();
- const session=checkoutId?await stripe.checkout.sessions.retrieve(checkoutId):null;
+ const session=checkoutId?await stripe.checkout.sessions.retrieve(checkoutId,{},{timeout:10000,maxNetworkRetries:0}):null;
  if(session && (stripeId(session.customer)!==customerId || session.livemode!==(billingMode()==='live') || !session.status))throw new Error('Billing identity mismatch');
- const subscriptions=await stripe.subscriptions.list({customer:customerId,status:'all',limit:100});
+ const subscriptions=await stripe.subscriptions.list({customer:customerId,status:'all',limit:100},{timeout:10000,maxNetworkRetries:0});
  // Conservatively require review if the complete history cannot be checked in one bounded request.
  if(subscriptions.has_more || subscriptions.data.some(s=>stripeId(s.customer)!==customerId || s.livemode!==(billingMode()==='live')))throw new Error('Billing history incomplete');
  return {checkoutStatus:session?.status??null,subscriptionStatuses:subscriptions.data.map(s=>s.status)};

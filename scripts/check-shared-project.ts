@@ -364,10 +364,17 @@ if (phase === "setup") {
           /not linked/,
         );
         for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
-        assert.equal(
-          (await request(`/campaigns/${sand.campaignId}/download`)).status,
-          200,
-        );
+        const exportRequest=await request(`/campaigns/${sand.campaignId}/exports`, 'POST', {category:'all'});
+        assert.equal(exportRequest.status,202);
+        const archive=await exportRequest.json();
+        assert(await runWorkerOnce(db));
+        const status=await request(`/exports/${archive.id}`);
+        assert.equal(status.status,200);
+        assert.equal((await status.json()).state,'ready');
+        const download=await request(`/exports/${archive.id}/download`);
+        assert.equal(download.status,200);
+        const archiveBytes=Buffer.from(await download.arrayBuffer());
+        assert.equal(archiveBytes.subarray(0,2).toString(),'PK');
       } else {
         const liveState = JSON.parse(
           await readFile(path.join(dir, "live.json"), "utf8"),

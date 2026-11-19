@@ -39,6 +39,17 @@ test("readiness identifies missing columns, wrong types and rate-limit migration
     await assert.rejects(verifySchemaReadiness(db), isSchemaError('SCHEMA_PHOTO_VIDEO_REQUIRED'));
     await db.exec(await sql('supabase/migrations/20261119160000_photo_first_video.sql'));
     await verifySchemaReadiness(db);
+    await db.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
+    for (const [table,code,migration] of [
+      ['account_deletions','SCHEMA_ACCOUNT_DELETION_REQUIRED','20261119210000_account_deletion.sql'],
+      ['provider_events','SCHEMA_PROVIDER_EVENTS_REQUIRED','20261119200000_provider_events.sql'],
+      ['campaign_exports','SCHEMA_CAMPAIGN_EXPORTS_REQUIRED','20261119170000_campaign_exports.sql'],
+    ]) {
+      await db.exec(`DROP TABLE ${table}`);
+      await assert.rejects(verifySchemaReadiness(db), isSchemaError(code));
+      await db.exec(await sql('supabase/migrations/'+migration));
+      await verifySchemaReadiness(db);
+    }
     assert.deepEqual((await db.query("SELECT id,credits FROM workspaces")).rows, [{ id: "existing-customer", credits: 37 }]);
   } finally { await db.close(); }
 });
