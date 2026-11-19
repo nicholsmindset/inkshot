@@ -9,6 +9,7 @@ function client(){
  return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
 }
 const PREFIX='supabase://';
+export const SIGNED_MEDIA_TTL_SECONDS = 600;
 type MediaBucket = 'brand-uploads' | 'generated-media';
 
 function bucketName(bucket: MediaBucket) {
@@ -25,7 +26,7 @@ export async function persistMedia(file:string,workspaceId:string,kind:MediaBuck
  const bucket=bucketName(kind);
  const key=`${workspaceId}/${path.basename(file)}`;
  const ext=path.extname(file);
- const {error}=await client().storage.from(bucket).upload(key,await readFile(file),{contentType:ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
+ const {error}=await client().storage.from(bucket).upload(key,await readFile(file),{contentType:ext==='.zip'?'application/zip':ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
  if(error)throw new AppError(503,'Media could not be saved. Please retry.');
  return `${PREFIX}${bucket}/${key}`;
 }
@@ -34,16 +35,34 @@ export async function materializeMedia(reference:string, workspaceId:string, kin
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return reference;
  }
- const bucket=bucketName(kind);
- const [storedBucket, owner, filename, ...extra]=reference.slice(PREFIX.length).split('/');
- if (storedBucket !== bucket || owner !== workspaceId || !owner || !filename || extra.length ||
-     !/^[a-zA-Z0-9_-]+$/.test(owner) || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(filename))
-   throw new AppError(404,'Media does not exist in this workspace.');
- const key=`${owner}/${filename}`;
+ const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
  const target=path.join(config.dataDir,'cache',bucket,key);
  await mkdir(path.dirname(target),{recursive:true});
  const {data,error}=await client().storage.from(bucket).download(key);
  if(error||!data)throw new AppError(503,'Your media could not be downloaded. Please retry.');
  await writeFile(target,Buffer.from(await data.arrayBuffer()));
  return target;
+}
+
+function privateMediaKey(reference:string,workspaceId:string,kind:MediaBucket){
+ const bucket=bucketName(kind);
+ const [storedBucket, owner, filename, ...extra]=reference.slice(PREFIX.length).split('/');
+ if (storedBucket !== bucket || owner !== workspaceId || !owner || !filename || extra.length ||
+     !/^[a-zA-Z0-9_-]+$/.test(owner) || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(filename))
+   throw new AppError(404,'Media does not exist in this workspace.');
+ const key=`${owner}/${filename}`;
+ return {bucket,key};
+}
+
+// Short-lived capability URL, created only after callers verify record ownership.
+// Reference validation also refuses another workspace, bucket or environment.
+export async function signedMediaUrl(reference:string,workspaceId:string,kind:MediaBucket,download?:string){
+ if(!reference.startsWith(PREFIX)) {
+  if(cloudStorageEnabled())throw new Error('Expected private cloud media');
+  return null;
+ }
+ const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
+ const {data,error}=await client().storage.from(bucket).createSignedUrl(key,SIGNED_MEDIA_TTL_SECONDS,download?{download}:undefined);
+ if(error||!data?.signedUrl)throw new AppError(503,'Your download link could not be created. Please retry.');
+ return data.signedUrl;
 }

@@ -428,6 +428,7 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
 
   if (loading) return <p role="status"><LoaderCircle size={16} className="spin" /> Loading your saved draft…</p>;
   if (!draft || !studio) return <><Notice>{error || "Your draft could not be loaded."}</Notice><Button onClick={() => void reloadSaved()}>Try again</Button></>;
+  const duration = draft.videoDurationSeconds ?? (draft.assets.length ? 15 : studio.videoDurationSeconds ?? 10);
   const locked = !!action || conflict;
   const readyToWrite = draft.selectedConceptIds.length === 3 && !dirty && !saving && !error && destinationValid;
   const review = draft.revision + ":" + contents;
@@ -472,7 +473,7 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
     {draft.assets.length > 0 && <>
       <div className="section-heading"><h2>Review your nine prompts</h2></div>
       {draftKinds.map((kind) => <section className="planner-shelf" key={kind} aria-label={draftLabels[kind] + " prompts"}>
-        <h3>{kind === "video" ? "Video ads · 15 seconds" : kind === "image" ? "Image ads" : "Organic posts"}</h3>
+        <h3>{kind === "video" ? `Video ads · ${duration} seconds` : kind === "image" ? "Image ads" : "Organic posts"}</h3>
         {draft.assets.map((asset, index) => {
           if (asset.kind !== kind) return null;
           const concept = campaign.concepts.find((item) => item.id === asset.conceptId);
@@ -483,7 +484,7 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
                 <textarea rows={5} value={asset.prompt} maxLength={4000} disabled={locked}
                   onChange={(event) => updateAsset(index, { prompt: event.target.value })} />
               </Field>
-              {kind === "video" && <Field label="Motion prompt" hint="Describe what happens across the 15-second clip. The first frame sets the scene.">
+              {kind === "video" && <Field label="Motion prompt" hint={`Describe what happens across the ${duration}-second clip. The first frame sets the scene.`}>
                 <textarea rows={5} value={asset.motionPrompt || ""} maxLength={4000} disabled={locked}
                   onChange={(event) => updateAsset(index, { motionPrompt: event.target.value })} />
               </Field>}
@@ -497,14 +498,14 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
         })}
       </section>)}
       <div className="planner-brand-preview">
-        {draft.photoId && <figure><img src={"/api/uploads/" + encodeURIComponent(draft.photoId)} alt="Approved product photo" /><figcaption>Photo used for image ads and posts. Live video uses a generated first frame.</figcaption></figure>}
+        {draft.photoId && <figure><img src={"/api/uploads/" + encodeURIComponent(draft.photoId)} alt="Approved product photo" /><figcaption>Your approved photo starts each video and is used for image ads and posts.</figcaption></figure>}
         {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Approved brand logo" />}
         <span>Brand colour <strong>{campaign.brand.color}</strong></span>
       </div>
       <div className="approval-panel">
         <div><h3>Approve your saved prompts</h3><label className="checkbox-label"><input type="checkbox" checked={approved === review} disabled={locked || dirty || saving || !validAssets || !!error}
           onChange={(event) => setApproved(event.target.checked ? review : "")} />I’ve checked the prompts, offer and claims, and approve these nine assets.</label></div>
-        <div><Button busy={action === "generate"} disabled={locked || approved !== review || !validAssets || dirty || saving || !!error || !destinationValid || studio.balance < 100} onClick={() => void generate()}>Make my kit <span className="button-credit">100 credits</span></Button><small>{studio.balance} credits available</small></div>
+        <div><Button busy={action === "generate"} disabled={locked || approved !== review || !validAssets || dirty || saving || !!error || !destinationValid || studio.balance < 100} onClick={() => void generate()}>Make my kit <span className="button-credit">100 credits</span></Button><small>3 videos at {duration}s · 3 image ads · 3 posts. {studio.balance} credits available</small></div>
       </div>
     </>}
   </div>;

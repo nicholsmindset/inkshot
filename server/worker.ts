@@ -1,6 +1,6 @@
 import { reportOpsAlert } from './ops.js';
 import {submitBudgeted} from './provider-budget.js';
-import {persistMedia,materializeMedia,cloudStorageEnabled} from './storage.js';
+import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
 import path from "node:path";
 import type { Database } from "./db.js";
 import { config } from "./config.js";
@@ -22,6 +22,8 @@ type Work = {
   cta: string;
   prompt: string;
   motion_prompt?: string | null;
+  video_duration_seconds: number;
+  first_frame_source?: string | null;
   mock: boolean;
   source_path: string | null;
   credit_cost: number;
@@ -64,44 +66,51 @@ async function handle(db:Database,job: Job) {
             JSON.stringify(checkpoint),
           ]);
         };
-        if (!checkpoint.imageId) {
-          const result = await submitBudgeted(
-            db,
-            hf.MODELS.image,
-            {
-              prompt: work.prompt,
-              resolution: "1080p",
-              aspect_ratio:
-                work.kind === "video"
-                  ? "9:16"
-                  : work.format === "1:1"
-                    ? "1:1"
-                    : work.format === "1.91:1"
-                      ? "16:9"
-                      : "3:4",
-            },
-            `${work.id}:image`,
-          );
-          checkpoint.imageId = result.request_id;
+        let imageUrl = typeof checkpoint.firstFrameUrl === 'string' ? checkpoint.firstFrameUrl : undefined;
+        if (!imageUrl && !checkpoint.videoId && !checkpoint.imageId && work.kind === 'video' && work.brand.photoId) {
+          const uploaded = (await db.query<{file_path: string}>(
+            'SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2',
+            [work.brand.photoId, job.workspace_id],
+          )).rows[0];
+          if (!uploaded) throw new TerminalFailure('The approved brand file is unavailable. Credits returned.');
+          const signed = await signedMediaUrl(uploaded.file_path, job.workspace_id, 'brand-uploads');
+          if (!signed) throw new TerminalFailure('Private photo storage is required for live video. Credits returned.');
+          imageUrl = signed;
+          // Persist before submission: retries must reuse the exact budgeted input.
+          checkpoint.firstFrameUrl = imageUrl;
+          await save();
+          await db.query("UPDATE versions SET first_frame_source='merchant_photo' WHERE id=$1", [work.id]);
+        }
+        if (!imageUrl && !checkpoint.videoId) {
+          await db.query("UPDATE versions SET first_frame_source='generated' WHERE id=$1", [work.id]);
+          if (!checkpoint.imageId) {
+            const result = await submitBudgeted(db, hf.MODELS.image, {
+              prompt: work.prompt, resolution: '1080p',
+              aspect_ratio: work.kind === 'video' ? '9:16' : work.format === '1:1' ? '1:1' : work.format === '1.91:1' ? '16:9' : '3:4',
+            }, `${work.id}:image`);
+            checkpoint.imageId = result.request_id;
+            await save();
+          }
+          const image = await hf.status(String(checkpoint.imageId));
+          if (['failed', 'nsfw', 'canceled'].includes(image.status))
+            throw new TerminalFailure('The image could not be generated. Credits returned.');
+          if (image.status !== 'completed') return await requeue(db, job.id);
+          if (!image.images?.[0]?.url) throw new TerminalFailure('The provider returned no image.');
+          imageUrl = image.images[0].url;
+          checkpoint.firstFrameUrl = imageUrl;
           await save();
         }
-        const image = await hf.status(String(checkpoint.imageId));
-        if (["failed", "nsfw", "canceled"].includes(image.status))
-          throw new TerminalFailure(
-            "The image could not be generated. Credits returned.",
-          );
-        if (image.status !== "completed") return await requeue(db, job.id);
-        if (!image.images?.[0]?.url)
-          throw new TerminalFailure("The provider returned no image.");
         if (work.kind === "video") {
+          if (!work.first_frame_source)
+            await db.query('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, checkpoint.imageId || !work.brand.photoId ? 'generated' : 'merchant_photo']);
           if (!checkpoint.videoId) {
             const result = await submitBudgeted(
             db,
               hf.MODELS.video,
               {
-                image_url: image.images[0].url,
+                image_url: imageUrl,
                 prompt: work.motion_prompt || `Slow deliberate camera movement. ${work.prompt}. No text or logos.`,
-                duration: 15,
+                duration: work.video_duration_seconds,
                 sound: "off",
               },
               `${work.id}:video`,
@@ -118,9 +127,11 @@ async function handle(db:Database,job: Job) {
           if (!video.video?.url)
             throw new TerminalFailure("The provider returned no video.");
           source = await downloadOutput(video.video.url, work.id, true);
-        } else source = await downloadOutput(image.images[0].url, work.id);
+        } else if (imageUrl) source = await downloadOutput(imageUrl, work.id);
       }
       if (!source) throw new Error("No source media");
+      if (work.mock && !work.source_path)
+        await db.query('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, work.brand.photoId ? 'merchant_photo' : 'sample']);
       await db.query(
         "UPDATE versions SET status='rendering',source_path=$2 WHERE id=$1",
         [work.id, await persistMedia(source,job.workspace_id,'generated-media')],
@@ -136,6 +147,7 @@ async function handle(db:Database,job: Job) {
         brandColor: work.brand.color,
         logo: work.brand.logoId ? await merchantFile(work.brand.logoId) : undefined,
         mock: work.mock,
+        videoDurationSeconds: work.video_duration_seconds,
       });
       const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media');
       const savedPreview = files.preview_path===files.file_path ? savedFile : await persistMedia(files.preview_path,job.workspace_id,'generated-media');

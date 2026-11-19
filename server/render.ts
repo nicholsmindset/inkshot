@@ -73,6 +73,7 @@ export async function renderMedia(input: {
   brandColor?: string;
   logo?: string;
   mock: boolean;
+  videoDurationSeconds?: number;
 }) {
   const dir = path.join(config.dataDir, "media");
   await mkdir(dir, { recursive: true });
@@ -158,7 +159,7 @@ export async function renderMedia(input: {
         "-i",
         preview,
         "-t",
-        "5",
+        String(input.videoDurationSeconds ?? 10),
         "-vf",
         "scale=540:960",
         "-c:v",

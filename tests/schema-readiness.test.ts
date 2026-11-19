@@ -35,6 +35,10 @@ test("readiness identifies missing columns, wrong types and rate-limit migration
     await assert.rejects(verifySchemaReadiness(db), isSchemaError("SCHEMA_SHARED_RATE_LIMITS_REQUIRED"));
     await db.exec(await sql(limits));
     await verifySchemaReadiness(db);
+    await db.exec('ALTER TABLE versions DROP COLUMN first_frame_source');
+    await assert.rejects(verifySchemaReadiness(db), isSchemaError('SCHEMA_PHOTO_VIDEO_REQUIRED'));
+    await db.exec(await sql('supabase/migrations/20261119160000_photo_first_video.sql'));
+    await verifySchemaReadiness(db);
     assert.deepEqual((await db.query("SELECT id,credits FROM workspaces")).rows, [{ id: "existing-customer", credits: 37 }]);
   } finally { await db.close(); }
 });
@@ -60,6 +64,14 @@ test("shared live readiness uses the scoped runtime role and never falls back to
     await liveRole();
     await verifySchemaReadiness(db, true);
     await assert.rejects(db.query("SELECT * FROM public.workspaces"), /permission denied/);
+    await db.exec("SET SESSION AUTHORIZATION postgres; ALTER TABLE inkshot_live.versions DROP COLUMN video_duration_seconds; ALTER TABLE inkshot_live.versions DROP COLUMN first_frame_source;");
+    await liveRole();
+    await assert.rejects(verifySchemaReadiness(db, true), isSchemaError('SCHEMA_PHOTO_VIDEO_REQUIRED'));
+    await db.exec('SET SESSION AUTHORIZATION postgres');
+    await db.exec(await sql('supabase/migrations/20261119160000_photo_first_video.sql'));
+    await db.exec(await sql('supabase/migrations/20261119160000_photo_first_video.sql'));
+    await liveRole();
+    await verifySchemaReadiness(db, true);
     // An administrator's permissive search path must not hide a missing live table.
     await db.exec("SET SESSION AUTHORIZATION postgres; DROP TABLE inkshot_live.rate_limit_buckets; SET search_path=inkshot_live,public;");
     await assert.rejects(verifySchemaReadiness(db, true), isSchemaError("SCHEMA_SHARED_RATE_LIMITS_REQUIRED"));

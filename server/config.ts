@@ -39,7 +39,7 @@ export function writingLimits() {
 
 export const hostedConfigurationCodes = [
   "HOSTED_AUTH_REQUIRED", "HOSTED_STORAGE_REQUIRED", "HOSTED_DATABASE_REQUIRED",
-  "LIVE_MODE_MISMATCH", "LIVE_BILLING_REQUIRED", "LIVE_PROVIDER_REQUIRED", "WRITING_LIMITS_REQUIRED",
+  "LIVE_MODE_MISMATCH", "LIVE_BILLING_REQUIRED", "LIVE_PROVIDER_REQUIRED", "WRITING_LIMITS_REQUIRED", "VIDEO_DURATION_REQUIRED",
 ] as const;
 export class HostedConfigurationError extends Error {
   constructor(readonly code: typeof hostedConfigurationCodes[number], message: string) {
@@ -48,6 +48,9 @@ export class HostedConfigurationError extends Error {
 }
 
 export function assertHostedConfiguration() {
+  try { videoDurationSeconds(); } catch {
+    throw new HostedConfigurationError("VIDEO_DURATION_REQUIRED", "A supported video duration is required.");
+  }
   if (process.env.AUTH_PROVIDER !== "supabase")
     throw new HostedConfigurationError("HOSTED_AUTH_REQUIRED", "Hosted identity is required.");
   if (process.env.STORAGE_PROVIDER !== "supabase")
@@ -69,4 +72,12 @@ export function assertHostedConfiguration() {
       throw new HostedConfigurationError("WRITING_LIMITS_REQUIRED", "Daily writing limits are not configured.");
     }
   }
+}
+
+// Kling 3.0 Standard documents integer durations from 3 through 15 seconds.
+export function videoDurationSeconds() {
+  const value = Number(process.env.VIDEO_DURATION_SECONDS || '10');
+  if (!Number.isInteger(value) || value < 3 || value > 15)
+    throw new AppError(503, 'Video duration must be an integer from 3 to 15 seconds.');
+  return value;
 }

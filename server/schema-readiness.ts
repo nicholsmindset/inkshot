@@ -3,6 +3,7 @@ import type { Queryable } from "./db.js";
 export const schemaReadinessCodes = [
   "SCHEMA_CAMPAIGN_PLANNING_REQUIRED",
   "SCHEMA_SHARED_RATE_LIMITS_REQUIRED",
+  "SCHEMA_PHOTO_VIDEO_REQUIRED",
 ] as const;
 type SchemaCode = (typeof schemaReadinessCodes)[number];
 
@@ -16,6 +17,8 @@ export class SchemaReadinessError extends Error {
 // migrate a hosted database or let a public table stand in for a missing live one.
 export async function verifySchemaReadiness(db: Queryable, shared = false) {
   const requirements = [
+    { table_name: "versions", column_name: "video_duration_seconds", column_type: "integer", code: schemaReadinessCodes[2] },
+    { table_name: "versions", column_name: "first_frame_source", column_type: "text", code: schemaReadinessCodes[2] },
     { table_name: "campaigns", column_name: "draft", column_type: "jsonb", code: schemaReadinessCodes[0] },
     { table_name: "versions", column_name: "motion_prompt", column_type: "text", code: schemaReadinessCodes[0] },
     { table_name: "rate_limit_buckets", column_name: "bucket_key", column_type: "text", code: schemaReadinessCodes[1] },

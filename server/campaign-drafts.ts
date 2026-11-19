@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AppError } from "./config.js";
+import { AppError, videoDurationSeconds } from "./config.js";
 import type { Campaign, CampaignDraft } from "../shared/types.js";
 import { isCampaignDestination } from "../shared/destination.js";
 
@@ -14,6 +14,7 @@ export const assetDraftSchema = z.object({
   caption: z.string().trim().max(4000).optional(),
 });
 export const campaignDraftSchema = z.object({
+  videoDurationSeconds: z.number().int().min(3).max(15).optional(),
   revision: z.number().int().min(0),
   selectedConceptIds: z.array(z.string().min(1).max(80)).max(3),
   assets: z.array(assetDraftSchema).max(9),
@@ -21,7 +22,9 @@ export const campaignDraftSchema = z.object({
   photoId: z.string().uuid().optional(),
 });
 export function currentDraft(campaign: Campaign): CampaignDraft {
-  return campaign.draft ?? {
+  if (campaign.draft) return { ...campaign.draft, videoDurationSeconds: campaign.draft.videoDurationSeconds ?? (campaign.draft.assets.length ? 15 : videoDurationSeconds()) };
+  return {
+    videoDurationSeconds: videoDurationSeconds(),
     revision: 0,
     selectedConceptIds: campaign.concepts.slice(0, 3).map(concept => concept.id),
     assets: [],
