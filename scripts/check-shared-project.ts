@@ -70,6 +70,7 @@ if (phase === "setup") {
       "payment_events",
       "provider_spend",
       "writing_daily_usage",
+      "rate_limit_buckets",
     ];
     for (const table of tables) {
       await admin.query(

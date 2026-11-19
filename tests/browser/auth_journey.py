@@ -61,9 +61,13 @@ with webdriver.Chrome(options=options) as browser:
         for item in driver.find_elements(By.CSS_SELECTOR, "[role=alert]")))
     browser.find_element(By.LINK_TEXT, "Create an account").click()
     path_is("/signup")
-    assert not browser.find_elements(By.CSS_SELECTOR, "[role=alert]")
+    # History updates before React commits the new keyed route. Wait for its
+    # signup-only field before checking that login errors and values reset.
+    signup_name = field("name")
+    alerts = [item.text for item in browser.find_elements(By.CSS_SELECTOR, "[role=alert]")]
+    assert not alerts, f"Signup retained login alerts after its form rendered: {alerts}"
     assert field("email").get_attribute("value") == ""
-    field("name").send_keys("Browser Journey")
+    signup_name.send_keys("Browser Journey")
     field("email").send_keys(email)
     field("password").send_keys(password)
     button("Create my studio").click()
