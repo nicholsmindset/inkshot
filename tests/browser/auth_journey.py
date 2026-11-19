@@ -3,6 +3,7 @@ import uuid
 from urllib.parse import urlparse
 
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -23,7 +24,11 @@ with webdriver.Chrome(options=options) as browser:
             if item.is_displayed() and item.is_enabled() and item.text.strip() == label), False))
 
     def path_is(path):
-        wait.until(lambda driver: urlparse(driver.current_url).path == path)
+        try:
+            wait.until(lambda driver: urlparse(driver.current_url).path == path)
+        except TimeoutException as error:
+            alerts = [item.text for item in browser.find_elements(By.CSS_SELECTOR, "[role=alert]")]
+            raise AssertionError(f"Expected route {path}; current URL {browser.current_url}; alerts {alerts}") from error
 
     def studio():
         return browser.execute_async_script("""

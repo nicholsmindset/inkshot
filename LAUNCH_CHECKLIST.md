@@ -29,8 +29,6 @@ ORDER BY table_schema, table_name;
 
 Expect `draft` as `jsonb` and `motion_prompt` as `text` in each provisioned namespace. Check as an administrator; a scoped runtime role is intentionally unable to inspect the other environment's tables.
 
-## Paid acceptance evidence
-
 ## Account journey release checks
 
 Vercel builds run `scripts/check-hosted-build.ts` before compiling the frontend. Missing Auth, database or private-storage configuration must fail the build instead of publishing a login form backed by an unavailable API. Configure Preview and Production independently. Passing this check proves configuration shape, not valid credentials or database connectivity.

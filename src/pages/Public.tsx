@@ -182,6 +182,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
   const [searchParams] = useSearchParams();
   const requestedWebsite = searchParams.get("website");
   const websiteQuery = requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : "";
+  const studioDestination = signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio";
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -197,14 +198,14 @@ export function Auth({ signup = false }: { signup?: boolean }) {
         return;
       }
       await refresh({ fresh: true });
-      navigate(signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio");
+      navigate(studioDestination, { replace: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  if (studio && !busy) return <Navigate to={requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio"} replace />;
+  if (studio && !busy) return <Navigate to={studioDestination} replace />;
   return (
     <div className="auth-page">
       <div className="auth-form">
