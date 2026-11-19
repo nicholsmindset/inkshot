@@ -54,7 +54,7 @@ if (phase === "setup") {
     await admin.connect();
     // All passwords below are generated UUIDs, used only by this disposable stack.
     await admin.query(
-      `CREATE ROLE inkshot_app LOGIN PASSWORD '${test.sandboxPassword}'`,
+      `ALTER ROLE inkshot_app LOGIN PASSWORD '${test.sandboxPassword}'`,
     );
     const tables = [
       "workspaces",
