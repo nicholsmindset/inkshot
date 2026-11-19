@@ -3,6 +3,7 @@ import {persistMedia,materializeMedia} from './storage.js';
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
 import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
+import { acceptProviderWebhook } from "./provider-webhooks.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
@@ -116,6 +117,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     next();
   });
   app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');try { await webhook(db,req.body,signature); } catch (error) { reportOpsAlert('inkshot_stripe_webhook_failed'); throw error; } res.json({received:true})});
+  app.post('/api/webhooks/higgsfield', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+    res.json(await acceptProviderWebhook(db, req.body, req.headers));
+  });
   app.use(express.json({ limit: "128kb" }));
   app.use(
     "/api",

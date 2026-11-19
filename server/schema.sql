@@ -55,3 +55,12 @@ CREATE INDEX IF NOT EXISTS rate_limit_buckets_expiry ON rate_limit_buckets(expir
 
 ALTER TABLE versions ADD COLUMN IF NOT EXISTS video_duration_seconds integer NOT NULL DEFAULT 15 CHECK(video_duration_seconds BETWEEN 3 AND 15);
 ALTER TABLE versions ADD COLUMN IF NOT EXISTS first_frame_source text CHECK(first_frame_source IN ('merchant_photo','generated','sample'));
+CREATE TABLE IF NOT EXISTS provider_events (
+  webhook_id text PRIMARY KEY, request_id text NOT NULL,
+  status text NOT NULL CHECK(status IN ('completed','failed','nsfw')),
+  expires_at timestamptz, body_hash text NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT now(), matched_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS provider_events_request ON provider_events(request_id);
+CREATE INDEX IF NOT EXISTS provider_events_unmatched ON provider_events(request_id) WHERE matched_at IS NULL;
+CREATE INDEX IF NOT EXISTS provider_spend_receipt ON provider_spend(provider_request_id) WHERE provider_request_id IS NOT NULL;

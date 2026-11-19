@@ -1,5 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { providerOperationsSummary } from './provider-webhooks.js';
 import type { Database } from './db.js';
 
 const events = ['inkshot_service_unavailable', 'inkshot_worker_failed', 'inkshot_stripe_webhook_failed', 'inkshot_jobs_stuck'] as const;
@@ -29,7 +30,7 @@ const settingNames = [
   'STRIPE_STUDIO_PRICE_ID', 'GENERATION_MODE', 'ALLOW_LIVE_GENERATION',
   'HF_API_KEY_ID', 'HF_API_KEY_SECRET', 'HF_DAILY_BUDGET_USD',
   'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'WRITING_DAILY_REQUEST_LIMIT',
-  'WRITING_WORKSPACE_DAILY_REQUEST_LIMIT', 'OPS_ALERTS_ENABLED',
+  'WRITING_WORKSPACE_DAILY_REQUEST_LIMIT', 'OPS_ALERTS_ENABLED', 'HF_WEBHOOKS_ENABLED', 'HF_WEBHOOK_SECRET',
 ] as const;
 
 export async function readOpsMetrics(db: Database) {
@@ -43,7 +44,7 @@ export async function readOpsMetrics(db: Database) {
         (SELECT CASE WHEN max(created_at) IS NULL THEN NULL ELSE greatest(0,extract(epoch FROM now()-max(created_at)))::integer END FROM payment_events) AS stripe_age
     `);
     const row = result.rows[0];
-    return { queuedOver15Minutes: row.queued, processingOver15Minutes: row.processing, lastStripeEventAgeSeconds: row.stripe_age };
+    return { queuedOver15Minutes: row.queued, processingOver15Minutes: row.processing, lastStripeEventAgeSeconds: row.stripe_age, provider: await providerOperationsSummary(tx) };
   });
 }
 

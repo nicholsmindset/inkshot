@@ -1,3 +1,4 @@
+import { providerWebhookUrl } from "./provider-webhooks.js";
 import { config, AppError } from "./config.js";
 const BASE = "https://api.higgsfield.ai";
 export const MODELS = {
@@ -38,7 +39,9 @@ async function hf<T>(route: string, body?: unknown, key?: string): Promise<T> {
 }
 export const estimate = (model: string, input: unknown) =>
   hf<{ usd: string; credits: string }>(`/estimate/${model}`, input);
-export const submit = (model: string, input: unknown, key: string) =>
-  hf<HFStatus>(`/${model}`, input, key);
+export const submit = (model: string, input: unknown, key: string) => {
+  const callback = providerWebhookUrl();
+  return hf<HFStatus>(`/${model}${callback ? `?hf_webhook=${encodeURIComponent(callback)}` : ""}`, input, key);
+};
 export const status = (id: string) =>
   hf<HFStatus>(`/requests/${encodeURIComponent(id)}/status`);
