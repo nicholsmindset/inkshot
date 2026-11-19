@@ -1,7 +1,7 @@
 """Check confirmation recovery UI; provider email responses are mocked, sessions are real."""
 import json
 import uuid
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -54,6 +54,10 @@ with webdriver.Chrome(options=options) as browser:
         window.setTimeout = (callback, delay, ...args) => actualTimeout(callback,
             window.__fastCountdown && delay === 1000 ? 10 : delay, ...args);
         window.fetch = (path, init) => {
+            if (path === '/api/brand/read') {
+                window.__confirmationRequests.push({path, body: JSON.parse(init.body)});
+                return Promise.resolve(Response.json({error: 'Fixture website read unavailable.'}, {status: 503}));
+            }
             if (['/api/auth/signup', '/api/auth/resend-confirmation', '/api/auth/verify-email'].includes(path)) {
                 const body = JSON.parse(init.body);
                 window.__confirmationRequests.push({path, body});
@@ -132,7 +136,10 @@ with webdriver.Chrome(options=options) as browser:
     assert browser.execute_script("return document.documentElement.scrollWidth <= window.innerWidth + 1")
     button("Confirm my email").click()
     path_is("/studio/brand")
-    assert parse_qs(urlparse(browser.current_url).query)["website"] == ["https://example.com"]
+    # Brand setup consumes and removes the query after starting the read. Check
+    # the actual read input and retained form value, not a transient URL.
+    wait.until(lambda driver: driver.execute_script("return window.__confirmationRequests.some(x => x.path === '/api/brand/read' && x.body.url === 'https://example.com')"))
+    assert browser.find_element(By.CSS_SELECTOR, "input[aria-label='Your website']").get_attribute("value") == "https://example.com"
     returned = api("/api/studio")["body"]["user"]
     assert returned["id"] == account["id"] and returned["workspaceId"] == account["workspaceId"]
     assert api("/api/auth/logout", {})["status"] == 200
