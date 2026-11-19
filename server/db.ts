@@ -4,6 +4,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import { verifyDeploymentEnvironment } from "./deployment-environment.js";
+import { verifySchemaReadiness } from "./schema-readiness.js";
 import { supabaseCa } from "./supabase-ca.js";
 export type Queryable = {
   query<T = Record<string, unknown>>(
@@ -82,6 +83,7 @@ export async function databaseFromPool(
   };
   try {
     await verifyDeploymentEnvironment(db, live, databaseUrl, supabaseUrl, shared);
+    await verifySchemaReadiness(db, shared);
   } catch (error) {
     await pool.end();
     throw error;

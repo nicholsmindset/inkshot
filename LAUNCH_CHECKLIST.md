@@ -39,6 +39,16 @@ The dedicated `confirmed-auth-journey` CI job requires email confirmation using 
 
 Hosted startup failures emit only a safe stage/configuration code and customer reference. Match the reference in Vercel runtime logs to distinguish missing configuration, database access and application startup failures. Do not diagnose a customer's password from a generic service failure, or call the hosted issue resolved from local tests alone.
 
+### Database schema readiness
+
+Hosted database initialization checks the runtime schema after verifying the project/environment binding and before constructing the app. It checks `campaigns.draft` (`jsonb`), `versions.motion_prompt` (`text`) and the three shared rate-limit columns. The check is read-only, uses the runtime role/search path, and refuses to substitute sandbox tables for missing live tables. Missing or incompatible fields prevent startup; failed initialization closes its connection pool and can retry after the operator fixes the schema.
+
+- `stage=database`, `code=SCHEMA_CAMPAIGN_PLANNING_REQUIRED`: verify and apply `20261119090000_campaign_planning.sql` in the intended namespaces.
+- `stage=database`, `code=SCHEMA_SHARED_RATE_LIMITS_REQUIRED`: verify and apply `20261119100000_shared_rate_limits.sql` in the intended namespaces.
+- If a code persists after migration, check column types and the runtime search path. Additive migrations do not repair an existing column of the wrong type; investigate before changing data.
+
+Customers receive only the existing unavailable response and support reference, never SQL/schema details. This check is not a migration runner or a full database audit. It does not prove provider funding, email delivery or paid fulfillment. No additional migration is needed for the guard itself.
+
 ### Confirmation recovery and abuse controls
 
 - Copy `supabase/templates/confirmation.html` into the hosted Supabase **Confirm signup** email template. It preserves the existing confirmation link and adds `{{ .Token }}` for code entry from another browser/device. Verify the sender and inbox delivery before inviting customers. The code feature cannot be called ready until the deployed template includes the code.

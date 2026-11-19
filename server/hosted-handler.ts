@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Database } from "./db.js";
 import { hostedConfigurationCodes } from "./config.js";
+import { schemaReadinessCodes } from "./schema-readiness.js";
 
 type Stage = "configuration" | "database" | "application" | "request";
 type App = (req: IncomingMessage, res: ServerResponse) => unknown;
@@ -13,6 +14,7 @@ type Dependencies = {
 };
 const diagnosticCodes = new Set<string>([
   ...hostedConfigurationCodes,
+  ...schemaReadinessCodes,
   "28P01", "42501", "42P01", "42703", "3D000", "53300", "57P01", "08006",
   "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "CERT_HAS_EXPIRED",
 ]);
