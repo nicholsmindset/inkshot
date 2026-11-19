@@ -4,6 +4,7 @@ import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-
 import express from "express";
 import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
 import { acceptProviderWebhook } from "./provider-webhooks.js";
+import { requestDeletion, rejectFrozenWorkspace, deletionEnabled } from "./account-deletion.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
@@ -345,6 +346,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     res.redirect('/studio/brand' + (website.success && website.data ? `?website=${encodeURIComponent(website.data)}` : ""));
   });
   app.use("/api", requireUser(db));
+  app.post('/api/account/deletion', async(req,res)=>{
+    if(req.headers.origin!==config.origin || req.headers['sec-fetch-site']==='cross-site')throw new AppError(403,'Account deletion must start from this studio.');
+    if(req.body?.confirmation!=='DELETE MY ACCOUNT')throw new AppError(400,'Type DELETE MY ACCOUNT to confirm.');
+    res.status(202).set('Cache-Control','no-store').json(await requestDeletion(db,req.user!));
+  });
+  app.use('/api',async(req,_res,next)=>{await rejectFrozenWorkspace(db,req.user!.workspaceId);next();});
   app.post('/api/billing/checkout',async(req,res)=>res.json(await checkout(db,req.user!)));
   app.post('/api/billing/portal',async(req,res)=>res.json(await portal(db,req.user!)));
   app.get("/api/studio", async (req, res) => {
@@ -393,6 +400,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       },
       billingEnabled: billingConfigured()&&!req.user!.demo,
       checkoutReleased: checkoutReleased(),
+      accountDeletionEnabled: deletionEnabled(),
       billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
     });

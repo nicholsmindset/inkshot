@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from './db.js';
 import type { User } from '../shared/types.js';
 import { config, AppError } from './config.js';
+import { rejectDeletedIdentity } from './account-deletion.js';
 import { emptyBrand } from './brand.js';
 export const managedAuthEnabled = () => process.env.AUTH_PROVIDER === 'supabase';
 export const recoveryStorageKey = "inkshot-recovery";
@@ -34,6 +35,7 @@ export async function provisionManagedUser(db: Database, identity: SupabaseUser)
     await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [identity.id]);
     const existing = (await tx.query<User>('SELECT id,name,email,workspace_id AS "workspaceId",demo FROM users WHERE id=$1', [identity.id])).rows[0];
     if (existing) return existing;
+    await rejectDeletedIdentity(tx, identity.id);
     const workspaceId = randomUUID();
     const name = String(identity.user_metadata?.name || email.split('@')[0]).slice(0,100);
     await tx.query('INSERT INTO workspaces(id,brand,credits) VALUES($1,$2,0)', [workspaceId, JSON.stringify(emptyBrand)]);

@@ -35,11 +35,15 @@ test("fresh migrations provision private storage and scoped runtime access witho
     await verifyDeploymentEnvironment(db, false, `postgresql://inkshot_app@db.${ref}.supabase.co/postgres`, `https://${ref}.supabase.co`);
     await assert.rejects(verifyDeploymentEnvironment(db, true, `postgresql://inkshot_app@db.${ref}.supabase.co/postgres`, `https://${ref}.supabase.co`));
     await db.exec("INSERT INTO workspaces(id) VALUES('runtime-test'); UPDATE workspaces SET credits=1 WHERE id='runtime-test'; DELETE FROM workspaces WHERE id='runtime-test'");
+    await db.exec("INSERT INTO workspaces(id,deletion_requested_at) VALUES('frozen-runtime',now())");
+    await assert.rejects(db.exec("INSERT INTO uploads(id,workspace_id,file_path) VALUES('late-runtime','frozen-runtime','private')"), /deletion is pending/);
+    await db.exec("DELETE FROM workspaces WHERE id='frozen-runtime'");
     await assert.rejects(db.query("UPDATE inkshot_environment SET mode='live'"), /permission denied/);
     await assert.rejects(db.query("TRUNCATE workspaces CASCADE"), /permission denied/);
     await db.exec("RESET ROLE");
     // Existing shared-schema installations use an independent runtime role.
     await db.exec(await sql("scripts/setup-shared-live.sql"));
+    await db.exec(await sql("supabase/migrations/20261119210000_account_deletion.sql"));
     await db.exec(await sql("supabase/migrations/20261119100000_shared_rate_limits.sql"));
     await db.exec(provision);
     await db.exec("SET SESSION AUTHORIZATION inkshot_live_app; SET search_path=pg_catalog,inkshot_live,pg_temp;");

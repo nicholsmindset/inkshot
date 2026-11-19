@@ -108,6 +108,7 @@ export type Studio = {
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
   checkoutReleased: boolean;
+  accountDeletionEnabled?: boolean;
   billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };

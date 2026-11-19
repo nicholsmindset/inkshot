@@ -4,6 +4,7 @@ export const schemaReadinessCodes = [
   "SCHEMA_CAMPAIGN_PLANNING_REQUIRED",
   "SCHEMA_SHARED_RATE_LIMITS_REQUIRED",
   "SCHEMA_PHOTO_VIDEO_REQUIRED",
+  "SCHEMA_ACCOUNT_DELETION_REQUIRED",
 ] as const;
 type SchemaCode = (typeof schemaReadinessCodes)[number];
 
@@ -24,6 +25,9 @@ export async function verifySchemaReadiness(db: Queryable, shared = false) {
     { table_name: "rate_limit_buckets", column_name: "bucket_key", column_type: "text", code: schemaReadinessCodes[1] },
     { table_name: "rate_limit_buckets", column_name: "hits", column_type: "integer", code: schemaReadinessCodes[1] },
     { table_name: "rate_limit_buckets", column_name: "expires_at", column_type: "timestamp with time zone", code: schemaReadinessCodes[1] },
+    { table_name: "workspaces", column_name: "deletion_requested_at", column_type: "timestamp with time zone", code: schemaReadinessCodes[3] },
+    { table_name: "account_deletions", column_name: "user_hash", column_type: "text", code: schemaReadinessCodes[3] },
+    { table_name: "account_deletions", column_name: "provider_deleted", column_type: "jsonb", code: schemaReadinessCodes[3] },
   ];
   const { rows } = await db.query<{ code: SchemaCode }>(`
     SELECT required.code

@@ -72,3 +72,40 @@ CREATE TABLE IF NOT EXISTS campaign_exports (
  UNIQUE(workspace_id,campaign_id,category,fingerprint)
 );
 CREATE INDEX IF NOT EXISTS campaign_exports_ready ON campaign_exports(state,available_at);
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_requested_at timestamptz;
+CREATE TABLE IF NOT EXISTS account_deletions (
+ id text PRIMARY KEY, workspace_id text NOT NULL UNIQUE, user_id text,
+ user_hash text NOT NULL UNIQUE, managed_auth boolean NOT NULL,
+ state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','deleting','complete')),
+ provider_ids jsonb NOT NULL DEFAULT '[]', provider_deleted jsonb NOT NULL DEFAULT '[]', provider_done boolean NOT NULL DEFAULT false,
+ storage_done boolean NOT NULL DEFAULT false, auth_done boolean NOT NULL DEFAULT false,
+ attempts integer NOT NULL DEFAULT 0, error_code text,
+ locked_until timestamptz, available_at timestamptz NOT NULL DEFAULT now()+interval '15 minutes',
+ created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz
+);
+CREATE OR REPLACE FUNCTION reject_deleted_workspace_write() RETURNS trigger LANGUAGE plpgsql AS $body$
+DECLARE pending timestamptz;
+BEGIN
+ SELECT deletion_requested_at INTO pending FROM workspaces WHERE id=NEW.workspace_id FOR SHARE;
+ IF pending IS NOT NULL THEN RAISE EXCEPTION 'Workspace deletion is pending' USING ERRCODE='55000'; END IF;
+ RETURN NEW;
+END $body$;
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON users;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON campaigns;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON campaigns FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON assets;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON assets FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON versions;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON versions FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON jobs;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON jobs FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON ledger;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON ledger FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON uploads;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON uploads FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON billing_accounts;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON billing_accounts FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+
+DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON campaign_exports;
+CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON campaign_exports FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();

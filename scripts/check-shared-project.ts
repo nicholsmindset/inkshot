@@ -71,6 +71,9 @@ if (phase === "setup") {
       "provider_spend",
       "writing_daily_usage",
       "rate_limit_buckets",
+      "campaign_exports",
+      "provider_events",
+      "account_deletions",
     ];
     for (const table of tables) {
       await admin.query(
@@ -102,6 +105,8 @@ if (phase === "setup") {
       "ON_ERROR_STOP=1",
       "-f",
       "scripts/setup-shared-live.sql",
+      "-f",
+      "supabase/migrations/20261119210000_account_deletion.sql",
     ]);
     await admin.query(
       `ALTER ROLE inkshot_live_app LOGIN PASSWORD '${test.livePassword}'`,

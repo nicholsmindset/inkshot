@@ -1,3 +1,4 @@
+import { TrustLinks } from "./Trust";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -167,6 +168,7 @@ export function Landing() {
         </div>
       </section>
       <footer className="landing-footer">
+        <TrustLinks />
         <BrandMark />
         <span>© {new Date().getFullYear()} Inkshot</span>
       </footer>
@@ -351,6 +353,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               {signup ? "Log in" : "Create an account"}
             </Link>
           </p>
+          <div className="auth-policies">Review how Inkshot handles your work and what to check before publishing.<TrustLinks /></div>
           <small className="muted">
             You can create an account and review a brand brief before subscribing.
           </small>

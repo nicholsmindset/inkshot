@@ -50,6 +50,7 @@ test("shared live readiness uses the scoped runtime role and never falls back to
     await db.exec(await sql("server/schema.sql"));
     await db.exec(await sql("supabase/migrations/20261114140000_deployment_environment.sql"));
     await db.exec(await sql("scripts/setup-shared-live.sql"));
+    await db.exec(await sql("supabase/migrations/20261119210000_account_deletion.sql"));
     // Simulate an older live schema while the sandbox already has the columns.
     await db.exec("ALTER TABLE inkshot_live.campaigns DROP COLUMN draft; ALTER TABLE inkshot_live.versions DROP COLUMN motion_prompt; DROP TABLE IF EXISTS inkshot_live.rate_limit_buckets;");
     const liveRole = () => db.exec("SET SESSION AUTHORIZATION inkshot_live_app; SET search_path=pg_catalog,inkshot_live,pg_temp;");

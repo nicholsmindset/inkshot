@@ -1,6 +1,8 @@
 import { reportOpsAlert } from './ops.js';
 import { wakeProviderJobs } from './provider-webhooks.js';
 import {runExportOnce} from './campaign-exports.js';
+import {runDeletionOnce} from './account-deletion.js';
+import {deletionAdapters} from './deletion-adapters.js';
 import {submitBudgeted} from './provider-budget.js';
 import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
 import path from "node:path";
@@ -228,10 +230,11 @@ export async function runWorkerOnce(db:Database, deadline = Infinity):Promise<bo
  await handle(db,job);return true;
 }
 export function startWorker(db:Database){
- let stopped=false,active=0;
+ let stopped=false,active=0,deleting=false;
  const timer=setInterval(()=>{
   if(stopped||active>=config.concurrency)return;
   active++;
+  if(!deleting){deleting=true;void runDeletionOnce(db,deletionAdapters).catch(()=>reportOpsAlert('inkshot_worker_failed')).finally(()=>{deleting=false;});}
   void runWorkerOnce(db).catch(()=>{reportOpsAlert('inkshot_worker_failed');console.error('Worker temporarily unavailable');}).finally(()=>active--);
  },1000);
  return ()=>{stopped=true;clearInterval(timer);};

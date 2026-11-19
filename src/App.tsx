@@ -28,6 +28,7 @@ import { PasswordRecovery } from "./pages/PasswordRecovery";
 import { Landing, Auth } from "./pages/Public";
 import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
 import { BrandPage, NewCampaign } from "./pages/Create";
+import { TrustPage, TrustLinks } from "./pages/Trust";
 import { Billing, SettingsPage } from "./pages/Account";
 function Shell() {
   const { studio, loading, error, refresh, clearSession } = useStudio();
@@ -186,7 +187,7 @@ function Shell() {
         </main>
         <footer className="app-footer">
           <span>Made for the businesses that care.</span>
-          <span>inkshot studio / 01</span>
+          <TrustLinks />
         </footer>
       </div>
     </div>
@@ -197,6 +198,9 @@ export default function App() {
     <StudioProvider>
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/privacy" element={<TrustPage kind="privacy" />} />
+        <Route path="/terms" element={<TrustPage kind="terms" />} />
+        <Route path="/ai-notice" element={<TrustPage kind="ai" />} />
         <Route path="/login" element={<Auth key="login" />} />
         <Route path="/forgot-password" element={<PasswordRecovery key="request" />} />
         <Route path="/reset-password" element={<PasswordRecovery key="reset" reset />} />
