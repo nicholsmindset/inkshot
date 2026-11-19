@@ -235,7 +235,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { error } = await authClient(req, res).auth.resend({
       type: "signup", email, options: { emailRedirectTo: `${config.origin}/api/auth/callback` },
     });
-    if (error && (!error.status || error.status >= 500))
+    if (error && (!error.status || error.status === 401 || error.status === 403 || error.status >= 500))
       throw new AppError(503, "Confirmation email is temporarily unavailable. Please try again.");
     // Do not reveal whether this address is registered, confirmed or throttled.
     res.json({ ok: true });

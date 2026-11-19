@@ -52,10 +52,12 @@ test("confirmation recovery hides account existence and limits resend and code g
     assert.equal(unknown.status, 200);
     assert.deepEqual(await unknown.json(), { ok: true });
   }
-  providerStatus = 500;
-  const unavailable = await post("resend-confirmation", { email: "outage@example.test" });
-  assert.equal(unavailable.status, 503);
-  assert(!JSON.stringify(await unavailable.json()).includes("Private provider detail"));
+  for (const status of [401, 403, 500]) {
+    providerStatus = status;
+    const unavailable = await post("resend-confirmation", { email: `outage-${status}@example.test` });
+    assert.equal(unavailable.status, 503);
+    assert(!JSON.stringify(await unavailable.json()).includes("Private provider detail"));
+  }
   providerStatus = 403;
   for (let i = 0; i < 10; i++) {
     const badCode = await post("verify-email", { email: "guess@example.test", token: "12345678" });
