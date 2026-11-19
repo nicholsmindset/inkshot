@@ -31,9 +31,9 @@ The local Supabase CLI was terminated by the execution environment before it cou
 
 ## Remaining before the app can use this project
 
-1. Restore access to Vercel's existing Inkshot project. The connected tool returns `404: Project not found` for `inkshot` in `nicholsmindset-gmailcoms-projects`; no project was recreated or substituted.
+1. Browser access to the existing `inkshot-live` project is now working. The Vercel connector still cannot see the project; use the connected browser, without recreating it.
 2. Provision a strong password and enable login for `inkshot_app` through the dashboard/secure secret workflow. Put the resulting pooler connection in the intended preview's `DATABASE_URL`. Never use the database owner connection as the app runtime or commit/share credentials in chat.
-3. Configure `SUPABASE_URL=https://zdvniqffhiycyxxzchmi.supabase.co`, the matching publishable/server keys, `AUTH_PROVIDER=supabase`, `STORAGE_PROVIDER=supabase`, `INKSHOT_SHARED_PROJECT_LIVE=false`, `GENERATION_MODE=mock`, `ALLOW_LIVE_GENERATION=false`, and `BILLING_MODE=sandbox`. Leave checkout disabled until deliberately tested.
+3. Add the matching `SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` to the same preview branch scope as the settings below. Keep `BILLING_MODE=off`; no Stripe credentials or paid-provider credentials are required for this setup check.
 4. Set the exact HTTPS `APP_ORIGIN`, allow that origin's `/api/auth/callback` and `/api/auth/recovery-callback` in Auth, enable confirmation, and apply `supabase/templates/confirmation.html`. Verify sender ownership, real delivery and recovery behaviour.
 5. Deploy a preview of the reviewed branch and complete the hosted account/export checks in `LAUNCH_CHECKLIST.md`. New accounts will start fresh; old credentials and old workspaces have not been transferred.
 6. Plan live activation separately. `scripts/bind-live-project.sql` refuses a populated project, so do not run acceptance fixtures in a database that must subsequently be bound as fresh live without first deciding how test identities/data will be handled. Prefer disposable acceptance environments and preserve a clean live target; never delete user records to bypass this guard without explicit approval.
@@ -41,3 +41,24 @@ The local Supabase CLI was terminated by the execution environment before it cou
 ## Validation
 
 `tests/fresh-project-setup.test.ts` applies all migrations to disposable PostgreSQL, checks RLS/role privileges and private buckets, verifies repeatability, confirms anonymous/signed-in reads are denied, exercises server CRUD, refuses runtime marker writes/truncation, and checks the shared live schema remains isolated. No provider calls or hosted customer data are needed.
+
+## Browser inspection and preview configuration — 19 November 2026
+
+Inspected failed preview `HiwTtLGmrv2vQ9hw1EpVorEqH62F`, commit `a92dd2b`. The build stopped at the configuration preflight with `Missing APP_ORIGIN in this deployment environment`. The dashboard initially listed Production-only config and no linked shared variables. Searches found no `DATABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_SECRET_KEY`. Production `GENERATION_MODE` was `mock`, `ENABLE_BILLING_SANDBOX` was `false`, and there was no `BILLING_MODE` override. No secret values were revealed.
+
+Saved the following config only for Preview branch `inkshot/fresh-project-setup`:
+
+| Variable | Value |
+| --- | --- |
+| APP_ORIGIN | https://inkshot-live-git-inksh-c3d103-nicholsmindset-gmailcoms-projects.vercel.app |
+| AUTH_PROVIDER | supabase |
+| STORAGE_PROVIDER | supabase |
+| SUPABASE_URL | https://zdvniqffhiycyxxzchmi.supabase.co |
+| INKSHOT_SHARED_PROJECT_LIVE | false |
+| GENERATION_MODE | mock |
+| ALLOW_LIVE_GENERATION | false |
+| BILLING_MODE | off |
+| ENABLE_BILLING_SANDBOX | false |
+| ENABLE_LIVE_CHECKOUT | false |
+
+Vercel confirmed successful saving. Production settings and deployment were not modified. No redeploy was started because the three required connection values remain missing. The saved settings take effect on the next deployment; hosted signup/login has not passed yet.
