@@ -697,6 +697,11 @@ small {
   flex-direction: column;
   padding: 34px 21px 18px;
   z-index: 30;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sidebar > * {
+  flex-shrink: 0;
 }
 .sidebar-logo {
   margin: 0 14px 34px;

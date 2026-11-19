@@ -13,6 +13,7 @@ password = "Inkshot-browser-check-2026!"
 options = webdriver.ChromeOptions()
 options.add_argument("--headless=new")
 options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--window-size=1024,600")
 with webdriver.Chrome(options=options) as browser:
     wait = WebDriverWait(browser, 45)
 
