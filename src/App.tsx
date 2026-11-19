@@ -33,8 +33,10 @@ function Shell() {
   const { studio, loading, error, refresh, clearSession } = useStudio();
   const [mobile, setMobile] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
   const navigate = useNavigate();
+  if (signedOut) return <Navigate to="/" replace />;
   if (loading)
     return (
       <div className="page-loading">
@@ -58,6 +60,7 @@ function Shell() {
     setSignOutError("");
     try {
       await api("/auth/logout", {});
+      setSignedOut(true);
       clearSession();
       navigate("/", { replace: true });
     } catch (e) {
