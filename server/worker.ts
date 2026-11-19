@@ -3,11 +3,13 @@ import { wakeProviderJobs } from './provider-webhooks.js';
 import {runExportOnce} from './campaign-exports.js';
 import {runDeletionOnce} from './account-deletion.js';
 import {deletionAdapters} from './deletion-adapters.js';
+import { assertApprovedClaims, assertVisualClaims, requireOwnedCertificate } from "./claims.js";
+import type { Brand } from "../shared/types.js";
 import {submitBudgeted} from './provider-budget.js';
 import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
 import path from "node:path";
 import type { Database } from "./db.js";
-import { config } from "./config.js";
+import { config, AppError } from "./config.js";
 import { changeCredits } from "./credits.js";
 import { renderMedia, downloadOutput } from "./render.js";
 import * as hf from "./higgsfield.js";
@@ -31,7 +33,9 @@ type Work = {
   mock: boolean;
   source_path: string | null;
   credit_cost: number;
-  brand: { name: string; color?: string; photoId?: string; logoId?: string };
+  brand: Brand;
+  campaign_offer: string;
+  caption: string;
   asset_id: string;
   campaign_id: string;
 };
@@ -40,11 +44,19 @@ async function handle(db:Database,job: Job) {
     try {
       work = (
         await db.query<Work>(
-          `SELECT v.*,a.kind,a.format,a.campaign_id,c.brand FROM versions v JOIN assets a ON a.id=v.asset_id JOIN campaigns c ON c.id=a.campaign_id WHERE v.id=$1`,
+          `SELECT v.*,a.kind,a.format,a.campaign_id,a.caption,c.brand,c.offer AS campaign_offer FROM versions v JOIN assets a ON a.id=v.asset_id JOIN campaigns c ON c.id=a.campaign_id WHERE v.id=$1`,
           [job.version_id],
         )
       ).rows[0];
       if (!work) throw new Error("Asset not found");
+      try {
+        await requireOwnedCertificate(db, job.workspace_id, work.brand, true);
+        for (const copy of [work.headline, work.cta, work.caption, work.brand.name]) assertApprovedClaims(copy, work.brand, work.campaign_offer);
+        for (const prompt of [work.prompt, work.motion_prompt || ""]) assertVisualClaims(prompt, work.brand, work.campaign_offer);
+      } catch (error) {
+        if (!(error instanceof AppError)) throw error;
+        throw new TerminalFailure("The creative contains an unapproved claim. Update the approved brief before trying again. Credits returned.");
+      }
       await db.query(
         "UPDATE versions SET status='making',error=NULL WHERE id=$1",
         [work.id],
@@ -152,6 +164,8 @@ async function handle(db:Database,job: Job) {
         logo: work.brand.logoId ? await merchantFile(work.brand.logoId) : undefined,
         mock: work.mock,
         videoDurationSeconds: work.video_duration_seconds,
+        claimsBrand: work.brand,
+        campaignOffer: work.campaign_offer,
       });
       const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media');
       const savedPreview = files.preview_path===files.file_path ? savedFile : await persistMedia(files.preview_path,job.workspace_id,'generated-media');

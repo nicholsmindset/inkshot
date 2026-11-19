@@ -1,5 +1,6 @@
 import "./render-fonts.js";
 import {persistMedia,materializeMedia,signedMediaUrl} from './storage.js';
+import { assertApprovedClaims, assertVisualClaims, requireOwnedCertificate } from "./claims.js";
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
 import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
@@ -407,6 +408,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   });
   app.put("/api/brand", async (req, res) => {
     const brand = brandSchema.parse(req.body);
+    await requireOwnedCertificate(db, req.user!.workspaceId, brand);
     for (const uploadId of [brand.photoId, brand.logoId].filter(Boolean)) {
       const upload = await db.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [uploadId, req.user!.workspaceId]);
       if (!upload.rows.length) throw new AppError(400, "Choose files uploaded to this workspace.");
@@ -528,9 +530,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   async function saveDraft(tx: Queryable, campaign: Campaign, workspaceId: string, draft: CampaignDraft) {
     requireDraftRevision(campaign, draft.revision);
     validateDraft(campaign, draft);
+    await requireOwnedCertificate(tx, workspaceId, campaign.brand, true);
     if (draft.photoId && !(await tx.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [draft.photoId, workspaceId])).rows.length)
       throw new AppError(400, "Choose a photo from this workspace.");
     const saved = { ...draft, videoDurationSeconds: currentDraft(campaign).videoDurationSeconds, revision: draft.revision + 1 };
+    if (draft.photoId && draft.photoId === campaign.brand.certifications?.certificateId) throw new AppError(400, "A certificate cannot be used as campaign artwork.");
     await tx.query("UPDATE campaigns SET draft=$2 WHERE id=$1", [campaign.id, json(saved)]);
     return saved;
   }
@@ -587,6 +591,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         )
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
+      await requireOwnedCertificate(tx, w, c.brand, true);
       if (c.status !== "draft") return;
       let { drafts, photoId, destinationUrl } = input;
       let conceptsToGenerate = c.concepts.slice(0, 3);
@@ -615,6 +620,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         if (concepts.size !== 3)
           throw new AppError(400, "This campaign needs three distinct concepts.");
       }
+      if (photoId && photoId === c.brand.certifications?.certificateId) throw new AppError(400, "A certificate cannot be used as campaign artwork.");
       if (photoId) {
         const uploaded = await tx.query(
           "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
@@ -658,6 +664,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           const headline = draft?.headline ?? concept.hook;
           const approvedAsset = approvedAssets.get(`${concept.id}:${kind}`);
           const prompt = approvedAsset?.prompt ?? `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
+          for (const copy of [headline, cta, approvedAsset?.caption || ""]) assertApprovedClaims(copy, c.brand, c.offer);
+          assertVisualClaims(prompt, c.brand, c.offer);
+          assertVisualClaims(approvedAsset?.motionPrompt || "", c.brand, c.offer);
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
             [
@@ -709,6 +718,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         )
       ).rows[0];
       if (!a) throw new AppError(404, "Asset not found.");
+      const campaign = await ownedCampaign(tx, a.campaign_id, w);
+      await requireOwnedCertificate(tx, w, campaign.brand, true);
+      assertApprovedClaims(input.headline, campaign.brand, campaign.offer);
+      assertApprovedClaims(input.cta, campaign.brand, campaign.offer);
+      if (input.regenerate) assertVisualClaims(input.note, campaign.brand, campaign.offer);
       if (
         (
           await tx.query(
@@ -769,11 +783,14 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       throw new AppError(400, "Give each variation a distinct headline.");
 
     const versionIds = await db.transaction(async (tx) => {
-      const asset = (await tx.query<{ kind: string }>(
-        "SELECT kind FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+      const asset = (await tx.query<{ kind: string; campaign_id: string }>(
+        "SELECT kind,campaign_id FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
         [assetId, workspaceId],
       )).rows[0];
       if (!asset) throw new AppError(404, "Asset not found.");
+      const campaign = await ownedCampaign(tx, asset.campaign_id, workspaceId);
+      await requireOwnedCertificate(tx, workspaceId, campaign.brand, true);
+      for (const headline of headlines) assertApprovedClaims(headline, campaign.brand, campaign.offer);
       if (asset.kind !== "image") throw new AppError(400, "Choose an image ad for variations.");
 
       const previous = (await tx.query<{ id: string; headline: string; source: string }>(

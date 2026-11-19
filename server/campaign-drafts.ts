@@ -1,3 +1,4 @@
+import { assertApprovedClaims, assertVisualClaims } from "./claims.js";
 import { z } from "zod";
 import { AppError, videoDurationSeconds } from "./config.js";
 import type { Campaign, CampaignDraft } from "../shared/types.js";
@@ -42,6 +43,8 @@ export function validateDraft(campaign: Campaign, draft: CampaignDraft, complete
   if (draft.selectedConceptIds.length !== 3) throw new AppError(400, "Choose three angles before writing prompts.");
   const expected = new Set(draft.selectedConceptIds.flatMap(id => ["video", "image", "post"].map(kind => `${id}:${kind}`)));
   for (const asset of draft.assets) {
+    for (const copy of [asset.headline, asset.cta, asset.caption]) assertApprovedClaims(copy || "", campaign.brand, campaign.offer);
+    for (const prompt of [asset.prompt, asset.motionPrompt]) assertVisualClaims(prompt || "", campaign.brand, campaign.offer);
     if (!expected.delete(`${asset.conceptId}:${asset.kind}`))
       throw new AppError(400, "Review each selected campaign asset exactly once.");
     if (complete && (!asset.headline.trim() || !asset.cta.trim() || !asset.prompt.trim()))

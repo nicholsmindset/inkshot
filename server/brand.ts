@@ -22,6 +22,10 @@ export const brandSchema = z.object({
     excerpt: z.string().trim().min(1).max(600),
   })).max(24).optional(),
   inferredFields: z.array(z.enum(briefFields)).max(8).optional(),
+  certifications: z.object({
+    muisHalal: z.enum(["not_certified", "attested"]),
+    certificateId: z.string().uuid().optional(),
+  }).refine(value => value.muisHalal !== "attested" || !!value.certificateId, { message: "Upload a certificate before attesting certification." }).optional(),
   photoId: z.string().uuid().optional(),
   logoId: z.string().uuid().optional(),
   logoUrl: z.url().max(2048).optional(),
