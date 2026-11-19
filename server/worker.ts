@@ -1,3 +1,4 @@
+import { reportOpsAlert } from './ops.js';
 import {submitBudgeted} from './provider-budget.js';
 import {persistMedia,materializeMedia,cloudStorageEnabled} from './storage.js';
 import path from "node:path";
@@ -153,6 +154,7 @@ async function handle(db:Database,job: Job) {
         );
       });
     } catch (e) {
+      reportOpsAlert("inkshot_worker_failed");
       const terminal = e instanceof TerminalFailure;
       const exhausted = job.attempts >= 6;
       if (!terminal && !exhausted) {
@@ -214,7 +216,7 @@ export function startWorker(db:Database){
  const timer=setInterval(()=>{
   if(stopped||active>=config.concurrency)return;
   active++;
-  void runWorkerOnce(db).catch(()=>console.error('Worker temporarily unavailable')).finally(()=>active--);
+  void runWorkerOnce(db).catch(()=>{reportOpsAlert('inkshot_worker_failed');console.error('Worker temporarily unavailable');}).finally(()=>active--);
  },1000);
  return ()=>{stopped=true;clearInterval(timer);};
 }

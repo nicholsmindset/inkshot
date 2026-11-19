@@ -78,6 +78,7 @@ test("hosted initialization blocks an old schema, closes the pool, and recovers 
     const diagnostics: { stage: string; code?: string; reference: string }[] = [];
     const pool = {
       query: (query: string, params?: unknown[]) => db.query(query, params),
+      connect: async () => ({ query: (query: string, params?: unknown[]) => db.query(query, params), release: () => {} }),
       end: async () => { closed++; },
     } as unknown as pg.Pool;
     const handler = createHostedHandler({

@@ -2,6 +2,7 @@ import "./render-fonts.js";
 import {persistMedia,materializeMedia} from './storage.js';
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
+import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
@@ -108,12 +109,13 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       },
     }),
   );
+  app.get("/api/ops/status", createOpsStatusHandler(async () => db));
   app.use(cookieParser());
   app.use("/api/auth", (_req, res, next) => {
     res.set("Cache-Control", "no-store").set("Referrer-Policy", "no-referrer");
     next();
   });
-  app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');await webhook(db,req.body,signature);res.json({received:true})});
+  app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');try { await webhook(db,req.body,signature); } catch (error) { reportOpsAlert('inkshot_stripe_webhook_failed'); throw error; } res.json({received:true})});
   app.use(express.json({ limit: "128kb" }));
   app.use(
     "/api",

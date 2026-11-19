@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Database } from "./db.js";
 import { hostedConfigurationCodes } from "./config.js";
+import { reportOpsAlert } from "./ops.js";
 import { schemaReadinessCodes } from "./schema-readiness.js";
 
 type Stage = "configuration" | "database" | "application" | "request";
@@ -59,6 +60,7 @@ export function createHostedHandler(dependencies: Dependencies) {
       // Raw messages and stack traces can contain database URLs or credentials.
       if (dependencies.report) dependencies.report(diagnostic);
       else console.error(JSON.stringify(diagnostic));
+      reportOpsAlert("inkshot_service_unavailable", { reference });
       res.statusCode = 503;
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Cache-Control", "no-store");
