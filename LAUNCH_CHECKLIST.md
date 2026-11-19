@@ -10,11 +10,11 @@ The existing 15-second video product and credit prices remain unchanged. Preview
 
 ## Deployment order
 
-1. Restore administrator access to the existing Inkshot Supabase project `smpdzhxydnctiyjqojmp`. The current connection returns permission denied for that project; it lists two other projects that must not be used as substitutes.
-2. Confirm the intended sandbox/live namespaces and take the normal database backup. Apply `supabase/migrations/20261119090000_campaign_planning.sql`, then `supabase/migrations/20261119100000_shared_rate_limits.sql`. The first adds campaign drafts and motion prompts; the second adds private shared abuse counters with scoped runtime grants. Neither copies customer rows or credits. Both must precede this application release.
-3. Verify the columns below, plus the existing runtime-role grants, before deploying the branch. A live schema that has not been provisioned is a separate setup task; this migration does not create it.
-4. Review the passing checks for the final PR commit, deploy the matching application version, and check authentication, saved drafts, private downloads and workspace isolation in the hosted environment.
-5. Keep new live checkout closed until funded writing, hosted media delivery and signed Stripe fulfillment pass their acceptance checks. Deploying the application is separate from enabling checkout.
+1. Use the owner's new, dedicated Inkshot project `zdvniqffhiycyxxzchmi`. On 19 November the owner authorised starting fresh there; its schema and private buckets have been provisioned. The former project `smpdzhxydnctiyjqojmp` was not modified, and no users, balances or files were copied. See `docs/FRESH_SUPABASE_SETUP.md` for migration records and remaining setup.
+2. Keep the new project in sandbox/mock mode during hosted acceptance. Its runtime role is intentionally `NOLOGIN` until a credential is provisioned through a secure channel. Configure the new project URL, publishable key, server secret, scoped database connection and Auth callbacks together; do not mix credentials with the former project.
+3. Verify the columns below and runtime-role grants before deploying the branch. Both PR #27 migrations are already applied to the new project's `public` namespace. No `inkshot_live` schema is required for this separate project. Restore Vercel access before changing the app's environment; the connected Vercel tool still cannot find the existing Inkshot project.
+4. Review passing checks for the final PR commit, deploy the matching version to a preview, and check email confirmation, returning login, password recovery, saved drafts, private downloads and workspace isolation. Supabase Auth confirmation template, redirect URLs and email delivery still require configuration/verification.
+5. Keep live checkout closed until funded writing, hosted media delivery and signed Stripe fulfillment pass their acceptance checks. Binding a project to live mode and updating the production app require a separate reviewed cutover. Do not mix disposable paid-acceptance data with live balances.
 
 Read-only migration verification:
 
@@ -78,6 +78,6 @@ Provider receipt recovery follows [Higgsfield's idempotency contract](https://do
 
 ## Saved access and spending decisions
 
-- Supabase access to the exact Inkshot project is required for the migration.
+- Supabase access is restored for the new project `zdvniqffhiycyxxzchmi`; the owner authorised provisioning it fresh. Access to the former project remains unavailable and is not needed for this fresh setup.
 - Current Vercel connector discovery does not expose Inkshot projects. GitHub-created preview checks are visible, but that is not permission to edit the production project's configuration.
 - A capped funded provider run and live transaction still need an explicit amount/account decision. Continue code, tests and sandbox verification independently while these are pending.
