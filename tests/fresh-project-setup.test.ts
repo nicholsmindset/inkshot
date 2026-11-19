@@ -24,11 +24,13 @@ test("fresh migrations provision private storage and scoped runtime access witho
     for (const name of ["anon", "authenticated"]) {
       await db.exec(`SET ROLE ${name}`);
       await assert.rejects(db.query("SELECT * FROM public.workspaces"), /permission denied/);
+      await assert.rejects(db.query("SELECT * FROM public.campaign_exports"), /permission denied/);
       assert.equal((await db.query<{ allowed: boolean }>("SELECT has_function_privilege(current_user,'public.rls_auto_enable()','EXECUTE') AS allowed")).rows[0].allowed, false);
       await db.exec("RESET ROLE");
     }
     await db.exec("SET ROLE inkshot_app");
     await verifySchemaReadiness(db);
+    assert.equal((await db.query("SELECT * FROM campaign_exports")).rows.length,0);
     const ref = "zdvniqffhiycyxxzchmi";
     await verifyDeploymentEnvironment(db, false, `postgresql://inkshot_app@db.${ref}.supabase.co/postgres`, `https://${ref}.supabase.co`);
     await assert.rejects(verifyDeploymentEnvironment(db, true, `postgresql://inkshot_app@db.${ref}.supabase.co/postgres`, `https://${ref}.supabase.co`));
@@ -42,6 +44,8 @@ test("fresh migrations provision private storage and scoped runtime access witho
     await db.exec(provision);
     await db.exec("SET SESSION AUTHORIZATION inkshot_live_app; SET search_path=pg_catalog,inkshot_live,pg_temp;");
     await verifySchemaReadiness(db, true);
+    assert.equal((await db.query("SELECT * FROM campaign_exports")).rows.length,0);
+    await assert.rejects(db.query("SELECT * FROM public.campaign_exports"), /permission denied/);
     await db.exec("INSERT INTO workspaces(id) VALUES('live-runtime-test')");
     await assert.rejects(db.query("SELECT * FROM public.workspaces"), /permission denied/);
   } finally { await db.close(); }

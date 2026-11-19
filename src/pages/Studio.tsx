@@ -511,6 +511,50 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
   </div>;
 }
 
+type ExportStatus = { id: string; state: string; downloadUrl?: string };
+function CampaignDownloads({ campaignId }: { campaignId: string }) {
+  const [category, setCategory] = useState("all");
+  const [job, setJob] = useState<ExportStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const requestId = useRef(0);
+  useEffect(() => {
+    if (!job || !["queued", "processing"].includes(job.state)) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const result = await api<ExportStatus>(`/exports/${job.id}`);
+        if (stopped) return;
+        setJob(result);
+        if (["queued", "processing"].includes(result.state)) timer = setTimeout(() => void poll(), 3000);
+      } catch (err) { if (!stopped) setError((err as Error).message); }
+    };
+    timer = setTimeout(() => void poll(), 1000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [job?.id, job?.state]);
+  useEffect(() => () => { requestId.current++; }, []);
+  async function prepare() {
+    const current = ++requestId.current;
+    setBusy(true); setError(""); setJob(null);
+    try {
+      const result = await api<ExportStatus>(`/campaigns/${campaignId}/exports`, { category });
+      if (current === requestId.current) setJob(result);
+    } catch (err) { if (current === requestId.current) setError((err as Error).message); }
+    finally { if (current === requestId.current) setBusy(false); }
+  }
+  const working = busy || !!job && ["queued", "processing"].includes(job.state) && !error;
+  return <div className="campaign-downloads">
+    <label>Download category<select value={category} disabled={working} onChange={event => { setCategory(event.target.value); setJob(null); setError(""); }}>
+      <option value="all">All ready assets</option><option value="video">Video ads</option><option value="image">Image ads</option><option value="post">Organic posts</option>
+    </select></label>
+    {job?.state === "ready" ? <a className="button secondary" href={job.downloadUrl || `/api/exports/${job.id}/download`}><Download size={17} />Download ZIP</a>
+      : <Button variant="secondary" busy={working} onClick={() => void prepare()}>Prepare download</Button>}
+    <small role="status">{working ? "Preparing your files. You can keep reviewing your campaign." : job?.state === "failed" ? "Download could not finish. Try again or choose a smaller category." : "Includes captions and your campaign link."}</small>
+    {error && <Notice>{error}</Notice>}
+  </div>;
+}
+
 function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }) {
   const { studio } = useStudio();
   const [selected, setSelected] = useState<string | null>(null);
@@ -534,6 +578,12 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
       a.versions.find((v) => v.id === a.current_version_id)?.status === "ready",
   ).length;
   const summary = assetCounts(assets);
+  // A prepared archive is an immutable snapshot. Reset it when the selected
+  // versions or ready assets change so it cannot silently serve older artwork.
+  const downloadRevision = JSON.stringify(assets.map(asset => {
+    const version = asset.versions.find(item => item.id === asset.current_version_id);
+    return [asset.id, version?.id, version?.status, asset.caption];
+  }).sort((a,b) => String(a[0]).localeCompare(String(b[0]))));
   return (
     <>
       <Link to="/studio" className="back-link">
@@ -553,13 +603,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           </p>
         </div>
         {done ? (
-          <a
-            className="button secondary"
-            href={`/api/campaigns/${id}/download`}
-          >
-            <Download size={17} />
-            Download ready assets
-          </a>
+          <CampaignDownloads key={`${id}:${downloadRevision}`} campaignId={id} />
         ) : (
           <Status status={campaign.status} />
         )}
@@ -569,7 +613,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           <Feather size={17} />
           <span>
             Sample campaign. Images use the sample or your uploaded photo;
-            videos are 5-second still previews. No paid API calls.
+            videos are still-image previews at the approved duration. No paid API calls.
           </span>
         </div>
       ) : null}

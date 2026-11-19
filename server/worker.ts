@@ -1,5 +1,6 @@
 import { reportOpsAlert } from './ops.js';
 import { wakeProviderJobs } from './provider-webhooks.js';
+import {runExportOnce} from './campaign-exports.js';
 import {submitBudgeted} from './provider-budget.js';
 import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
 import path from "node:path";
@@ -210,7 +211,7 @@ async function handle(db:Database,job: Job) {
     }
   }
 
-export async function runWorkerOnce(db:Database):Promise<boolean> {
+export async function runWorkerOnce(db:Database, deadline = Infinity):Promise<boolean> {
  await wakeProviderJobs(db);
  if(process.env.DATABASE_URL && !cloudStorageEnabled())
   throw new Error('A managed database requires private cloud media storage.');
@@ -222,7 +223,8 @@ export async function runWorkerOnce(db:Database):Promise<boolean> {
   if(row){await tx.query("UPDATE jobs SET state='processing',locked_until=now()+interval '5 minutes',attempts=attempts+1 WHERE id=$1",[row.id]);row.attempts++;}
   return row;
  });
- if(!job)return false;
+ // Leave enough invocation time for the archive deadline and final state write.
+ if(!job)return deadline-Date.now() >= 160_000 ? runExportOnce(db) : false;
  await handle(db,job);return true;
 }
 export function startWorker(db:Database){
