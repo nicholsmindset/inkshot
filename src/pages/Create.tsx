@@ -57,6 +57,7 @@ function BrandForm({ initial }: { initial: Brand }) {
       const next = await api<Brand>("/brand/read", { url: address });
       setBrand((current) => ({
         ...next,
+        ...(current.certifications ? { certifications: current.certifications } : {}),
         ...(current.photoId ? { photoId: current.photoId } : {}),
         ...(current.logoId ? { logoId: current.logoId } : {}),
       }));
@@ -111,7 +112,7 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBusy("");
     }
   }
-  async function upload(file?: File, purpose: "photo" | "logo" = "photo") {
+  async function upload(file?: File, purpose: "photo" | "logo" | "certificate" = "photo") {
     if (!file) return;
     setBusy("upload");
     setError("");
@@ -120,7 +121,8 @@ function BrandForm({ initial }: { initial: Brand }) {
       data.append("purpose", purpose);
       data.append("photo", file);
       const result = await api<{ id: string }>("/uploads", data);
-      set(purpose === "logo" ? "logoId" : "photoId", result.id);
+      if (purpose === "certificate") set("certifications", { muisHalal: "not_certified", certificateId: result.id });
+      else set(purpose === "logo" ? "logoId" : "photoId", result.id);
       notify("Upload added. Save your brief to keep it.");
     } catch (e) {
       setError((e as Error).message);
@@ -283,6 +285,21 @@ function BrandForm({ initial }: { initial: Brand }) {
                 }
               />
             </Field>
+            <div className="form-section-heading"><span className="hand">03</span><h2>Certification wording</h2></div>
+            <p>Halal and MUIS wording is blocked until you upload a certificate and confirm it applies to this business. An upload is your declaration; Inkshot does not verify authenticity or current certification status.</p>
+            <Field label="Certificate image" hint="Upload a clear PNG, JPG or WebP of your current certificate. It stays private and is not added to your ads.">
+              <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
+                onChange={e => void upload(e.target.files?.[0], "certificate")} />
+            </Field>
+            {brand.certifications?.certificateId ? <p>Certificate uploaded. <a href={"/api/uploads/" + brand.certifications.certificateId} target="_blank" rel="noopener noreferrer">Review certificate</a> <button type="button" onClick={() => set("certifications", { muisHalal: "not_certified" })}>Remove certificate</button></p> : null}
+            <Field label="MUIS certification declaration">
+              <select value={brand.certifications?.muisHalal || "not_certified"}
+                onChange={e => set("certifications", { ...brand.certifications, muisHalal: e.target.value })}>
+                <option value="not_certified">Not attested — keep certification wording off</option>
+                <option value="attested" disabled={!brand.certifications?.certificateId}>I confirm this certificate is current and applies to my business</option>
+              </select>
+            </Field>
+            <p className="muted">Generated visuals must never draw certification logos, seals or marks. Review every ad before publishing.</p>
             <Field label="Logo for exported ads" hint="Upload a PNG, JPG or WebP you own. Transparent PNGs retain their background transparency.">
               <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
                 onChange={(e) => void upload(e.target.files?.[0], "logo")} />

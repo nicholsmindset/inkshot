@@ -1,4 +1,6 @@
 import "./render-fonts.js";
+import { assertApprovedClaims } from "./claims.js";
+import type { Brand } from "../shared/types.js";
 import staticFfmpeg from 'ffmpeg-static';
 import sharp from "sharp";
 import path from "node:path";
@@ -74,7 +76,10 @@ export async function renderMedia(input: {
   logo?: string;
   mock: boolean;
   videoDurationSeconds?: number;
+  claimsBrand?: Brand;
+  campaignOffer?: string;
 }) {
+  for (const copy of [input.headline, input.cta, input.brandName]) assertApprovedClaims(copy, input.claimsBrand, input.campaignOffer);
   const dir = path.join(config.dataDir, "media");
   await mkdir(dir, { recursive: true });
   const width = 1080,

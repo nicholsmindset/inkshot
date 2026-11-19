@@ -13,6 +13,7 @@ export type Brand = {
   visualDirection?: string;
   evidence?: { field: string; sourceUrl: string; excerpt: string }[];
   inferredFields?: string[];
+  certifications?: { muisHalal: "not_certified" | "attested"; certificateId?: string };
   photoId?: string;
   logoUrl?: string;
   logoId?: string;
