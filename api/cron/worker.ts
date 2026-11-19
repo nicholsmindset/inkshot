@@ -12,7 +12,7 @@ export default async function handler(req:IncomingMessage,res:ServerResponse){
   const deadline=Date.now()+240_000;
   // Drain work that is available now. Pending provider requests remain in the
   // database and will be checked by the next invocation.
-  while(processed<24 && Date.now()<deadline && await runWorkerOnce(db))processed++;
+  while(processed<24 && Date.now()<deadline && await runWorkerOnce(db,deadline))processed++;
   await monitorStuckJobs(db);
   res.end(JSON.stringify({ok:true,processed}));
  }catch{reportOpsAlert('inkshot_worker_failed');res.statusCode=503;res.end('{"error":"Worker unavailable"}');}

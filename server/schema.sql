@@ -64,3 +64,11 @@ CREATE TABLE IF NOT EXISTS provider_events (
 CREATE INDEX IF NOT EXISTS provider_events_request ON provider_events(request_id);
 CREATE INDEX IF NOT EXISTS provider_events_unmatched ON provider_events(request_id) WHERE matched_at IS NULL;
 CREATE INDEX IF NOT EXISTS provider_spend_receipt ON provider_spend(provider_request_id) WHERE provider_request_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS campaign_exports (
+ id text PRIMARY KEY,workspace_id text NOT NULL REFERENCES workspaces(id),campaign_id text NOT NULL REFERENCES campaigns(id),
+ category text NOT NULL CHECK(category IN ('all','video','image','post')),fingerprint text NOT NULL,manifest jsonb NOT NULL,
+ state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','processing','ready','failed')),file_path text,
+ attempts integer NOT NULL DEFAULT 0,available_at timestamptz NOT NULL DEFAULT now(),locked_until timestamptz,created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(workspace_id,campaign_id,category,fingerprint)
+);
+CREATE INDEX IF NOT EXISTS campaign_exports_ready ON campaign_exports(state,available_at);

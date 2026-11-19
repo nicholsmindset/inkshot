@@ -6,7 +6,7 @@ SELECT pg_advisory_xact_lock(hashtext('inkshot_shared_live_setup'));
 DO $setup$
 DECLARE
   tables text[] := ARRAY['workspaces','users','sessions','campaigns','assets','versions','jobs',
-    'ledger','uploads','billing_accounts','payment_events','provider_spend','writing_daily_usage','rate_limit_buckets','provider_events'];
+    'ledger','uploads','billing_accounts','payment_events','provider_spend','writing_daily_usage','rate_limit_buckets','provider_events','campaign_exports'];
   tbl text;
   fk record;
   target text;

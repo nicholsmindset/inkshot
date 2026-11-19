@@ -3,10 +3,14 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {config,AppError} from './config.js';
 export const cloudStorageEnabled=()=>process.env.STORAGE_PROVIDER==='supabase';
-function client(){
+function client(signal?: AbortSignal){
  const url=process.env.SUPABASE_URL,key=process.env.SUPABASE_SECRET_KEY;
  if(!url||!key)throw new AppError(503,'Private media storage is not configured.');
- return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+ return createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{
+  fetch: (input, init) => fetch(input, {...init, signal: AbortSignal.any([
+   AbortSignal.timeout(30_000), ...(signal ? [signal] : []), ...(init?.signal ? [init.signal] : []),
+  ])}),
+ }});
 }
 const PREFIX='supabase://';
 export const SIGNED_MEDIA_TTL_SECONDS = 600;
@@ -21,16 +25,16 @@ function bucketName(bucket: MediaBucket) {
   return bucket;
 }
 
-export async function persistMedia(file:string,workspaceId:string,kind:MediaBucket){
+export async function persistMedia(file:string,workspaceId:string,kind:MediaBucket,signal?:AbortSignal){
  if(!cloudStorageEnabled())return file;
  const bucket=bucketName(kind);
  const key=`${workspaceId}/${path.basename(file)}`;
  const ext=path.extname(file);
- const {error}=await client().storage.from(bucket).upload(key,await readFile(file),{contentType:ext==='.zip'?'application/zip':ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
+ const {error}=await client(signal).storage.from(bucket).upload(key,await readFile(file,{signal}),{contentType:ext==='.zip'?'application/zip':ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
  if(error)throw new AppError(503,'Media could not be saved. Please retry.');
  return `${PREFIX}${bucket}/${key}`;
 }
-export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket){
+export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket,signal?:AbortSignal){
  if(!reference.startsWith(PREFIX)) {
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return reference;
@@ -38,9 +42,9 @@ export async function materializeMedia(reference:string, workspaceId:string, kin
  const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
  const target=path.join(config.dataDir,'cache',bucket,key);
  await mkdir(path.dirname(target),{recursive:true});
- const {data,error}=await client().storage.from(bucket).download(key);
+ const {data,error}=await client(signal).storage.from(bucket).download(key);
  if(error||!data)throw new AppError(503,'Your media could not be downloaded. Please retry.');
- await writeFile(target,Buffer.from(await data.arrayBuffer()));
+ await writeFile(target,Buffer.from(await data.arrayBuffer()),{signal});
  return target;
 }
 

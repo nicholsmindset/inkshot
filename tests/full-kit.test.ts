@@ -106,7 +106,13 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   const other = await fetch(api + "/auth/demo", { method: "POST" });
   const foreign = other.headers.get("set-cookie")!.split(";")[0];
   assert.equal((await fetch(url, { headers: { cookie: foreign } })).status, 404);
-  const response = await fetch(url, { headers: { cookie } });
+  const queued = await submit(`/campaigns/${first}/exports`, { category: 'all' });
+  assert.equal(queued.status, 202);
+  const exportJob = await queued.json();
+  assert(await runWorkerOnce(db));
+  const exportUrl = `${api}/exports/${exportJob.id}/download`;
+  assert.equal((await fetch(exportUrl, { headers: { cookie: foreign } })).status, 404);
+  const response = await fetch(exportUrl, { headers: { cookie } });
   assert.equal(response.status, 200);
   const archive = path.join(dir, "kit.zip");
   await writeFile(archive, Buffer.from(await response.arrayBuffer()));

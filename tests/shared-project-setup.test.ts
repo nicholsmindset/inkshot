@@ -19,6 +19,8 @@ test("shared project creates a clean, independently constrained live schema and 
     const setup = await sql("scripts/setup-shared-live.sql");
     await db.exec(setup);
     await db.exec(setup);
+    await db.exec(await sql("supabase/migrations/20261119170000_campaign_exports.sql"));
+    await db.exec(await sql("supabase/migrations/20261119170000_campaign_exports.sql"));
     assert.equal((await db.query<{credits:number}>("SELECT credits FROM public.workspaces WHERE id='test-fixture'")).rows[0].credits,300);
     await db.exec("SET SESSION AUTHORIZATION inkshot_live_app; SET search_path = pg_catalog, inkshot_live, pg_temp;");
     await verifyDeploymentEnvironment(db,true,connection,project,true);

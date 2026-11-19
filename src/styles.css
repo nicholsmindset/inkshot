@@ -3620,3 +3620,8 @@ th:last-child {
   .asset-version-summary { flex-direction: column; gap: 12px; }
   .asset-version-summary > div:last-child { text-align: left; }
 }
+
+.campaign-downloads { display: grid; gap: .65rem; width: min(100%, 22rem); }
+.campaign-downloads label { display: grid; gap: .35rem; font-size: .875rem; }
+.campaign-downloads select { width: 100%; }
+.campaign-downloads small { color: var(--muted, #66645d); line-height: 1.5; }

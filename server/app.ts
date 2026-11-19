@@ -1,5 +1,5 @@
 import "./render-fonts.js";
-import {persistMedia,materializeMedia} from './storage.js';
+import {persistMedia,materializeMedia,signedMediaUrl} from './storage.js';
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
 import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
@@ -13,7 +13,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { ZipArchive } from "archiver";
+import { requestCampaignExport, findCampaignExport } from './campaign-exports.js';
 import { z } from "zod";
 import { config, AppError, videoDurationSeconds } from "./config.js";
 import type { Database, Queryable } from "./db.js";
@@ -93,6 +93,10 @@ async function saveUpload(db: Database, workspaceId: string, buffer: Buffer, isL
 
 export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   const app = express();
+  let storageSource: string[] = [];
+  if (process.env.STORAGE_PROVIDER === 'supabase' && process.env.SUPABASE_URL) {
+    try { const url = new URL(process.env.SUPABASE_URL); if(url.protocol==='https:' && !url.username && !url.password) storageSource=[url.origin]; } catch { /* Startup configuration checks handle invalid storage URLs. */ }
+  }
   app.disable("x-powered-by");
   app.use(
     helmet({
@@ -101,8 +105,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", "blob:", "data:"],
-          mediaSrc: ["'self'", "blob:"],
+          imgSrc: ["'self'", "blob:", "data:", ...storageSource],
+          mediaSrc: ["'self'", "blob:", ...storageSource],
           connectSrc: ["'self'"],
           fontSrc: ["'self'"],
           upgradeInsecureRequests: config.production ? [] : null,
@@ -830,61 +834,41 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!v) throw new AppError(404, "This export is not ready.");
-    const file = await materializeMedia(req.query.preview === "true" ? v.preview_path : v.file_path, req.user!.workspaceId, "generated-media");
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    if (req.query.download === "true")
-      res.download(file, `inkshot-${req.params.id}${path.extname(file)}`);
-    else res.sendFile(file);
+    const reference = req.query.preview === "true" ? v.preview_path : v.file_path;
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    const filename = req.query.download === "true" ? `inkshot-${req.params.id}${path.extname(reference)}` : undefined;
+    const url = await signedMediaUrl(reference, req.user!.workspaceId, "generated-media", filename);
+    if (url) { res.redirect(302, url); return; }
+    const file = await materializeMedia(reference, req.user!.workspaceId, "generated-media");
+    if (filename) res.download(file, filename); else res.sendFile(file);
   });
-  app.get("/api/campaigns/:id/download", async (req, res) => {
-    const cid = id.parse(req.params.id),
-      w = req.user!.workspaceId;
-    const c = (
-      await db.query<Pick<Campaign, "brand" | "draft">>(
-        "SELECT brand,draft FROM campaigns WHERE id=$1 AND workspace_id=$2",
-        [cid, w],
-      )
-    ).rows[0];
-    if (!c) throw new AppError(404, "Campaign not found.");
-    const rows = (
-      await db.query<{
-        id: string;
-        kind: string;
-        title: string;
-        caption: string;
-        n: number;
-        headline: string;
-        cta: string;
-        file_path: string;
-        mock: boolean;
-      }>(
-        "SELECT a.id,a.kind,a.title,a.caption,v.n,v.headline,v.cta,v.file_path,v.mock FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND a.workspace_id=$2 AND v.status='ready'",
-        [cid, w],
-      )
-    ).rows;
-    if (!rows.length)
-      throw new AppError(400, "Your first asset is still being made.");
-    res.attachment("inkshot-kit.zip");
-    const zip = new ZipArchive({ zlib: { level: 5 } });
-    zip.on("error", () => res.destroy());
-    zip.pipe(res);
-    for (const [i,a] of rows.entries()) {
-      zip.file(await materializeMedia(a.file_path, w, "generated-media"), {name:`${i+1}-${a.kind}${path.extname(a.file_path)}`});
-    }
-    zip.append(
-      rows
-        .filter((a) => a.kind === "post")
-        .map((a) => `${a.title}\n${a.n > 1 && !c.draft ? socialCaption(a.headline, a.cta, c.brand) : a.caption}`)
-        .join("\n\n---\n\n"),
-      { name: "captions.txt" },
-    );
-    if (c.brand.destinationUrl) zip.append(c.brand.destinationUrl + "\n", { name: "destination-url.txt" });
-    if (rows.some((a) => a.mock))
-      zip.append(
-        "Sample creatives for product preview. These use a sample photo or your uploaded image. Sample videos are 5-second still-image previews, not Higgsfield generations.",
-        { name: "SAMPLE-README.txt" },
-      );
-    await zip.finalize();
+  const exportCategory = z.enum(["all", "video", "image", "post"]).default("all");
+  app.post("/api/campaigns/:id/exports", async(req,res)=>{
+    const row = await requestCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId,exportCategory.parse(req.body.category));
+    res.set("Cache-Control","no-store").status(row.state==='ready'?200:202).json({id:row.id,state:row.state});
+  });
+  app.get("/api/exports/:id", async(req,res)=>{
+    const row = await findCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId);
+    res.set("Cache-Control","no-store").json({id:row.id,state:row.state,
+      ...(row.state==='ready' && {downloadUrl:`/api/exports/${row.id}/download`})});
+  });
+  app.get("/api/exports/:id/download", async(req,res)=>{
+    const row = await findCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId);
+    if(row.state!=='ready'||!row.file_path)throw new AppError(409,"Your download is not ready yet.");
+    res.set("Cache-Control","private, no-store").set("Referrer-Policy","no-referrer");
+    const filename = `inkshot-${row.category}.zip`;
+    const url = await signedMediaUrl(row.file_path,req.user!.workspaceId,'generated-media',filename);
+    if(url){res.redirect(302,url);return;}
+    res.download(row.file_path,filename);
+  });
+  // Preserve the old link as a redirect to the owned campaign, where exports
+  // are explicitly queued with POST. GET never creates background work.
+  app.get("/api/campaigns/:id/download", async(req,res)=>{
+    const cid=id.parse(req.params.id);
+    if(!(await db.query("SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",[cid,req.user!.workspaceId])).rows.length)
+      throw new AppError(404,"Campaign not found.");
+    res.redirect(303,`/studio/campaign/${cid}`);
   });
   app.use(express.static(path.resolve("dist")));
   app.get("/{*path}", (_req, res) =>
