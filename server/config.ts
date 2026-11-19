@@ -37,16 +37,36 @@ export function writingLimits() {
   return { global, workspace };
 }
 
+export const hostedConfigurationCodes = [
+  "HOSTED_AUTH_REQUIRED", "HOSTED_STORAGE_REQUIRED", "HOSTED_DATABASE_REQUIRED",
+  "LIVE_MODE_MISMATCH", "LIVE_BILLING_REQUIRED", "LIVE_PROVIDER_REQUIRED", "WRITING_LIMITS_REQUIRED",
+] as const;
+export class HostedConfigurationError extends Error {
+  constructor(readonly code: typeof hostedConfigurationCodes[number], message: string) {
+    super(message);
+  }
+}
+
 export function assertHostedConfiguration() {
-  if (process.env.AUTH_PROVIDER !== "supabase" || process.env.STORAGE_PROVIDER !== "supabase" || !process.env.DATABASE_URL)
-    throw new Error("Hosted identity, database and private storage are required.");
+  if (process.env.AUTH_PROVIDER !== "supabase")
+    throw new HostedConfigurationError("HOSTED_AUTH_REQUIRED", "Hosted identity is required.");
+  if (process.env.STORAGE_PROVIDER !== "supabase")
+    throw new HostedConfigurationError("HOSTED_STORAGE_REQUIRED", "Hosted private storage is required.");
+  if (!process.env.DATABASE_URL)
+    throw new HostedConfigurationError("HOSTED_DATABASE_REQUIRED", "A hosted database is required.");
   const liveBilling = process.env.BILLING_MODE === "live";
   const liveGeneration = config.mode === "live";
   if (liveBilling !== liveGeneration)
-    throw new Error("Live billing and generation must be enabled together.");
+    throw new HostedConfigurationError("LIVE_MODE_MISMATCH", "Live billing and generation must be enabled together.");
   if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !process.env.STRIPE_STUDIO_PRICE_ID || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
-    throw new Error("Live billing requires live Stripe settings and an HTTPS app origin.");
+    throw new HostedConfigurationError("LIVE_BILLING_REQUIRED", "Live billing requires live Stripe settings and an HTTPS app origin.");
   if (liveGeneration && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !Number.isFinite(Number(process.env.HF_DAILY_BUDGET_USD)) || Number(process.env.HF_DAILY_BUDGET_USD) <= 0 || (!config.claudeKey && !config.openrouterKey)))
-    throw new Error("Live generation requires provider access, writing access and a spending limit.");
-  if (liveGeneration) writingLimits();
+    throw new HostedConfigurationError("LIVE_PROVIDER_REQUIRED", "Live generation requires provider access, writing access and a spending limit.");
+  if (liveGeneration) {
+    try {
+      writingLimits();
+    } catch {
+      throw new HostedConfigurationError("WRITING_LIMITS_REQUIRED", "Daily writing limits are not configured.");
+    }
+  }
 }

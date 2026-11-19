@@ -3,7 +3,9 @@ export async function api<T = unknown>(
   body?: unknown,
   method?: string,
 ): Promise<T> {
-  const response = await fetch(`/api${url}`, {
+  let response: Response;
+  try {
+    response = await fetch(`/api${url}`, {
     method: method || (body ? "POST" : "GET"),
     headers:
       body && !(body instanceof FormData)
@@ -11,13 +13,26 @@ export async function api<T = unknown>(
         : undefined,
     body:
       body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
-  });
-  const data = await response.json();
-  if (!response.ok)
-    throw Object.assign(
-      new Error(data.error || "Something did not finish. Please try again."),
-      { status: response.status },
-    );
+    });
+  } catch {
+    throw new Error("Could not connect to Inkshot. Check your connection and try again.");
+  }
+  if (response.status === 204) return undefined as T;
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw Object.assign(new Error(response.ok
+      ? "Inkshot returned an unreadable response. Please try again."
+      : "Inkshot is temporarily unavailable. Please try again."), { status: response.ok ? 502 : response.status });
+  }
+  if (!response.ok) {
+    let message = typeof data?.error === "string" ? data.error : "Something did not finish. Please try again.";
+    if (data?.code === "SERVICE_UNAVAILABLE" && typeof data.reference === "string" && /^[a-f0-9-]{36}$/i.test(data.reference)) {
+      message += ` Reference ${data.reference}`;
+    }
+    throw Object.assign(new Error(message), { status: response.status });
+  }
   return data as T;
 }
 export const media = (id: string, preview = false) =>

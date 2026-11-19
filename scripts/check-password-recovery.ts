@@ -17,6 +17,7 @@ export async function checkPasswordRecovery(base: string, otherLogin: string) {
   assert.equal((await post("/auth/reset-password", { password: newPassword }, otherLogin)).status, 401);
   const start = await post("/auth/forgot-password", { email });
   assert.equal(start.status, 200);
+  assert.equal(start.headers.get("cache-control"), "no-store");
   const verifier = cookies(start);
   assert(verifier.includes("inkshot-recovery-code-verifier"));
   let messageId: string | undefined;
@@ -39,6 +40,8 @@ export async function checkPasswordRecovery(base: string, otherLogin: string) {
   assert.equal(wrongBrowser.headers.get("location"), "/forgot-password?expired=1");
   const link = await fetch(url, { redirect: "manual", headers: { cookie: verifier } });
   assert.equal(link.headers.get("location"), "/reset-password");
+  assert.equal(link.headers.get("cache-control"), "no-store");
+  assert.equal(link.headers.get("referrer-policy"), "no-referrer");
   const recoveryCookies = verifier + "; " + cookies(link);
   const reset = await post("/auth/reset-password", { password: newPassword }, recoveryCookies);
   assert.equal(reset.status, 200);

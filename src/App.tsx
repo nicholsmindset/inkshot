@@ -30,8 +30,10 @@ import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
 import { BrandPage, NewCampaign } from "./pages/Create";
 import { Billing, SettingsPage } from "./pages/Account";
 function Shell() {
-  const { studio, loading, error, refresh } = useStudio();
+  const { studio, loading, error, refresh, clearSession } = useStudio();
   const [mobile, setMobile] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
   const navigate = useNavigate();
   if (loading)
     return (
@@ -52,9 +54,17 @@ function Shell() {
     );
   if (!studio) return <Navigate to="/login" replace />;
   async function logout() {
-    await api("/auth/logout", {});
-    await refresh();
-    navigate("/");
+    setSigningOut(true);
+    setSignOutError("");
+    try {
+      await api("/auth/logout", {});
+      clearSession();
+      navigate("/", { replace: true });
+    } catch (e) {
+      setSignOutError((e as Error).message);
+    } finally {
+      setSigningOut(false);
+    }
   }
   return (
     <div className="app-shell">
@@ -140,7 +150,8 @@ function Shell() {
             <button
               className="icon-button"
               onClick={() => void logout()}
-              aria-label="Sign out"
+              aria-label={signingOut ? "Signing out" : "Sign out"}
+              disabled={signingOut}
             >
               <LogOut size={17} />
             </button>
@@ -167,6 +178,7 @@ function Shell() {
               </Button>
             </Notice>
           ) : null}
+          {signOutError && <Notice>{signOutError} <Button variant="small" busy={signingOut} onClick={() => void logout()}>Try signing out again</Button></Notice>}
           <Outlet />
         </main>
         <footer className="app-footer">
@@ -182,10 +194,10 @@ export default function App() {
     <StudioProvider>
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Auth />} />
+        <Route path="/login" element={<Auth key="login" />} />
         <Route path="/forgot-password" element={<PasswordRecovery key="request" />} />
         <Route path="/reset-password" element={<PasswordRecovery key="reset" reset />} />
-        <Route path="/signup" element={<Auth signup />} />
+        <Route path="/signup" element={<Auth key="signup" signup />} />
         <Route path="/studio" element={<Shell />}>
           <Route index element={<Dashboard />} />
           <Route path="new" element={<NewCampaign />} />

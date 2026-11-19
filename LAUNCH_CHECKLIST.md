@@ -31,6 +31,18 @@ Expect `draft` as `jsonb` and `motion_prompt` as `text` in each provisioned name
 
 ## Paid acceptance evidence
 
+## Account journey release checks
+
+Vercel builds run `scripts/check-hosted-build.ts` before compiling the frontend. Missing Auth, database or private-storage configuration must fail the build instead of publishing a login form backed by an unavailable API. Configure Preview and Production independently. Passing this check proves configuration shape, not valid credentials or database connectivity.
+
+For each served origin, set `APP_ORIGIN` to its exact HTTPS origin and allow its `/api/auth/callback` and `/api/auth/recovery-callback` URLs in that project's Supabase Auth configuration. A confirmation started on a preview cannot rely on a verifier cookie on a different production hostname. Do not copy live payment credentials into a preview to make its checks pass.
+
+The dedicated `confirmed-auth-journey` CI job requires email confirmation using a disposable Supabase server and captured local mailbox. It checks signup, blocked login before confirmation, callback website continuation, first login, signout, returning login to the same workspace, incorrect passwords and single-use password recovery. Chrome checks also cover form state, a late anonymous response after signup and a failed signout followed by a successful retry.
+
+Hosted startup failures emit only a safe stage/configuration code and customer reference. Match the reference in Vercel runtime logs to distinguish missing configuration, database access and application startup failures. Do not diagnose a customer's password from a generic service failure, or call the hosted issue resolved from local tests alone.
+
+## Paid acceptance evidence
+
 - Funded writing: read an owned public website, review the extracted facts and inferred suggestions, select three angles and save nine prompts. Confirm evidence excerpts match the source and unsupported claims are absent.
 - Capped generation: approve the saved revision, then verify all three videos, three image ads and three posts. Confirm submitted first-frame and motion prompts match the saved approval, media is stored privately and the downloaded output matches its preview.
 - Recovery: confirm retries reuse a provider request identity, failed assets receive the intended credit refund once, and a new deliberate generation is separately priced. Reconcile provider reservations against actual provider charges; estimates are not invoices.

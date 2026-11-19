@@ -36,7 +36,21 @@ async function account() {
   assert.equal(login.status, 200);
   const cookie = login.headers.getSetCookie().map(v => v.split(";")[0]).join("; ");
   assert(cookie);
-  return cookie;
+  const initial = await (await fetch(base + "/studio", { headers: { cookie } })).json();
+  const logout = await fetch(base + "/auth/logout", { method: "POST", headers: { cookie } });
+  assert.equal(logout.status, 200);
+  assert(logout.headers.getSetCookie().some(value => value.includes("Max-Age=0")), "Sign-out must clear the browser session");
+  assert.equal((await fetch(base + "/studio")).status, 401);
+  assert.equal((await post("/auth/login", { ...credentials, password: "incorrect-password" })).status, 401);
+  const returning = await post("/auth/login", { ...credentials, email: " " + credentials.email.toUpperCase() + " " });
+  assert.equal(returning.status, 200);
+  assert.equal(returning.headers.get("cache-control"), "no-store");
+  const returningCookie = returning.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+  const resumed = await (await fetch(base + "/studio", { headers: { cookie: returningCookie } })).json();
+  assert.equal(resumed.user.id, initial.user.id);
+  assert.equal(resumed.user.workspaceId, initial.user.workspaceId);
+  assert.equal((await db.query("SELECT id FROM users WHERE id=$1", [initial.user.id])).rows.length, 1);
+  return returningCookie;
 }
 try {
   const health = await (await fetch(base + "/health")).json();

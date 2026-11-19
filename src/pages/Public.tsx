@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
   Check,
@@ -28,7 +28,7 @@ export function Landing() {
     setBusy(true);
     try {
       await api("/auth/demo", {});
-      await refresh();
+      await refresh({ fresh: true });
       navigate("/studio");
     } catch (e) {
       setError((e as Error).message);
@@ -174,10 +174,11 @@ export function Landing() {
   );
 }
 export function Auth({ signup = false }: { signup?: boolean }) {
-  const { refresh } = useStudio();
+  const { refresh, studio } = useStudio();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmationEmail, setConfirmationEmail] = useState("");
   const [searchParams] = useSearchParams();
   const requestedWebsite = searchParams.get("website");
   const websiteQuery = requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : "";
@@ -189,13 +190,13 @@ export function Auth({ signup = false }: { signup?: boolean }) {
     try {
       const result = await api<{confirmationRequired?:boolean}>(
         `/auth/${signup ? "signup" : "login"}`,
-        Object.fromEntries(form),
+        { ...Object.fromEntries(form), ...(signup && requestedWebsite ? { website: requestedWebsite } : {}) },
       );
       if(result.confirmationRequired) {
-        setError('Check your email to confirm your account, then sign in.');
+        setConfirmationEmail(String(form.get('email') || ''));
         return;
       }
-      await refresh();
+      await refresh({ fresh: true });
       navigate(signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio");
     } catch (e) {
       setError((e as Error).message);
@@ -203,6 +204,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
       setBusy(false);
     }
   }
+  if (studio && !busy) return <Navigate to={requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio"} replace />;
   return (
     <div className="auth-page">
       <div className="auth-form">
@@ -220,11 +222,18 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               ? (requestedWebsite ? `Create an account to import ${requestedWebsite} and review the draft.` : "Create an account, then add your website to start your brief.")
               : "Sign in and pick up where you left off."}
           </p>
-          <form onSubmit={submit}>
+          {!signup && searchParams.get("confirmation") === "failed" && <Notice>The confirmation link could not be used. It may have expired or been opened in another browser. Try signing in, or open the latest confirmation email in the browser where you signed up.</Notice>}
+          {confirmationEmail ? <div role="status" className="auth-confirmation">
+            <h2>Check your email</h2>
+            <p>Check {confirmationEmail} for a confirmation link. Open it in this browser to finish signing up.</p>
+            <p>If you already have an account, you can sign in below.</p>
+            <Link className="button full" to={`/login${websiteQuery}`}>Go to sign in</Link>
+          </div> : <form onSubmit={submit}>
             {signup ? (
               <Field label="Your name">
                 <input
                   name="name"
+                  disabled={busy}
                   autoComplete="name"
                   required
                   maxLength={100}
@@ -232,7 +241,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               </Field>
             ) : null}
             <Field label="Email address">
-              <input name="email" type="email" autoComplete="email" required />
+              <input name="email" type="email" autoComplete="email" maxLength={254} required disabled={busy} />
             </Field>
             <Field
               label="Password"
@@ -240,6 +249,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
             >
               <input
                 name="password"
+                disabled={busy}
                 type="password"
                 autoComplete={signup ? "new-password" : "current-password"}
                 minLength={signup ? 12 : 1}
@@ -252,7 +262,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               {signup ? "Create my studio" : "Open my studio"}
               <ArrowRight size={16} />
             </Button>
-          </form>
+          </form>}
           {!signup && <p className="auth-switch"><Link to="/forgot-password">Forgot your password?</Link></p>}
           <p className="auth-switch">
             {signup ? "Already have a studio?" : "New around here?"}{" "}

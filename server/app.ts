@@ -39,6 +39,20 @@ import {
 import { isCampaignDestination } from "../shared/destination.js";
 import { campaignDraftSchema, selectedConceptIdsSchema, currentDraft, validateDraft, requireDraftRevision } from "./campaign-drafts.js";
 const id = z.string().uuid();
+const authEmail = z.string().trim().max(254).pipe(z.email()).transform(value => value.toLowerCase());
+const onboardingWebsite = z.string().trim().max(2048).transform((value, context) => {
+  if (!value) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
+      throw new Error("Invalid website");
+    url.protocol = "https:";
+    return url.toString();
+  } catch {
+    context.addIssue({ code: "custom", message: "Enter your business website address." });
+    return z.NEVER;
+  }
+});
 const json = (data: unknown) => JSON.stringify(data);
 function socialCaption(headline: string, cta: string, brand: Pick<Brand, "description"> & { destinationUrl?: string }) {
   return [headline, brand.description, [cta, brand.destinationUrl].filter(Boolean).join("\n")].filter(Boolean).join("\n\n");
@@ -94,6 +108,10 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     }),
   );
   app.use(cookieParser());
+  app.use("/api/auth", (_req, res, next) => {
+    res.set("Cache-Control", "no-store").set("Referrer-Policy", "no-referrer");
+    next();
+  });
   app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');await webhook(db,req.body,signature);res.json({received:true})});
   app.use(express.json({ limit: "128kb" }));
   app.use(
@@ -156,17 +174,22 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const input = z
       .object({
         name: z.string().trim().min(1).max(100),
-        email: z
-          .email()
-          .max(254)
-          .transform((s) => s.toLowerCase()),
+        email: authEmail,
         password: z.string().min(12).max(128),
+        website: onboardingWebsite.optional(),
       })
       .parse(req.body);
     if (managedAuthEnabled()) {
       const {data,error} = await authClient(req,res).auth.signUp({email:input.email,password:input.password,options:{data:{name:input.name},emailRedirectTo:`${config.origin}/api/auth/callback`}});
       if (error) throw new AppError(400,'Unable to create your account. Check your details or try signing in.');
       if (data.session && data.user) await provisionManagedUser(db,data.user);
+      if (!data.session && input.website) {
+        res.cookie("inkshot-onboarding-website", input.website, {
+          httpOnly: true, secure: config.production, sameSite: "lax", path: "/api/auth/callback", maxAge: 24 * 60 * 60000,
+        });
+      } else {
+        res.clearCookie("inkshot-onboarding-website", { path: "/api/auth/callback" });
+      }
       res.status(201).json({ok:true,confirmationRequired:!data.session});
       return;
     }
@@ -187,7 +210,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   const recoveryPath = "/api/auth/reset-password";
   app.post("/api/auth/forgot-password", authLimit, async (req, res) => {
     if (!managedAuthEnabled()) throw new AppError(503, "Password recovery is unavailable in the local preview.");
-    const { email } = z.object({ email: z.email().max(254) }).parse(req.body);
+    const { email } = z.object({ email: authEmail }).parse(req.body);
     const { error } = await authClient(req, res, true).auth.resetPasswordForEmail(email, {
       redirectTo: `${config.origin}/api/auth/recovery-callback`,
     });
@@ -223,7 +246,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.post("/api/auth/login", authLimit, async (req, res) => {
     const input = z
       .object({
-        email: z.email().transform((s) => s.toLowerCase()),
+        email: authEmail,
         password: z.string().min(1).max(128),
       })
       .parse(req.body);
@@ -261,7 +284,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const {data,error}=await authClient(req,res).auth.exchangeCodeForSession(req.query.code);
     if(error || !data.user) return res.redirect('/login?confirmation=failed');
     await provisionManagedUser(db,data.user);
-    res.redirect('/studio/brand');
+    const website = onboardingWebsite.safeParse(req.cookies["inkshot-onboarding-website"]);
+    res.clearCookie("inkshot-onboarding-website", { path: "/api/auth/callback" });
+    res.redirect('/studio/brand' + (website.success && website.data ? `?website=${encodeURIComponent(website.data)}` : ""));
   });
   app.use("/api", requireUser(db));
   app.post('/api/billing/checkout',async(req,res)=>res.json(await checkout(db,req.user!)));

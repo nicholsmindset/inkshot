@@ -52,7 +52,8 @@ function BrandForm({ initial }: { initial: Brand }) {
     setReadPreview(null);
     try {
       let address = requestedUrl.trim();
-      if (!address.startsWith("https://")) address = `https://${address}`;
+      if (/^http:\/\//i.test(address)) address = address.replace(/^http:/i, "https:");
+      else if (!/^https:\/\//i.test(address)) address = `https://${address}`;
       const next = await api<Brand>("/brand/read", { url: address });
       setBrand((current) => ({
         ...next,
