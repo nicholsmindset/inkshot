@@ -1,8 +1,8 @@
 # Inkshot game-plan progress
 
-Updated 19 November 2026 (Singapore). Source: the supplied `INKSHOT_GAME_PLAN.md`.
+Updated 20 November 2026 (Singapore). Source: the supplied `INKSHOT_GAME_PLAN.md`.
 
-Phase 1 code is prepared in draft PRs. This is **not launch acceptance**: no production settings, hosted migrations, live payment switches, real deletions or paid provider calls were performed in this implementation pass. The final combined branch is `inkshot/phase-one-integration`.
+Phase 1 code is prepared in draft PRs and deployed to the hosted preview. Four pending migrations were applied to the fresh sandbox project. This is **not launch acceptance**: production settings, live payment switches, real deletions and paid provider calls remain untouched. The final combined branch is `inkshot/phase-one-integration`. The latest checkpoint below supersedes earlier dated access-blocker notes.
 
 ## Review order
 
@@ -10,14 +10,14 @@ These PRs are stacked; review and merge their prerequisites in order, then retar
 
 | Plan item | Review | Implemented | Still needed |
 | --- | --- | --- | --- |
-| Prerequisites | [#27](https://github.com/nicholsmindset/inkshot/pull/27), [#28](https://github.com/nicholsmindset/inkshot/pull/28), [#29](https://github.com/nicholsmindset/inkshot/pull/29) | Campaign approval, schema diagnostics, restricted fresh-project setup | Confirm hosted environment and apply reviewed migrations before deployment |
+| Prerequisites | [#27](https://github.com/nicholsmindset/inkshot/pull/27), [#28](https://github.com/nicholsmindset/inkshot/pull/28), [#29](https://github.com/nicholsmindset/inkshot/pull/29) | Campaign approval, schema diagnostics, restricted fresh-project setup | Hosted sandbox and pending migrations verified; complete end-to-end acceptance |
 | P1-2 operations | [#30](https://github.com/nicholsmindset/inkshot/pull/30) | Protected status, bounded database probes, redacted optional failure/stuck-job events | Select and configure an alert destination; prove receipt within five minutes |
 | P1-3 photo-first video | [#33](https://github.com/nicholsmindset/inkshot/pull/33) | Owned product photo as first frame, no replacement-image generation, approved duration frozen; new default ten seconds | A separately approved capped real-provider trial, including signed-photo fetch timing and output duration |
 | P1-4 provider callbacks | [#32](https://github.com/nicholsmindset/inkshot/pull/32) | Signed raw callbacks, timestamp checks, durable duplicate-safe receipts, recovery and protected metrics | Real webhook-secret acceptance and provider data-training setting; actual billing source remains unresolved |
 | P1-5 downloads | [#34](https://github.com/nicholsmindset/inkshot/pull/34) | Owned short-lived media links, queued category/full-kit ZIPs, immutable manifests, cancellation and invocation-budget handling | Hosted large-file, browser and expired-link checks |
 | P1-6 trust/deletion | [#35](https://github.com/nicholsmindset/inkshot/pull/35) | Draft policy pages, guarded retryable deletion, terminal-checkout reconciliation, isolated cleanup and work scheduling | Operator/legal/contact/refund review; disposable hosted deletion acceptance before enabling |
 | P1-6 claims | [#36](https://github.com/nicholsmindset/inkshot/pull/36) | Owned certificate plus merchant attestation, text/visual-prompt guards, revoked-attestation checks, API/worker/render enforcement | Human creative review; neither certificate authentication nor pixel-level verification is implemented |
-| Combined acceptance | `inkshot/phase-one-integration` | New-table startup diagnostics, bounded read-only billing checks, correct video revision payloads, updated isolated acceptance script | CI and hosted acceptance of this exact final branch |
+| Combined acceptance | `inkshot/phase-one-integration` | New-table startup diagnostics, bounded read-only billing checks, correct video revision payloads, updated isolated acceptance script | CI passed; preview startup passed; hosted user journeys remain |
 | P1-7 cutover | [#31](https://github.com/nicholsmindset/inkshot/pull/31) | Separate live-project runbook, payment-off rehearsal, backups and rollback gates | Owner-controlled execution after preview acceptance; this docs PR can be reviewed separately after #30 |
 
 ## Verification completed
@@ -52,8 +52,8 @@ Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` an
 
 ## Next acceptance work
 
-1. Confirm the intended preview project's access and configuration for the final integration branch, without changing production or enabling billing.
-2. Apply the reviewed migrations to that disposable preview and verify restricted-role readiness plus private buckets.
+1. Completed: restore preview project access and configure the integration branch without enabling production or billing.
+2. Migrations and restricted-role startup completed. Verify private-bucket behavior through owned and foreign-user download tests.
 3. Run signup, confirmation, returning-user login, reset, session expiry and logout through the actual hosted browser/email flow. Test draft approval and mock generation through owned downloads on desktop and mobile.
 4. Validate an alert arrives at the chosen destination, webhook fixtures recover correctly, expiring downloads remain private, and disposable deletion completes with no cross-workspace access.
 5. Resolve legal/operator/contact details and the provider billing-source gap. Only then approve a capped real-generation rehearsal and a separate live cutover.
@@ -75,3 +75,31 @@ The shared-schema acceptance script and migration ordering were independently re
 At commit `3a6020b`, GitHub Actions run `44708555330` passed both `confirmed-auth-journey` and `managed-preview`. Verification and GitGuardian checks also passed. This closes the outdated export acceptance-test failure and verifies the disposable managed integration, including the workflow's shared-schema and restore checks. It does not prove production readiness.
 
 Both Vercel project deployments still fail. Read access to `inkshot-live` returns 404 even with the verified owning team ID. Hosted deployment diagnosis therefore remains blocked on connection access; no production or billing configuration was changed.
+
+## Hosted preview accepted for startup — 20 November 2026
+
+- Deployment: `dpl_EzL7W6NpotnLtEoeKiypa22DfsM4`, state **READY**, commit `b40320fc7a9a3909453b67547b1dc9eca8fd3e61`.
+- Preview: https://inkshot-live-git-inksh-5e52e1-nicholsmindset-gmailcoms-projects.vercel.app/login
+- Project: `inkshot-live` (`prj_xQ764dcIohrQcX0trerDhN2eh0Zg`); branch `inkshot/phase-one-integration`.
+- Supabase: `zdvniqffhiycyxxzchmi`, environment marker `sandbox`.
+- Enabled the existing restricted `inkshot_app` login with a generated credential. It remains non-superuser and cannot bypass RLS. No admin database credential was used for application runtime.
+- Saved `DATABASE_URL` as an encrypted, branch-specific Preview variable. The server key is also Preview-only on this branch. No credential values are recorded here.
+- Applied the four migration files listed above; verified RLS and runtime grants on `campaign_exports`, `provider_events` and `account_deletions`.
+- Hosted health returned HTTP 200 with `ok=true`, `mode=mock`, `billingMode=off`, `demoAvailable=false`. Startup includes the database and schema checks.
+- Login route returned HTTP 200 with the application shell. Successful sign-in, email confirmation, reset and session behavior remain unverified on this hosted preview.
+- A local connection attempt failed DNS resolution; the subsequent Vercel runtime health check succeeded. No pooler-host change was needed.
+
+No production deployment, payment enablement or paid generation was performed. The complete current checklist is in [INKSHOT_GAME_PLAN.md](INKSHOT_GAME_PLAN.md).
+
+## Full-source goal and hosted access checks — 20 November 2026
+
+Created `GAME_PLAN_ACCEPTANCE.md` from the user's uploaded 217-line game plan. It preserves Phase 2 caption/SRT, quality review, premium-image, SGD configuration, regeneration caps, funnel events, original pilot targets, and conditional research requirements. Deferred and prohibited features are not silently treated as approved implementation.
+
+Fresh hosted checks on the integration preview:
+
+- `/api/health`: HTTP 200, mock generation, billing off.
+- `/api/studio`: HTTP 401 without an app session.
+- `/api/ops/status`: HTTP 401 without authorization.
+- Invalid auth callback: the fetch client followed a response to an HTML page. This is not sufficient evidence of correct error messaging, so callback acceptance remains open.
+
+No customer email was sent, no paid call was made and no production change was performed. Full email delivery and session acceptance still require a controlled test mailbox and an interactive HTTP/browser test session; the existing disposable CI journey must not be repointed at hosted credentials.

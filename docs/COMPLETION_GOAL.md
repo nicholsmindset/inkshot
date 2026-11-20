@@ -4,21 +4,23 @@ Started 20 November 2026, Singapore. Work now; no scheduled automation.
 
 Deliver a tested advertising studio ready for an approved paid merchant pilot, then validate the competitor-research add-on. Source: INKSHOT_GAME_PLAN.md. Detailed implementation evidence and PR order: [GAME_PLAN_PROGRESS.md](GAME_PLAN_PROGRESS.md).
 
+Full source-to-task register: [GAME_PLAN_ACCEPTANCE.md](GAME_PLAN_ACCEPTANCE.md). This includes captions/SRT, category caption files, quality review, pricing assumptions and the original pilot targets.
+
 A task is complete only when its acceptance evidence is recorded. Code in a draft PR is not a verified live feature. Keep credentials private, work on branches, keep payments off, and make no production changes or paid provider calls until the relevant release decision is approved. Record owner-dependent tasks and continue independent work.
 
 ## Phase 1 — launch reliability
 
-- [ ] Schema startup checks: implemented; verify the complete migration chain in the intended hosted preview, under its restricted role.
+- [x] Schema startup checks: the intended hosted preview starts successfully under its restricted database role after the four pending migrations were applied; `/api/health` returned HTTP 200 on 20 November 2026.
 - [ ] Signup and returning-user journey: confirmed-auth CI passes; finish intended hosted signup, email confirmation, reset, expiry and logout checks.
 - [ ] Operations: protected status and redacted events implemented; select a destination and prove alert receipt within five minutes.
 - [ ] Product-photo-first video: implemented with default ten seconds, approved duration and revision preservation; validate a separately approved capped provider run.
 - [ ] Higgsfield callbacks: signature, replay and durable receipt handling implemented; validate real signing-secret configuration and exclude-data-from-training setting.
 - [ ] Spend reconciliation: obtain actual invoice/charge evidence or approve a manual process; estimated usage alone is insufficient.
-- [ ] Private downloads: signed links and background category/full-kit ZIPs implemented; finish managed-preview CI plus hosted expiry, mobile and large-file checks.
+- [ ] Private downloads: signed links and background category/full-kit ZIPs implemented; managed-preview CI passed; finish hosted expiry, mobile and large-file checks.
 - [ ] Privacy, terms, refunds and AI notices: draft pages implemented; resolve legal operator, verified contact, retention and refund details.
 - [ ] Account deletion: guarded retryable cleanup implemented; verify disposable hosted provider/storage/Auth cleanup and isolation before enabling.
 - [ ] Halal/advertising claims: text and prompt checks implemented; review merchant attestation and human creative checks with pilot examples.
-- [ ] Release readiness: resolve Vercel failures; review stacked PRs, rehearse backup/restore and rollback; execute separate live cutover only after explicit release approval.
+- [ ] Release readiness: Vercel preview failure resolved; review stacked PRs, rehearse backup/restore and rollback; execute separate live cutover only after explicit release approval.
 
 ## Phase 2 — paid Humble Halal merchant pilot
 
@@ -40,6 +42,17 @@ Begin after Phase 1 acceptance, as specified in the source plan.
 
 ## Current checkpoint
 
-Latest observed checks on PR #37 at `3a6020b`: verification, confirmed-auth journey and managed-preview all passed; both Vercel project checks failed. Local combined code previously passed 102 tests and the production build. The updated export acceptance script passed TypeScript. These results do not satisfy hosted release acceptance.
+Updated 20 November 2026, Singapore.
 
-Next execution: restore access to the intended Vercel project, validate the hosted preview, then advance the phase gates. Track completion evidence in GAME_PLAN_PROGRESS.md and update this checklist; do not silently mark access or owner decisions complete.
+- Vercel connection access is restored for the existing Inkshot projects.
+- Preview deployment `dpl_EzL7W6NpotnLtEoeKiypa22DfsM4` is READY at commit `b40320fc7a9a3909453b67547b1dc9eca8fd3e61`.
+- `SUPABASE_SECRET_KEY` and `DATABASE_URL` are configured for Preview only on `inkshot/phase-one-integration`.
+- The fresh Supabase project `zdvniqffhiycyxxzchmi` is marked sandbox. Its `inkshot_app` role can log in and has no superuser or RLS-bypass privileges.
+- All four pending Phase 1 schema migrations applied successfully. New tables have RLS enabled and restricted-runtime grants.
+- Hosted `/api/health`: HTTP 200, `ok=true`, `mode=mock`, `billingMode=off`, `demoAvailable=false`.
+- The preview login route returns HTTP 200 and the application shell. This does not verify successful login or email delivery.
+- Earlier GitHub verification, confirmed-auth journey and managed-preview checks passed at `3a6020b`; combined local implementation passed 102 tests and its build.
+
+[Open the preview login](https://inkshot-live-git-inksh-5e52e1-nicholsmindset-gmailcoms-projects.vercel.app/login).
+
+Next execution: complete the hosted signup, email and returning-user journey, then campaign/download acceptance. Payments remain off; production and paid generation were not enabled.
