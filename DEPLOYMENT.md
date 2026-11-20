@@ -1,6 +1,6 @@
 # Inkshot infrastructure
 
-The current production-readiness assessment is in [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md). The hosted URL remains a preview and must not accept real payments yet.
+The current release handoff is in [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md). [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) preserves the earlier October assessment. Live payment activation requires fresh hosted acceptance; a passing preview build alone is insufficient.
 
 Inkshot is in a private [GitHub repository](https://github.com/nicholsmindset/inkshot), deployed to [Vercel](https://vercel.com/nicholsmindset-gmailcoms-projects/inkshot) at [inkshot-omega.vercel.app](https://inkshot-omega.vercel.app). GitHub Actions runs the tests and production build on pushes and pull requests. Vercel hosts the frontend and authenticated API; a scheduled Vercel function drains generation jobs. The site remains `noindex` until launch.
 

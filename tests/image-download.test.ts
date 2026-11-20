@@ -49,12 +49,21 @@ test("a downloaded image uses the selected merchant photo and the approved asset
   const { id, concepts } = await response.json();
   const approved = "Reserve the Friday batch";
   const headline = "Friday is sourdough day";
-  const drafts = concepts.flatMap((concept: { id: string; cta: string }, index: number) =>
-    ["video", "image", "post"].map(kind => ({
-      conceptId: concept.id, kind, headline, cta: index === 0 && kind === "image" ? approved : concept.cta,
-    })),
-  );
-  const generated = await post(`/campaigns/${id}/generate`, { approved: true, photoId, drafts });
+  const prompts = await post(`/campaigns/${id}/prompts`, {
+    revision: 0, selectedConceptIds: concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+  });
+  assert(prompts.ok);
+  const draft = await prompts.json();
+  const assets = draft.assets.map((asset: { conceptId: string; kind: string; cta: string }) => ({
+    ...asset, headline, cta: asset.conceptId === concepts[0].id && asset.kind === "image" ? approved : asset.cta,
+  }));
+  const savedDraft = await fetch(`${api}/campaigns/${id}/draft`, {
+    method: "PATCH", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ ...draft, assets, photoId }),
+  });
+  assert(savedDraft.ok);
+  const { revision } = await savedDraft.json();
+  const generated = await post(`/campaigns/${id}/generate`, { approved: true, draftRevision: revision });
   assert.equal(generated.status, 200);
   const target = (await db.query<{ id: string; format: string; name: string; photo: string }>(
     `SELECT v.id, a.format, c.brand->>'name' AS name, u.file_path AS photo

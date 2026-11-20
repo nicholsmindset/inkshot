@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Brand, Concept } from "../shared/types.js";
+export const briefFields = ["description", "audience", "voice", "offer", "proof", "pain", "trigger", "visualDirection"] as const;
 export const brandSchema = z.object({
   name: z.string().trim().min(1).max(100),
   website: z.string().max(2048).default(""),
@@ -12,6 +13,15 @@ export const brandSchema = z.object({
   sources: z
     .array(z.object({ url: z.string().max(2048), text: z.string().max(600) }))
     .max(12),
+  pain: z.string().max(1000).optional(),
+  trigger: z.string().max(1000).optional(),
+  visualDirection: z.string().max(1500).optional(),
+  evidence: z.array(z.object({
+    field: z.enum(briefFields),
+    sourceUrl: z.url().refine(value => value.startsWith("https://")),
+    excerpt: z.string().trim().min(1).max(600),
+  })).max(24).optional(),
+  inferredFields: z.array(z.enum(briefFields)).max(8).optional(),
   photoId: z.string().uuid().optional(),
   logoId: z.string().uuid().optional(),
   logoUrl: z.url().max(2048).optional(),
@@ -74,6 +84,27 @@ export function sampleConcepts(brand: Brand, offer: string): Concept[] {
       description:
         "A clear invitation with your chosen offer. No invented discounts or promises.",
       cta: "Explore the collection",
+    },
+    {
+      id: "problem",
+      title: "The problem you solve",
+      hook: "Make the everyday easier.",
+      description: `Show a recognisable situation for ${brand.audience || "the customer"}. ${brand.pain || "Let the approved product or service provide the focus."}`,
+      cta: "Find out more",
+    },
+    {
+      id: "process",
+      title: "Show how it works",
+      hook: "See it in action.",
+      description: `Show ${brand.name}'s product or service being used in a realistic setting. Use the approved offering without inventing results.`,
+      cta: "Explore how it works",
+    },
+    {
+      id: "occasion",
+      title: "The moment it matters",
+      hook: "For your next step.",
+      description: `Build a scene around ${brand.trigger || "the moment a customer considers the offering"}. Keep the benefit grounded in the approved brief.`,
+      cta: "Discover more",
     },
   ];
 }

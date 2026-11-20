@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowUpRight,
   Check,
@@ -28,7 +28,7 @@ export function Landing() {
     setBusy(true);
     try {
       await api("/auth/demo", {});
-      await refresh();
+      await refresh({ fresh: true });
       navigate("/studio");
     } catch (e) {
       setError((e as Error).message);
@@ -174,13 +174,65 @@ export function Landing() {
   );
 }
 export function Auth({ signup = false }: { signup?: boolean }) {
-  const { refresh } = useStudio();
+  const { refresh, studio } = useStudio();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmationEmail, setConfirmationEmail] = useState("");
+  const [email, setEmail] = useState("");
+  const [confirmationHelp, setConfirmationHelp] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState("");
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [searchParams] = useSearchParams();
   const requestedWebsite = searchParams.get("website");
   const websiteQuery = requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : "";
+  const studioDestination = signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio";
+  useEffect(() => {
+    if (!resendSeconds) return;
+    const timer = window.setTimeout(() => setResendSeconds(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
+  async function resendConfirmation(e?: FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
+    if (busy || resendSeconds > 0) return;
+    setBusy(true);
+    setError("");
+    setConfirmationMessage("");
+    const address = (confirmationEmail || email).trim().toLowerCase();
+    try {
+      await api("/auth/resend-confirmation", { email: address });
+      setConfirmationEmail(address);
+      setConfirmationMessage("If this address has an account awaiting confirmation, a new email is on its way. Check your inbox and spam folder.");
+      setResendSeconds(60);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function verifyEmail(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const token = String(new FormData(e.currentTarget).get("token") || "").trim();
+    try {
+      await api("/auth/verify-email", { email: confirmationEmail, token });
+      await refresh({ fresh: true });
+      navigate(studioDestination, { replace: true });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  function editEmail() {
+    setEmail(confirmationEmail);
+    setConfirmationEmail("");
+    setConfirmationMessage("");
+    setError("");
+    // A different signup is a new attempt, not an update to an existing account.
+    if (signup) setConfirmationHelp(false);
+  }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -189,20 +241,23 @@ export function Auth({ signup = false }: { signup?: boolean }) {
     try {
       const result = await api<{confirmationRequired?:boolean}>(
         `/auth/${signup ? "signup" : "login"}`,
-        Object.fromEntries(form),
+        { ...Object.fromEntries(form), ...(signup && requestedWebsite ? { website: requestedWebsite } : {}) },
       );
       if(result.confirmationRequired) {
-        setError('Check your email to confirm your account, then sign in.');
+        setConfirmationEmail(String(form.get('email') || '').trim().toLowerCase());
+        setConfirmationMessage("If your account needs confirmation, check your inbox and spam folder for an email from Inkshot.");
+        setResendSeconds(60);
         return;
       }
-      await refresh();
-      navigate(signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio");
+      await refresh({ fresh: true });
+      navigate(studioDestination, { replace: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+  if (studio && !busy) return <Navigate to={studioDestination} replace />;
   return (
     <div className="auth-page">
       <div className="auth-form">
@@ -220,11 +275,45 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               ? (requestedWebsite ? `Create an account to import ${requestedWebsite} and review the draft.` : "Create an account, then add your website to start your brief.")
               : "Sign in and pick up where you left off."}
           </p>
-          <form onSubmit={submit}>
+          {!signup && searchParams.get("confirmation") === "failed" && <Notice>The confirmation link could not be used. It may have expired or been opened in another browser. Try signing in, or open the latest confirmation email in the browser where you signed up.</Notice>}
+          {confirmationEmail ? <div className="auth-confirmation">
+            <h2>Check your email</h2>
+            <p className="confirmation-address">{confirmationEmail}</p>
+            {confirmationMessage && <p role="status">{confirmationMessage}</p>}
+            <p>Open the confirmation link in the browser where you requested it. If the email includes a code, you can enter it here on any device.</p>
+            <form onSubmit={verifyEmail}>
+              <Field label="Email confirmation code" hint="Enter the 6–10 digit code from your latest confirmation email, if shown.">
+                <input name="token" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required disabled={busy} />
+              </Field>
+              <Button className="full" busy={busy}>Confirm my email</Button>
+            </form>
+            {error ? <Notice>{error}</Notice> : null}
+            <Button type="button" variant="secondary" className="full" disabled={busy || resendSeconds > 0} onClick={() => void resendConfirmation()}>
+              {resendSeconds > 0 ? `Resend available in ${resendSeconds}s` : "Resend confirmation email"}
+            </Button>
+            <Button type="button" variant="ghost" className="full" disabled={busy} onClick={editEmail}>Use a different email</Button>
+            {signup && <small>This starts a new signup. It does not change an existing account’s email.</small>}
+            {signup ? <Link className="button full secondary" to={`/login${websiteQuery}`}>Go to sign in</Link> : <Button type="button" variant="ghost" className="full" disabled={busy} onClick={() => { setConfirmationEmail(""); setConfirmationHelp(false); setConfirmationMessage(""); setError(""); }}>Back to sign in</Button>}
+          </div> : confirmationHelp ? <div className="auth-confirmation">
+            <h2>Confirm your email</h2>
+            <p>Enter the email you used to create your account. You can also enter a code from a confirmation email you already received.</p>
+            <form onSubmit={resendConfirmation}>
+              <Field label="Email address"><input name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} maxLength={254} required disabled={busy} /></Field>
+              {error ? <Notice>{error}</Notice> : null}
+              <Button className="full" busy={busy} disabled={resendSeconds > 0}>{resendSeconds > 0 ? `Resend available in ${resendSeconds}s` : "Send confirmation email"}</Button>
+              <Button type="button" variant="secondary" className="full" disabled={busy} onClick={e => {
+                const form = e.currentTarget.form;
+                if (!form?.reportValidity()) return;
+                setConfirmationEmail(email.trim().toLowerCase()); setError(""); setConfirmationMessage("");
+              }}>I already have a code</Button>
+            </form>
+            <Button type="button" variant="ghost" className="full" disabled={busy} onClick={() => { setConfirmationHelp(false); setError(""); }}>Back to sign in</Button>
+          </div> : <form onSubmit={submit}>
             {signup ? (
               <Field label="Your name">
                 <input
                   name="name"
+                  disabled={busy}
                   autoComplete="name"
                   required
                   maxLength={100}
@@ -232,7 +321,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               </Field>
             ) : null}
             <Field label="Email address">
-              <input name="email" type="email" autoComplete="email" required />
+              <input name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} maxLength={254} required disabled={busy} />
             </Field>
             <Field
               label="Password"
@@ -240,6 +329,7 @@ export function Auth({ signup = false }: { signup?: boolean }) {
             >
               <input
                 name="password"
+                disabled={busy}
                 type="password"
                 autoComplete={signup ? "new-password" : "current-password"}
                 minLength={signup ? 12 : 1}
@@ -252,8 +342,9 @@ export function Auth({ signup = false }: { signup?: boolean }) {
               {signup ? "Create my studio" : "Open my studio"}
               <ArrowRight size={16} />
             </Button>
-          </form>
+          </form>}
           {!signup && <p className="auth-switch"><Link to="/forgot-password">Forgot your password?</Link></p>}
+          {!signup && !confirmationHelp && !confirmationEmail && <p className="auth-switch"><button type="button" className="auth-text-button" disabled={busy} onClick={() => { setConfirmationHelp(true); setError(""); }}>Need a confirmation email?</button></p>}
           <p className="auth-switch">
             {signup ? "Already have a studio?" : "New around here?"}{" "}
             <Link to={`${signup ? "/login" : "/signup"}${websiteQuery}`}>

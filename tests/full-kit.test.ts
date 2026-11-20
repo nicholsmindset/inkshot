@@ -60,11 +60,24 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   const createKit = async () => {
     const draft = await submit("/campaigns", { name: "Friday pickup", goal: "Sales", offer: "Reserve a loaf" });
     assert.equal(draft.status, 201);
-    const { id } = await draft.json();
-    const generate = (url: string) => submit(`/campaigns/${id}/generate`, { approved: true, destinationUrl: url });
-    assert.equal((await generate("javascript:void(0)")).status, 400);
-    assert((await generate(destinationUrl)).ok);
-    assert((await generate("https://example.test/different")).ok);
+    const { id, concepts } = await draft.json();
+    const prompts = await submit(`/campaigns/${id}/prompts`, {
+      revision: 0, selectedConceptIds: concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+    });
+    assert(prompts.ok);
+    const planned = await prompts.json();
+    planned.assets = planned.assets.map((asset: { kind: string; caption?: string }) => ({
+      ...asset,
+      ...(asset.kind === "post" ? { caption: `${asset.caption}\n${destinationUrl}` } : {}),
+    }));
+    const save = (url: string) => submit(`/campaigns/${id}/draft`, { ...planned, destinationUrl: url }, "PATCH");
+    assert.equal((await save("javascript:void(0)")).status, 400);
+    const saved = await save(destinationUrl);
+    assert(saved.ok);
+    const { revision } = await saved.json();
+    const generate = () => submit(`/campaigns/${id}/generate`, { approved: true, draftRevision: revision });
+    assert((await generate()).ok);
+    assert((await generate()).ok);
     assert.equal((await studio()).campaigns.find((campaign: { id: string }) => campaign.id === id).brand.destinationUrl, destinationUrl);
     return id as string;
   };
@@ -79,9 +92,15 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   });
   assert(revised.ok);
   assert(await runWorkerOnce(db));
-  const latestCaption = (await studio()).assets.find((a: { id: string }) => a.id === post.id).caption;
-  assert(latestCaption.startsWith("Friday pickup is open\n"));
-  assert(latestCaption.endsWith("Reserve your loaf!\n" + destinationUrl));
+  const latestPost = (await studio()).assets.find((a: { id: string }) => a.id === post.id);
+  const latestCaption = latestPost.caption;
+  assert.equal(latestCaption, original.caption, "editing the image overlay preserves the approved social caption");
+  const latestVersion = latestPost.versions.find((version: { id: string }) => version.id === latestPost.current_version_id);
+  assert.notEqual(latestVersion.id, original.versionId);
+  assert.equal(latestVersion.headline, "Friday pickup is open");
+  assert.equal(latestVersion.cta, "Reserve your loaf!");
+  const originalVersion = latestPost.versions.find((version: { id: string }) => version.id === original.versionId);
+  assert.equal(originalVersion.headline, post.versions.find((version: { id: string }) => version.id === original.versionId).headline);
   const url = `${api}/campaigns/${first}/download`;
   assert.equal((await fetch(url)).status, 401);
   const other = await fetch(api + "/auth/demo", { method: "POST" });

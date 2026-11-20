@@ -6,7 +6,7 @@ SELECT pg_advisory_xact_lock(hashtext('inkshot_shared_live_setup'));
 DO $setup$
 DECLARE
   tables text[] := ARRAY['workspaces','users','sessions','campaigns','assets','versions','jobs',
-    'ledger','uploads','billing_accounts','payment_events','provider_spend','writing_daily_usage'];
+    'ledger','uploads','billing_accounts','payment_events','provider_spend','writing_daily_usage','rate_limit_buckets'];
   tbl text;
   fk record;
   target text;
@@ -75,4 +75,6 @@ BEGIN
     THEN RAISE EXCEPTION 'Cross-environment grant on %',tbl; END IF;
   END LOOP;
 END $setup$;
+ALTER TABLE inkshot_live.campaigns ADD COLUMN IF NOT EXISTS draft jsonb;
+ALTER TABLE inkshot_live.versions ADD COLUMN IF NOT EXISTS motion_prompt text;
 COMMIT;

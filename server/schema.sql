@@ -42,3 +42,13 @@ CREATE TABLE IF NOT EXISTS writing_daily_usage (
   requests integer NOT NULL CHECK (requests > 0),
   PRIMARY KEY (usage_day, scope)
 );
+
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS draft jsonb;
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS motion_prompt text;
+
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  bucket_key text PRIMARY KEY,
+  hits integer NOT NULL CHECK (hits >= 0),
+  expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rate_limit_buckets_expiry ON rate_limit_buckets(expires_at);

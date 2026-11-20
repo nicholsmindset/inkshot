@@ -70,6 +70,7 @@ if (phase === "setup") {
       "payment_events",
       "provider_spend",
       "writing_daily_usage",
+      "rate_limit_buckets",
     ];
     for (const table of tables) {
       await admin.query(
@@ -239,12 +240,19 @@ if (phase === "setup") {
         offer: "CI offer",
       });
       assert.equal(campaign.status, 201);
-      const { id: campaignId } = await campaign.json();
+      const { id: campaignId, concepts } = await campaign.json();
+      assert.equal(concepts.length, 6);
+      const prompts = await request(`/campaigns/${campaignId}/prompts`, "POST", {
+        revision: 0, selectedConceptIds: concepts.slice(0, 3).map((concept: { id: string }) => concept.id),
+      });
+      assert.equal(prompts.status, 200);
+      const savedDraft = await prompts.json();
+      assert.equal(savedDraft.assets.length, 9);
       assert.equal(
         (
           await request(`/campaigns/${campaignId}/generate`, "POST", {
             approved: true,
-            photoId: uploadId,
+            draftRevision: savedDraft.revision,
           })
         ).status,
         200,

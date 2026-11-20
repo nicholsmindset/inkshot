@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useStudio } from "../context";
 import { api } from "../api";
 import { BrandMark, Button, Field, Notice } from "../ui";
 
 export function PasswordRecovery({ reset = false }: { reset?: boolean }) {
   const [params] = useSearchParams();
+  const { clearSession } = useStudio();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -19,7 +21,10 @@ export function PasswordRecovery({ reset = false }: { reset?: boolean }) {
     setBusy(true);
     setError("");
     try {
-      if (reset) await api("/auth/reset-password", { password: fields.password });
+      if (reset) {
+        await api("/auth/reset-password", { password: fields.password });
+        clearSession();
+      }
       else await api("/auth/forgot-password", { email: fields.email });
       form.reset();
       setDone(true);
@@ -39,9 +44,9 @@ export function PasswordRecovery({ reset = false }: { reset?: boolean }) {
           <form onSubmit={submit}>
             {!reset && params.has("expired") && <Notice>This link is invalid or expired. Request a new one and open it in this browser.</Notice>}
             {reset ? <>
-              <Field label="New password" hint="At least 12 characters."><input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /></Field>
-              <Field label="Confirm new password"><input name="confirmation" type="password" autoComplete="new-password" required /></Field>
-            </> : <Field label="Account email address"><input name="email" type="email" autoComplete="email" maxLength={254} required /></Field>}
+              <Field label="New password" hint="At least 12 characters."><input name="password" type="password" autoComplete="new-password" disabled={busy} minLength={12} maxLength={128} required /></Field>
+              <Field label="Confirm new password"><input name="confirmation" type="password" autoComplete="new-password" disabled={busy} maxLength={128} required /></Field>
+            </> : <Field label="Account email address"><input name="email" type="email" autoComplete="email" disabled={busy} maxLength={254} required /></Field>}
             {error && <Notice>{error}</Notice>}
             <Button className="full" busy={busy}>{reset ? "Save new password" : "Email recovery link"}</Button>
           </form>}

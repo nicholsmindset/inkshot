@@ -42,7 +42,11 @@ with tempfile.TemporaryDirectory() as download_dir:
         assert api("/health")["demoAvailable"]
         api("/auth/demo", {})
         campaign = api("/campaigns", {"name": "Bakery launch", "goal": "Sales", "offer": "Friday pre-orders"})
-        api(f"/campaigns/{campaign['id']}/generate", {"approved": True})
+        draft = api(f"/campaigns/{campaign['id']}/prompts", {
+            "revision": 0,
+            "selectedConceptIds": [concept["id"] for concept in campaign["concepts"][:3]],
+        })
+        api(f"/campaigns/{campaign['id']}/generate", {"approved": True, "draftRevision": draft["revision"]})
 
         def ready_image(_):
             return next((a for a in api("/studio")["assets"] if a["kind"] == "image"
@@ -54,6 +58,19 @@ with tempfile.TemporaryDirectory() as download_dir:
         card = wait.until(lambda driver: next((c for c in driver.find_elements(By.CSS_SELECTOR, ".asset-card")
             if c.find_element(By.TAG_NAME, "h3").text == original["title"]), False))
         card.click()
+        original_version = next(v for v in original["versions"]
+                                if v["id"] == original["current_version_id"])
+        summary = element(".asset-version-summary")
+        assert summary.find_elements(By.TAG_NAME, "strong")[1].text == (
+            f"{original_version['credit_cost']} credits at creation"
+        )
+        assert summary.find_elements(By.TAG_NAME, "span")[0].text == "Selected for campaign downloads"
+        assert element(".editor-controls > button.full .button-credit").text == "Free edit"
+        instructions = element(".asset-prompt-details")
+        instructions.find_element(By.TAG_NAME, "summary").click()
+        prompt = instructions.find_element(By.TAG_NAME, "p")
+        assert prompt.is_displayed()
+        assert prompt.get_attribute("textContent").strip() == original_version["prompt"].strip()
         headline = "Pre-order your Friday bake"
         element(".headline-variations textarea").send_keys(headline)
         button("Create headline variations").click()
@@ -72,6 +89,11 @@ with tempfile.TemporaryDirectory() as download_dir:
         if selected(None) != selected_id:
             button("Use this version").click()
         wait.until(lambda _: selected(None) == selected_id)
+        wait.until(lambda driver: driver.find_element(By.CSS_SELECTOR,
+            ".asset-version-summary > div:first-child > span").text == "Selected for campaign downloads")
+        assert element(".asset-version-summary > div:last-child > strong").text == "Free text edit"
+        assert element(".version-list button.selected .version-current-label").text == "Selected for downloads"
+        assert element(".version-list button.selected").get_attribute("aria-pressed") == "true"
         download = element(".editor-footer a")
         assert download.get_attribute("href") == selected_url + "?download=true"
         download.click()
@@ -83,4 +105,4 @@ with tempfile.TemporaryDirectory() as download_dir:
                 return hashlib.sha256(response.read()).digest()
         assert hashlib.sha256(downloaded.read_bytes()).digest() == digest(selected_url)
         assert digest(selected_url) != digest(images[0].get_attribute("src"))
-        print("Single variation rendered, compared, selected, and downloaded with verified bytes.")
+        print("Version costs and prompt disclosure verified; free variation rendered, selected, and downloaded with verified bytes.")

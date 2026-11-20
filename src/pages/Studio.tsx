@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -17,172 +17,82 @@ import {
   Play,
 } from "lucide-react";
 import { useStudio } from "../context";
-import { Button, Highlight, Empty, Status, Modal, Field, Notice } from "../ui";
+import { Button, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
-import type { Asset, Version } from "../../shared/types";
+import type { Asset, Version, Campaign, CampaignDraft, AssetDraft } from "../../shared/types";
 import { isCampaignDestination } from "../../shared/destination";
 import { VERSION_CREDITS } from "../../shared/types";
 const icons = { video: Film, image: Image, post: MessageSquare };
+function selectedVersion(asset: Asset) {
+  return asset.versions.find((version) => version.id === asset.current_version_id) || asset.versions[0];
+}
+
+function assetCounts(assets: Asset[]) {
+  return assets.reduce((counts, asset) => {
+    const status = selectedVersion(asset)?.status;
+    if (status === "ready") counts.ready += 1;
+    else if (status === "failed") counts.failed += 1;
+    else counts.running += 1;
+    return counts;
+  }, { ready: 0, running: 0, failed: 0 });
+}
+
 export function Dashboard() {
   const { studio } = useStudio();
   if (!studio) return null;
-  const ready = studio.assets.filter((a) =>
-    a.versions.some((v) => v.status === "ready"),
-  ).length;
-  return (
-    <>
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">YOUR CREATIVE CORNER</span>
-          <h1>
-            A good day to{" "}
-            <Highlight>
-              <em>make something.</em>
-            </Highlight>
-          </h1>
-          <p>Your story, a few fresh ideas, and a little room to create.</p>
-        </div>
-        <Link to="/studio/new" className="button">
-          <Plus size={17} />
-          New campaign
-        </Link>
+  const counts = assetCounts(studio.assets);
+  const draft = studio.campaigns.find((campaign) => campaign.status === "draft");
+  const preview = studio.assets.find((asset) => selectedVersion(asset)?.status === "ready");
+  const previewVersion = preview && selectedVersion(preview);
+  const nextPath = draft ? `/studio/campaign/${draft.id}` : studio.brand.description ? "/studio/new" : "/studio/brand";
+  const nextLabel = draft ? "Continue draft" : studio.brand.description ? "Create a campaign" : "Set up your brand";
+  return <>
+    <div className="page-heading">
+      <div><h1>{studio.brand.name}<em> studio</em></h1><p>Plan campaigns, review your ads and download approved versions.</p></div>
+      <Link to="/studio/brand" className="button secondary">Brand brief <ArrowUpRight size={17} /></Link>
+    </div>
+    <section className="studio-overview">
+      <div className="studio-next-action">
+        <span className="studio-context">{draft ? "Saved campaign" : "Your next campaign"}</span>
+        <h2>{draft ? draft.name : "Start with your business."}</h2>
+        <p>{draft
+          ? draft.draft?.assets.length
+            ? `${draft.draft.assets.length} prompts saved. Review your creative direction before making the kit.`
+            : "Choose three angles and write the prompts for your campaign."
+          : studio.brand.description
+            ? "Choose your offer and audience, then shape three video ads, three image ads and three posts."
+            : "Add your website, check the business details and bring in your logo and photos."}</p>
+        {draft && <span className="studio-draft-meta">{draft.goal} · {draft.draft?.selectedConceptIds.length ?? 3} angles selected{draft.draft && draft.draft.revision > 0 ? " · Saved to studio" : ""}</span>}
+        <Link to={nextPath} className="button">{nextLabel}<ArrowUpRight size={17} /></Link>
+        {draft && <Link to="/studio/new" className="text-link">Start another campaign <Plus size={15} /></Link>}
       </div>
-      <section className="welcome-panel">
-        <div className="welcome-content">
-          <span className="pill">YOUR NEXT CAMPAIGN</span>
-          <h2>
-            Big ideas.
-            <br />
-            <em>Small-business energy.</em>
-          </h2>
-          <p>
-            Turn your brand into three videos, three image ads and three posts.
-            All from one thoughtful brief.
-          </p>
-          <Link
-            to={studio.brand.description ? "/studio/new" : "/studio/brand"}
-            className="button"
-          >
-            {studio.brand.description
-              ? "Start with an idea"
-              : "Set up your brand"}
-            <ArrowUpRight size={17} />
-          </Link>
-          <span className="hand welcome-note">
-            nine little ways to stand out.
-          </span>
-        </div>
-        <div className="welcome-example">
-          <img
-            src={
-              studio.brand.photoId
-                ? `/api/uploads/${studio.brand.photoId}`
-                : "/examples/candle.png"
-            }
-            alt="Sample campaign photography"
-          />
-          <div>
-            <span>{studio.brand.name.toUpperCase()}</span>
-            <h3>
-              Make room
-              <br />
-              for good things.
-            </h3>
-            <small>Sample creative</small>
-          </div>
-          <span className="tape" />
-        </div>
-        <span className="hand welcome-side">a little inspiration ↙</span>
-      </section>
-      <div className="stats-row">
-        <div>
-          <span>Available credits</span>
-          <strong>
-            {studio.balance}
-            <small>{studio.mode === 'live' ? 'available for generation' : '/ 300 preview credits'}</small>
-          </strong>
-          <p>100 credits makes a complete kit</p>
-        </div>
-        <div>
-          <span>Campaigns started</span>
-          <strong>
-            {studio.campaigns.length.toString().padStart(2, "0")}
-            <small>ideas in motion</small>
-          </strong>
-          <p>One brand, a fresh perspective</p>
-        </div>
-        <div>
-          <span>Assets ready</span>
-          <strong>
-            {ready.toString().padStart(2, "0")}
-            <small>ready to download</small>
-          </strong>
-          <p>Every version has a home</p>
-        </div>
-      </div>
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">ON YOUR DESK</span>
-          <h2>Recent campaigns</h2>
-        </div>
-        <Link className="text-link" to="/studio/library">
-          Open library <ArrowUpRight size={15} />
-        </Link>
-      </div>
-      {studio.campaigns.length ? (
-        <div className="campaign-list">
-          {studio.campaigns.slice(0, 4).map((c) => (
-            <Link
-              key={c.id}
-              to={`/studio/campaign/${c.id}`}
-              className="campaign-row"
-            >
-              <div className="campaign-icon">
-                <Feather size={21} />
-              </div>
-              <div>
-                <strong>{c.name}</strong>
-                <small>
-                  {c.goal} ·{" "}
-                  {new Date(c.created_at).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </small>
-              </div>
-              <Status status={c.status} />
-              <ArrowUpRight size={18} />
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="first-campaign">
-          <div className="dashed-icon">
-            <FolderOpen size={28} />
-          </div>
-          <div>
-            <h3>Your first good idea belongs here.</h3>
-            <p>Start a campaign and give your brand something new to say.</p>
-          </div>
-          <Link className="button secondary" to="/studio/new">
-            Create your first campaign
-            <Plus size={16} />
-          </Link>
-        </div>
-      )}
-      <div className="studio-note">
-        <Feather size={19} />
-        <span>A note from the studio</span>
-        <p>
-          The best ads still sound like you. Check your brief, keep what feels
-          right, and make it your own.
-        </p>
-        <Link to="/studio/brand">
-          Your brand brief <ArrowUpRight size={15} />
-        </Link>
-      </div>
-    </>
-  );
+      {preview && previewVersion ? <Link className="studio-latest-preview" to={`/studio/campaign/${preview.campaign_id}`}>
+        <img src={media(previewVersion.id, true)} alt={preview.title + " current version preview"} />
+        <span><strong>{preview.title}</strong><small>{draftLabels[preview.kind]} · Version {previewVersion.n}</small></span>
+      </Link> : studio.brand.photoId ? <figure className="studio-latest-preview"><img src={`/api/uploads/${studio.brand.photoId}`} alt={studio.brand.name + " brand photo"} /><figcaption>Photo from your brand brief</figcaption></figure> : <div className="studio-workflow">
+        <h3>Your campaign workflow</h3>
+        <ol><li><strong>Check your brand brief</strong><span>Confirm your offer, audience and proof.</span></li><li><strong>Choose angles and edit prompts</strong><span>Approve the plan for every asset.</span></li><li><strong>Review and download</strong><span>Keep the versions you want to use.</span></li></ol>
+      </div>}
+    </section>
+    <div className="studio-metrics" aria-label="Studio overview">
+      <Link to="/studio/billing"><span>{studio.mode === "live" ? "Available credits" : "Preview credits"}</span><strong>{studio.balance}</strong><small>A complete kit uses 100 credits</small></Link>
+      <Link to="/studio/library"><span>Ready to download</span><strong>{counts.ready}</strong><small>Current versions</small></Link>
+      <Link to="/studio/library"><span>In progress</span><strong>{counts.running}</strong><small>Queued or generating</small></Link>
+      <Link to="/studio/library"><span>Need attention</span><strong>{counts.failed}</strong><small>{counts.failed ? "Open an asset to review its error" : "No failed current versions"}</small></Link>
+    </div>
+    <div className="section-heading"><h2>Recent campaigns</h2><Link className="text-link" to="/studio/library">Open library <ArrowUpRight size={15} /></Link></div>
+    {studio.campaigns.length ? <div className="campaign-list">
+      {studio.campaigns.slice(0, 5).map((campaign) => {
+        const summary = assetCounts(studio.assets.filter((asset) => asset.campaign_id === campaign.id));
+        return <Link key={campaign.id} to={`/studio/campaign/${campaign.id}`} className="campaign-row studio-campaign-row">
+          <div className="campaign-icon"><FolderOpen size={21} /></div>
+          <div><strong>{campaign.name}</strong><small>{campaign.goal} · {new Date(campaign.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small>
+            <span className="studio-campaign-summary">{campaign.status === "draft" ? `${campaign.draft?.assets.length || 0} prompts saved` : `${summary.ready} ready · ${summary.running} in progress · ${summary.failed} failed`}</span></div>
+          <Status status={campaign.status} /><ArrowUpRight size={18} />
+        </Link>;
+      })}
+    </div> : <div className="studio-empty-campaigns"><FolderOpen size={22} /><p>Your campaigns will appear here after you create the first brief.</p></div>}
+  </>;
 }
 export function AssetCard({
   asset,
@@ -191,9 +101,8 @@ export function AssetCard({
   asset: Asset;
   onOpen: () => void;
 }) {
-  const v =
-    asset.versions.find((v) => v.id === asset.current_version_id) ||
-    asset.versions[0];
+  const v = selectedVersion(asset);
+  if (!v) return null;
   const Icon = icons[asset.kind];
   return (
     <button className="asset-card" onClick={onOpen}>
@@ -211,8 +120,8 @@ export function AssetCard({
             <Icon size={32} />
             <span>
               {v.status === "failed"
-                ? "Let’s try that again."
-                : "A little work in progress."}
+                ? "Generation failed"
+                : v.status === "queued" ? "Waiting to generate" : "Generating your asset"}
             </span>
             {v.status !== "failed" ? (
               <LoaderCircle className="spin" size={20} />
@@ -248,13 +157,7 @@ export function AssetCard({
       </div>
       <div className="asset-card-footer">
         <Status status={v.status} />
-        <span>
-          {asset.kind === "video"
-            ? v.mock
-              ? "5s preview"
-              : "15 seconds"
-            : asset.format}
-        </span>
+        <span>{asset.versions.length} {asset.versions.length === 1 ? "version" : "versions"}</span>
       </div>
     </button>
   );
@@ -263,25 +166,26 @@ export function Library() {
   const { studio } = useStudio();
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [campaignFilter, setCampaignFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
   if (!studio) return null;
+  const counts = assetCounts(studio.assets);
   const assets = studio.assets.filter(
     (a) =>
       (filter === "all" || a.kind === filter) &&
-      a.title.toLowerCase().includes(query.toLowerCase()),
+      (campaignFilter === "all" || a.campaign_id === campaignFilter) &&
+      (stateFilter === "all" || (stateFilter === "running"
+        ? ["queued", "making"].includes(selectedVersion(a)?.status || "queued")
+        : selectedVersion(a)?.status === stateFilter)) &&
+      (a.title + " " + (studio.campaigns.find((c) => c.id === a.campaign_id)?.name || "")).toLowerCase().includes(query.trim().toLowerCase()),
   );
   return (
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">THE KEEPERS & THE POSSIBILITIES</span>
-          <h1>
-            Your{" "}
-            <Highlight>
-              <em>asset library.</em>
-            </Highlight>
-          </h1>
-          <p>A home for your ideas. And every version along the way.</p>
+          <h1>Your <em>library</em></h1>
+          <p>{counts.ready} ready to download · {counts.running} in progress · {counts.failed} need attention</p>
         </div>
         <Link to="/studio/new" className="button">
           <Plus size={17} />
@@ -310,12 +214,17 @@ export function Library() {
         <label className="search">
           <Search size={17} />
           <input
-            placeholder="Find something good…"
+            placeholder="Search assets or campaigns"
             aria-label="Search assets"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
+      </div>
+      <div className="library-selectors">
+        <Field label="Campaign"><select value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)}><option value="all">All campaigns</option>{studio.campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></Field>
+        <Field label="Asset status"><select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}><option value="all">All statuses</option><option value="ready">Ready to download</option><option value="running">In progress</option><option value="failed">Needs attention</option></select></Field>
+        <span role="status">{assets.length} {assets.length === 1 ? "asset" : "assets"}</span>
       </div>
       {assets.length ? (
         filter === "all" && !query.trim() ? (
@@ -337,18 +246,16 @@ export function Library() {
           icon={<FolderOpen size={30} />}
           title={
             studio.assets.length
-              ? "Nothing matches just yet."
-              : "A blank page. Full of possibility."
+              ? "No matching assets"
+              : "Your library is ready for its first campaign"
           }
           description={
             studio.assets.length
-              ? "Try another search or asset type."
+              ? "Try another campaign, status or search term."
               : "Your campaign videos, images and posts will live here."
           }
         >
-          <Link to="/studio/new" className="button">
-            Make your first kit <Plus size={17} />
-          </Link>
+          {studio.assets.length ? <Button variant="secondary" onClick={() => { setQuery(""); setFilter("all"); setCampaignFilter("all"); setStateFilter("all"); }}>Clear filters</Button> : <Link to="/studio/new" className="button">Create a campaign <Plus size={17} /></Link>}
         </Empty>
       )}
       <AssetEditor
@@ -368,22 +275,243 @@ export function CampaignDetail() {
 const draftKinds = ["video", "image", "post"] as const;
 const draftLabels = { video: "Video ad", image: "Image ad", post: "Organic post" };
 
-function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }) {
-  const storageKey = "inkshot:campaign-draft:" + workspaceId + ":" + id;
-  const [edits, setEdits] = useState<Record<string, string>>(() => {
-    try {
-      const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) || "{}");
-      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
-      return Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === "string"));
-    } catch {
-      return {};
-    }
-  });
-  const [storageAvailable, setStorageAvailable] = useState(true);
+function draftContents(draft: CampaignDraft) {
+  const { revision: _revision, ...contents } = draft;
+  return JSON.stringify(contents);
+}
+
+function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; workspaceId: string }) {
   const { studio, refresh, notify } = useStudio();
-  const [approved, setApproved] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<CampaignDraft | null>(null);
+  const [savedContents, setSavedContents] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [action, setAction] = useState<"prompts" | "generate" | "">("");
   const [error, setError] = useState("");
+  const [conflict, setConflict] = useState(false);
+  const [approved, setApproved] = useState("");
+  const legacyKey = "inkshot:campaign-draft:" + workspaceId + ":" + campaign.id;
+  const legacyEdits = useRef<Record<string, string>>({});
+  const recoveryKey = legacyKey + ":v2";
+  const contents = draft ? draftContents(draft) : "";
+  const dirty = !!draft && contents !== savedContents;
+  const destinationValid = !draft?.destinationUrl || isCampaignDestination(draft.destinationUrl);
+
+  useEffect(() => {
+    let canceled = false;
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(legacyKey) || "{}");
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+        legacyEdits.current = Object.fromEntries(Object.entries(stored).filter(([, value]) => typeof value === "string")) as Record<string, string>;
+      }
+    } catch { /* The server draft remains available when local storage is unavailable. */ }
+    api<CampaignDraft>(`/campaigns/${campaign.id}/draft`).then((saved) => {
+      if (canceled) return;
+      setSavedContents(draftContents(saved));
+      let recovery: CampaignDraft | null = null;
+      try {
+        const stored = JSON.parse(sessionStorage.getItem(recoveryKey) || "null");
+        if (stored && Number.isInteger(stored.revision) && Array.isArray(stored.selectedConceptIds) &&
+            stored.selectedConceptIds.every((id: unknown) => typeof id === "string") &&
+            Array.isArray(stored.assets) && stored.assets.every((asset: Partial<AssetDraft>) =>
+              asset && typeof asset.conceptId === "string" && draftKinds.includes(asset.kind!) &&
+              typeof asset.prompt === "string" && typeof asset.headline === "string" && typeof asset.cta === "string")) recovery = stored;
+      } catch { /* Invalid local recovery does not replace the saved campaign. */ }
+      if (recovery && draftContents(recovery) !== draftContents(saved)) {
+        setDraft(recovery);
+        if (recovery.revision !== saved.revision) {
+          setConflict(true);
+          setError("This tab has unsaved edits and a newer draft was saved elsewhere. Review your local edits before reloading.");
+        }
+      } else {
+        setDraft(saved.revision === 0 && legacyEdits.current.destination
+          ? { ...saved, destinationUrl: legacyEdits.current.destination }
+          : saved);
+      }
+    }).catch((e: Error) => { if (!canceled) setError(e.message); })
+      .finally(() => { if (!canceled) setLoading(false); });
+    return () => { canceled = true; };
+  }, [campaign.id, legacyKey, recoveryKey]);
+
+  useEffect(() => {
+    if (!draft || !dirty || saving || action || error || !destinationValid) return;
+    const timer = window.setTimeout(() => {
+      setSaving(true);
+      api<CampaignDraft>(`/campaigns/${campaign.id}/draft`, draft, "PATCH")
+        .then((saved) => {
+          setSavedContents(draftContents(saved));
+          // Retain edits made while this save was in flight, then save them next.
+          setDraft((current) => current && draftContents(current) !== draftContents(draft)
+            ? { ...current, revision: saved.revision } : saved);
+        })
+        .catch((e: Error & { status?: number }) => {
+          setConflict(e.status === 409);
+          setError(e.message);
+        })
+        .finally(() => setSaving(false));
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty, saving, action, error, destinationValid, campaign.id]);
+
+  useEffect(() => {
+    if (!draft) return;
+    try {
+      if (dirty) sessionStorage.setItem(recoveryKey, JSON.stringify(draft));
+      else sessionStorage.removeItem(recoveryKey);
+    } catch { /* Server persistence remains available without local recovery. */ }
+  }, [draft, dirty, recoveryKey]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  function edit(next: CampaignDraft) {
+    setDraft(next);
+    setApproved("");
+  }
+
+  async function reloadSaved() {
+    setLoading(true);
+    setError("");
+    try {
+      const saved = await api<CampaignDraft>(`/campaigns/${campaign.id}/draft`);
+      setDraft(saved);
+      setSavedContents(draftContents(saved));
+      setConflict(false);
+      setApproved("");
+    } catch (e) { setError((e as Error).message); }
+    finally { setLoading(false); }
+  }
+
+  async function writePrompts() {
+    if (!draft) return;
+    setAction("prompts");
+    setError("");
+    setApproved("");
+    try {
+      const saved = await api<CampaignDraft>(`/campaigns/${campaign.id}/prompts`, {
+        revision: draft.revision,
+        selectedConceptIds: draft.selectedConceptIds,
+      });
+      setSavedContents(draftContents(saved));
+      const legacy = legacyEdits.current;
+      setDraft({ ...saved, assets: saved.assets.map((asset) => ({
+        ...asset,
+        headline: legacy[`${asset.conceptId}:${asset.kind}:headline`] ?? asset.headline,
+        cta: legacy[`${asset.conceptId}:${asset.kind}`] ?? asset.cta,
+      })) });
+      legacyEdits.current = {};
+      notify("Your prompts are ready to review.");
+    } catch (e) {
+      setConflict((e as { status?: number }).status === 409);
+      setError((e as Error).message);
+    } finally { setAction(""); }
+  }
+
+  async function generate() {
+    if (!draft) return;
+    setAction("generate");
+    setError("");
+    try {
+      await api(`/campaigns/${campaign.id}/generate`, { approved: true, draftRevision: draft.revision });
+      await refresh();
+      try { sessionStorage.removeItem(legacyKey); } catch { /* Local recovery is optional. */ }
+      notify("Your kit is on its way. You can leave this page.");
+    } catch (e) {
+      setConflict((e as { status?: number }).status === 409);
+      setError((e as Error).message);
+    } finally { setAction(""); }
+  }
+
+  if (loading) return <p role="status"><LoaderCircle size={16} className="spin" /> Loading your saved draft…</p>;
+  if (!draft || !studio) return <><Notice>{error || "Your draft could not be loaded."}</Notice><Button onClick={() => void reloadSaved()}>Try again</Button></>;
+  const locked = !!action || conflict;
+  const readyToWrite = draft.selectedConceptIds.length === 3 && !dirty && !saving && !error && destinationValid;
+  const review = draft.revision + ":" + contents;
+  const validAssets = draft.assets.length === 9 && draft.assets.every((asset) =>
+    asset.prompt.trim() && asset.headline.trim() && asset.cta.trim() &&
+    (asset.kind !== "video" || asset.motionPrompt?.trim()) &&
+    (asset.kind !== "post" || asset.caption?.trim()));
+  function updateAsset(index: number, patch: Partial<AssetDraft>) {
+    edit({ ...draft!, assets: draft!.assets.map((asset, position) => position === index ? { ...asset, ...patch } : asset) });
+  }
+  return <div className="campaign-planner">
+    <div className="planner-save" role="status" aria-live="polite">
+      {saving ? "Saving changes…" : error ? "Changes need attention" : dirty ? "Changes waiting to save" : "Saved to your studio"}
+    </div>
+    {error && <Notice>{error}
+      {conflict ? <div className="planner-recovery"><p>Your edits are still visible below. Reloading replaces them with the latest saved draft.</p><Button variant="secondary" onClick={() => void reloadSaved()}>Reload saved draft</Button></div>
+        : <div className="planner-recovery"><Button variant="secondary" onClick={() => setError("")}>Retry</Button></div>}
+    </Notice>}
+    <div className="section-heading"><h2>Choose three angles</h2><span>{draft.selectedConceptIds.length} of 3 selected</span></div>
+    <div className="concept-grid planner-angles">
+      {campaign.concepts.map((concept) => {
+        const chosen = draft.selectedConceptIds.includes(concept.id);
+        return <label className={`concept-card planner-angle${chosen ? " selected" : ""}`} key={concept.id}>
+          <span className="planner-angle-check"><input type="checkbox" checked={chosen}
+            aria-label={"Select angle: " + concept.title}
+            disabled={locked || (!chosen && draft.selectedConceptIds.length === 3)}
+            onChange={() => edit({ ...draft, assets: [], selectedConceptIds: chosen
+              ? draft.selectedConceptIds.filter((id) => id !== concept.id)
+              : [...draft.selectedConceptIds, concept.id] })} /><span>{chosen ? "Selected" : "Choose angle"}</span></span>
+          <strong>{concept.title}</strong><h3>{concept.hook}</h3><p>{concept.description}</p>
+        </label>;
+      })}
+    </div>
+    {draft.assets.length > 0 && <p className="muted">Changing your angles clears these prompts so you can write a new set.</p>}
+    <Field label="Campaign destination URL" hint="Included with your captions and downloads for ad placement.">
+      <input type="url" value={draft.destinationUrl || ""} placeholder="https://yourbusiness.com/offer" maxLength={2048}
+        disabled={locked} aria-invalid={!destinationValid}
+        onChange={(event) => edit({ ...draft, destinationUrl: event.target.value || undefined })} />
+    </Field>
+    {!destinationValid && <Notice>Enter a full HTTPS link or leave the destination empty.</Notice>}
+    {!draft.assets.length && <div className="planner-write"><Button busy={action === "prompts"} disabled={!readyToWrite || locked} onClick={() => void writePrompts()}>Write my nine prompts</Button><p>Review and edit the prompts before spending generation credits.</p></div>}
+    {draft.assets.length > 0 && <>
+      <div className="section-heading"><h2>Review your nine prompts</h2></div>
+      {draftKinds.map((kind) => <section className="planner-shelf" key={kind} aria-label={draftLabels[kind] + " prompts"}>
+        <h3>{kind === "video" ? "Video ads · 15 seconds" : kind === "image" ? "Image ads" : "Organic posts"}</h3>
+        {draft.assets.map((asset, index) => {
+          if (asset.kind !== kind) return null;
+          const concept = campaign.concepts.find((item) => item.id === asset.conceptId);
+          return <details className="planner-prompt" key={asset.conceptId + kind}>
+            <summary><span><strong>{asset.headline || concept?.title}</strong><small>{concept?.title}</small></span><span className="planner-prompt-action">Edit prompt</span></summary>
+            <div className="planner-prompt-fields">
+              <Field label={kind === "video" ? "First-frame prompt" : "Visual prompt"}>
+                <textarea rows={5} value={asset.prompt} maxLength={4000} disabled={locked}
+                  onChange={(event) => updateAsset(index, { prompt: event.target.value })} />
+              </Field>
+              {kind === "video" && <Field label="Motion prompt" hint="Describe what happens across the 15-second clip. The first frame sets the scene.">
+                <textarea rows={5} value={asset.motionPrompt || ""} maxLength={4000} disabled={locked}
+                  onChange={(event) => updateAsset(index, { motionPrompt: event.target.value })} />
+              </Field>}
+              <div className="planner-copy-fields">
+                <Field label="Headline"><input value={asset.headline} maxLength={120} disabled={locked} onChange={(event) => updateAsset(index, { headline: event.target.value })} /></Field>
+                <Field label="Call to action"><input value={asset.cta} maxLength={55} disabled={locked} onChange={(event) => updateAsset(index, { cta: event.target.value })} /></Field>
+              </div>
+              {kind === "post" && <Field label="Post caption"><textarea rows={4} value={asset.caption || ""} maxLength={2000} disabled={locked} onChange={(event) => updateAsset(index, { caption: event.target.value })} /></Field>}
+            </div>
+          </details>;
+        })}
+      </section>)}
+      <div className="planner-brand-preview">
+        {draft.photoId && <figure><img src={"/api/uploads/" + encodeURIComponent(draft.photoId)} alt="Approved product photo" /><figcaption>Photo used for image ads and posts. Live video uses a generated first frame.</figcaption></figure>}
+        {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Approved brand logo" />}
+        <span>Brand colour <strong>{campaign.brand.color}</strong></span>
+      </div>
+      <div className="approval-panel">
+        <div><h3>Approve your saved prompts</h3><label className="checkbox-label"><input type="checkbox" checked={approved === review} disabled={locked || dirty || saving || !validAssets || !!error}
+          onChange={(event) => setApproved(event.target.checked ? review : "")} />I’ve checked the prompts, offer and claims, and approve these nine assets.</label></div>
+        <div><Button busy={action === "generate"} disabled={locked || approved !== review || !validAssets || dirty || saving || !!error || !destinationValid || studio.balance < 100} onClick={() => void generate()}>Make my kit <span className="button-credit">100 credits</span></Button><small>{studio.balance} credits available</small></div>
+      </div>
+    </>}
+  </div>;
+}
+
+function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }) {
+  const { studio } = useStudio();
   const [selected, setSelected] = useState<string | null>(null);
   if (!studio) return null;
   const campaign = studio.campaigns.find((c) => c.id === id);
@@ -404,43 +532,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
     (a) =>
       a.versions.find((v) => v.id === a.current_version_id)?.status === "ready",
   ).length;
-  const drafts = campaign.concepts.flatMap((concept) =>
-    draftKinds.map((kind) => ({
-      conceptId: concept.id,
-      kind,
-      headline: (edits[concept.id + ":" + kind + ":headline"] ?? concept.hook).trim(),
-      cta: (edits[concept.id + ":" + kind] ?? concept.cta).trim(),
-    })),
-  );
-  const photoId = campaign.brand.photoId;
-  const destinationUrl = (edits.destination ?? campaign.brand.website ?? "").trim();
-  const destinationValid = !destinationUrl || isCampaignDestination(destinationUrl);
-  const review = JSON.stringify({ drafts, photoId, destinationUrl });
-  function editCta(key: string, value: string) {
-    const next = { ...edits, [key]: value };
-    setEdits(next);
-    setApproved("");
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify(next));
-      setStorageAvailable(true);
-    } catch {
-      setStorageAvailable(false);
-    }
-  }
-  async function generate() {
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/campaigns/${id}/generate`, { approved: true, drafts, photoId, destinationUrl: destinationUrl || undefined });
-      await refresh();
-      try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
-      notify("Your kit is on its way. You can leave this page.");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const summary = assetCounts(assets);
   return (
     <>
       <Link to="/studio" className="back-link">
@@ -455,8 +547,8 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           <h1>{campaign.name}</h1>
           <p>
             {campaign.status === "draft"
-              ? "Three angles. One unmistakably you campaign."
-              : `${done} of 9 assets ready. Each one gets its own finishing touches.`}
+              ? "Choose your angles, then review every prompt before generation."
+              : `${summary.ready} ready · ${summary.running} in progress · ${summary.failed} need attention`}
           </p>
         </div>
         {done ? (
@@ -481,94 +573,18 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
         </div>
       ) : null}
       {campaign.status === "draft" ? (
-        <>
-          <div className="section-heading">
-            <h2>Review your nine assets</h2>
-          </div>
-          <p>{storageAvailable ? "Headline and call-to-action edits are saved in this browser tab." : "Browser storage is unavailable. Keep this tab open to retain edits."}</p>
-          <Field label="Campaign destination URL" hint="Optional. Included in your post captions and download for use when placing your ads.">
-            <input type="url" placeholder="https://yourbusiness.com/offer" value={edits.destination ?? campaign.brand.website ?? ""}
-              maxLength={2048} disabled={busy} aria-invalid={!destinationValid}
-              onChange={(event) => editCta("destination", event.target.value)} />
-          </Field>
-          {!destinationValid && <Notice>Enter a full HTTPS link or leave the destination empty.</Notice>}
-          <div className="concept-grid">
-            {campaign.concepts.map((concept) => (
-              <article className="concept-card" key={concept.id}>
-                <h3>{concept.title}</h3>
-                <h2>{concept.hook}</h2>
-                <p>{concept.description}</p>
-                {draftKinds.map((kind) => {
-                  const key = concept.id + ":" + kind;
-                  return (
-                    <div key={key}>
-                    <Field label={draftLabels[kind] + " headline"}>
-                      <input value={edits[key + ":headline"] ?? concept.hook} disabled={busy} maxLength={120}
-                        onChange={(event) => editCta(key + ":headline", event.target.value)} />
-                    </Field>
-                    <Field label={draftLabels[kind] + " call to action"}>
-                      <input
-                        aria-label={concept.title + " " + draftLabels[kind] + " call to action"}
-                        value={edits[key] ?? concept.cta}
-                        disabled={busy}
-                        maxLength={55}
-                        onChange={(event) => editCta(key, event.target.value)}
-                      />
-                    </Field>
-                    </div>
-                  );
-                })}
-              </article>
-            ))}
-          </div>
-          {photoId && (
-            <figure>
-              <img src={"/api/uploads/" + encodeURIComponent(photoId)} alt="Approved product photo" width={120} />
-              <figcaption>Photo used for image ads and posts. Live video uses generated footage.</figcaption>
-            </figure>
-          )}
-          {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Logo on exported ads" width={90} />}
-          <p>Brand colour <strong>{campaign.brand.color}</strong></p>
-          <div className="approval-panel">
-            <div>
-              <h3>A quick check before we make it.</h3>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={approved === review}
-                  disabled={busy}
-                  onChange={(e) => setApproved(e.target.checked ? review : "")}
-                />
-                I’ve checked the concepts and confirmed that the offer and
-                claims are accurate.
-              </label>
-            </div>
-            <div>
-              <Button
-                disabled={!destinationValid || approved !== review || drafts.length !== 9 || drafts.some((draft) => !draft.headline || draft.headline.length > 120 || !draft.cta || draft.cta.length > 55) || studio.balance < 100}
-                busy={busy}
-                onClick={() => void generate()}
-              >
-                Make my kit <span className="button-credit">100 credits</span>
-              </Button>
-              <small>
-                {studio.balance} credits available · 9 finished assets
-              </small>
-            </div>
-          </div>
-          {error ? <Notice>{error}</Notice> : null}
-        </>
+        <CampaignPlanner campaign={campaign} workspaceId={workspaceId} />
       ) : (
         <>
           {campaign.brand.destinationUrl && <p>Campaign destination · <a href={campaign.brand.destinationUrl} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: "anywhere" }}>{campaign.brand.destinationUrl}</a></p>}
           <div className="generation-progress">
             <div>
               <span>
-                {done === 9
-                  ? "Your kit is ready."
-                  : "Good things are taking shape."}
+                {done === 9 ? "Your kit is ready." : summary.running
+                  ? "Your remaining assets are being prepared."
+                  : "Open the failed assets to review or try another generation."}
               </span>
-              <b>{done} / 9</b>
+              <b>{done} / 9 ready</b>
             </div>
             <div className="progress-track">
               <i style={{ width: `${(done / 9) * 100}%` }} />
@@ -620,7 +636,7 @@ export function AssetEditor({
       open={!!asset}
       onClose={onClose}
       title={asset?.title || "Your asset"}
-      description="Keep what works. Give the rest a little attention."
+      description="Review the creative, edit its text or make a new version."
     >
       {asset ? <EditorContents key={asset.id} asset={asset} /> : null}
     </Modal>
@@ -674,7 +690,7 @@ function HeadlineVariations({ assetId, version, pending, onCreated }: {
 }
 
 function EditorContents({ asset }: { asset: Asset }) {
-  const { refresh, notify } = useStudio();
+  const { studio, refresh, notify } = useStudio();
   const [vid, setVid] = useState(asset.current_version_id);
   const v = asset.versions.find((v) => v.id === vid) || asset.versions[0];
   const original = asset.versions.reduce((first, item) => item.n < first.n ? item : first);
@@ -684,12 +700,14 @@ function EditorContents({ asset }: { asset: Asset }) {
   const [cta, setCta] = useState(v.cta);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<"edit" | "generate" | "select" | "refresh" | "">("");
   const [error, setError] = useState("");
   const pending = asset.versions.some((v) =>
     ["queued", "making", "rendering"].includes(v.status),
   );
   async function revise(regenerate: boolean) {
     setBusy(true);
+    setOperation(regenerate ? "generate" : "edit");
     setError("");
     try {
       const result = await api<{ versionId: string }>(
@@ -698,6 +716,7 @@ function EditorContents({ asset }: { asset: Asset }) {
       );
       await refresh();
       setVid(result.versionId);
+      setNote("");
       notify(
         regenerate
           ? "A fresh version is in the works."
@@ -707,10 +726,13 @@ function EditorContents({ asset }: { asset: Asset }) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setOperation("");
     }
   }
   async function makeCurrent() {
     setBusy(true);
+    setOperation("select");
+    setError("");
     try {
       await api(`/assets/${asset.id}/current`, { versionId: v.id }, "PUT");
       await refresh();
@@ -719,15 +741,35 @@ function EditorContents({ asset }: { asset: Asset }) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setOperation("");
     }
+  }
+  async function refreshStatus() {
+    setBusy(true);
+    setOperation("refresh");
+    setError("");
+    try { await refresh(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); setOperation(""); }
   }
   function select(version: Version) {
     setVid(version.id);
     setHeadline(version.headline);
     setCta(version.cta);
+    setNote("");
+    setError("");
   }
+  const generationCost = VERSION_CREDITS[asset.kind];
+  const canAffordGeneration = (studio?.balance ?? 0) >= generationCost;
+  const validCopy = !!headline.trim() && !!cta.trim();
   return (
     <>
+      <div className="asset-version-summary">
+        <div><strong>Version {v.n}</strong><span>{asset.current_version_id === v.id ? "Selected for campaign downloads" : "Viewing an alternate version"}</span></div>
+        <div><strong>{v.credit_cost === 0 ? "Free text edit" : `${v.credit_cost} credits at creation`}</strong><span>{v.status === "failed" ? "Check credit history for returned credits" : v.mock ? "Sample mode" : draftLabels[asset.kind]}</span></div>
+      </div>
+      {pending && <div className="asset-progress-notice" role="status"><LoaderCircle size={18} className="spin" /><span>A version is being prepared. You can keep reviewing existing versions while it finishes.</span></div>}
+      {v.status === "failed" && <Notice>{v.error || "This version could not be completed."}<p>You can choose an earlier ready version or request a new generation below.</p></Notice>}
       {compare && (
         <div className="variation-compare" aria-label="Compare image versions">
           {[original, v].map((item) => (
@@ -760,14 +802,14 @@ function EditorContents({ asset }: { asset: Asset }) {
               <img src={media(v.id)} alt={asset.title} />
             )
           ) : (
-            <div className="editor-wait">
+            <div className="editor-wait" role="status">
               <Status status={v.status} />
-              {v.error ? <p>{v.error}</p> : <LoaderCircle className="spin" />}
+              {v.status === "failed" ? <p>Choose another version below, or generate a new one.</p> : <LoaderCircle className="spin" />}
             </div>
           )}
           {asset.caption ? (
             <div className="caption">
-              <span className="eyebrow">YOUR CAPTION</span>
+              <strong>Post caption</strong>
               <p>{asset.caption}</p>
               <Button
                 variant="small secondary"
@@ -790,7 +832,7 @@ function EditorContents({ asset }: { asset: Asset }) {
         <div className="editor-controls">
           <div className="editor-section-title">
             <SlidersHorizontal size={16} />
-            <h3>Make it your own</h3>
+            <h3>Edit the words</h3>
           </div>
           {supportsVariations && (
             <HeadlineVariations key={v.id} assetId={asset.id} version={v} pending={pending || busy} onCreated={async (nextId, nextHeadline) => {
@@ -804,6 +846,7 @@ function EditorContents({ asset }: { asset: Asset }) {
           <Field label="Headline">
             <textarea
               value={headline}
+              disabled={busy}
               onChange={(e) => setHeadline(e.target.value)}
               maxLength={120}
               rows={3}
@@ -812,16 +855,15 @@ function EditorContents({ asset }: { asset: Asset }) {
           <Field label="Call to action">
             <input
               value={cta}
+              disabled={busy}
               onChange={(e) => setCta(e.target.value)}
               maxLength={55}
             />
           </Field>
           <Button
             className="full"
-            busy={busy}
-            disabled={
-              pending || v.status !== "ready" || !headline.trim() || !cta.trim()
-            }
+            busy={operation === "edit"}
+            disabled={busy || pending || v.status !== "ready" || !validCopy}
             onClick={() => void revise(false)}
           >
             Save a new version <span className="button-credit">Free edit</span>
@@ -834,13 +876,14 @@ function EditorContents({ asset }: { asset: Asset }) {
             label="Want a different creative?"
             hint={
               v.mock
-                ? "Preview mode reuses the same photo. Live creative revisions are not enabled yet."
-                : "A new generation uses credits."
+                ? "Sample mode reuses the same photo and spends preview credits."
+                : "Describe the visual changes. This creates a separately priced version."
             }
           >
             <textarea
               placeholder="Tell us what you’d like to change…"
               value={note}
+              disabled={busy || pending}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               maxLength={500}
@@ -848,24 +891,30 @@ function EditorContents({ asset }: { asset: Asset }) {
           </Field>
           <Button
             variant="secondary full"
-            busy={busy}
-            disabled={pending}
+            busy={operation === "generate"}
+            disabled={busy || pending || !validCopy || !canAffordGeneration}
             onClick={() => void revise(true)}
           >
-            Regenerate sample <span>{VERSION_CREDITS[asset.kind]} credits</span>
+            {v.status === "failed" ? "Generate a new attempt" : v.mock ? "Generate sample version" : "Generate a new creative"} <span>{generationCost} credits</span>
           </Button>
+          <p className="asset-credit-balance">{studio?.balance ?? 0} credits available{!canAffordGeneration ? ` · This generation needs ${generationCost - (studio?.balance ?? 0)} more credits.` : ""}</p>
+          {!canAffordGeneration && <Link className="text-link" to="/studio/billing">View billing <ArrowUpRight size={14} /></Link>}
+          <details className="asset-prompt-details"><summary>View generation instructions</summary><h4>{asset.kind === "video" ? "First-frame prompt" : "Visual prompt"}</h4><p>{v.prompt}</p>{v.motion_prompt && <><h4>Motion prompt</h4><p>{v.motion_prompt}</p></>}</details>
           {error ? <Notice>{error}</Notice> : null}
+          {(error || pending) && <Button variant="secondary small" busy={operation === "refresh"} disabled={busy} onClick={() => void refreshStatus()}>Refresh status</Button>}
         </div>
       </div>
       <div className="versions-heading">
-        <h3>Every version has a place.</h3>
-        <span className="hand">keep the one that feels right.</span>
+        <h3>Version history</h3>
+        <span>{asset.versions.length} {asset.versions.length === 1 ? "version" : "versions"}</span>
       </div>
       <div className="version-list">
         {asset.versions.map((version) => (
           <button
             key={version.id}
             className={v.id === version.id ? "selected" : ""}
+            aria-pressed={v.id === version.id}
+            disabled={busy}
             onClick={() => select(version)}
           >
             <strong>
@@ -875,7 +924,9 @@ function EditorContents({ asset }: { asset: Asset }) {
               ) : null}
             </strong>
             <Status status={version.status} />
-            <small>{supportsVariations ? version.headline : version.note || "The original idea"}</small>
+            <small>{supportsVariations ? version.headline : version.note || "Initial generation"}</small>
+            <small>{version.credit_cost === 0 ? "Free edit" : `${version.credit_cost} credits at creation`}</small>
+            {asset.current_version_id === version.id && <small className="version-current-label">Selected for downloads</small>}
           </button>
         ))}
       </div>
@@ -889,7 +940,8 @@ function EditorContents({ asset }: { asset: Asset }) {
           {v.status === "ready" && v.id !== asset.current_version_id ? (
             <Button
               variant="secondary"
-              busy={busy}
+              busy={operation === "select"}
+              disabled={busy}
               onClick={() => void makeCurrent()}
             >
               Use this version
