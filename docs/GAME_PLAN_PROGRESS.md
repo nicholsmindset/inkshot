@@ -63,3 +63,9 @@ Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` an
 Phase 2 is intentionally gated on Phase 1 acceptance: review-before-export/caption quality, SGD pricing and a monthly video-regeneration cap, pilot tracking, and the premium-image flag. Existing USD pricing has not been silently changed. Start the Humble Halal merchant pilot only after these gates pass.
 
 Phase 3 starts with a manual competitor board using merchant-collected Meta Ad Library links. Ad visibility or longevity does not prove sales or ROAS. No automated Apify scraping, performance claims or paid research add-on was enabled; validate merchant demand and the legal approach first.
+
+## Resume — 20 November 2026
+
+The prior integration revision passed GitHub verification and the confirmed-auth journey. Managed preview failed because its acceptance script still downloaded the old campaign GET route as a ZIP. Commit `ede20a0` changes this to queue an export, run the worker, verify ready status and download the owned archive, retaining unauthenticated/foreign-workspace rejection checks. TypeScript and diff checks passed; CI rerun is in progress.
+
+The shared-schema acceptance script and migration ordering were independently reviewed with no further concrete issue found. Vercel build-log access remains unavailable through the connected account, and no associated browser-control runtime is exposed for this session. Production configuration and payment switches remain untouched. Phase 2 remains gated on preview acceptance as specified in the supplied plan.
