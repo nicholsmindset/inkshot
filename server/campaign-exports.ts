@@ -76,7 +76,7 @@ export async function runExportOnce(db: Database): Promise<boolean> {
     zip.pipe(output);
     let bytes = 0;
     for (const [index, entry] of row.manifest.entries.entries()) {
-      const media = materializeMedia(entry.file_path, row.workspace_id, 'generated-media', controller.signal);
+      const media = materializeMedia(entry.file_path, row.workspace_id, 'generated-media', controller.signal, path.join(dir, 'inputs'));
       pendingMedia = media;
       const source = await Promise.race([media,deadline]);
       bytes += (await stat(source)).size;

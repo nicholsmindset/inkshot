@@ -56,3 +56,7 @@ Updated 20 November 2026, Singapore.
 [Open the preview login](https://inkshot-live-git-inksh-5e52e1-nicholsmindset-gmailcoms-projects.vercel.app/login).
 
 Next execution: complete the hosted signup, email and returning-user journey, then campaign/download acceptance. Payments remain off; production and paid generation were not enabled.
+
+## Reliability follow-up
+
+Password-recovery configuration errors, export temporary-file cleanup, checkout retry parameters and deletion monitoring were fixed. The combined suite passes 111 tests and the production build. Preview worker authentication is configured; redacted operational events are enabled, while deletion, provider callbacks and payment activation stay disabled. Full hosted email/account acceptance remains open behind the preview-access and controlled-mailbox prerequisites.

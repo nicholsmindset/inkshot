@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import {randomBytes} from 'node:crypto';
+import {createHash} from 'node:crypto';
 import type {Database,Queryable} from './db.js';
 import {AppError,config} from './config.js';
 import {changeCredits} from './credits.js';
@@ -50,9 +50,10 @@ export async function reconcileBillingForDeletion(tx:Queryable,workspaceId:strin
  await tx.query("UPDATE billing_accounts SET checkout_id=NULL,status=$2 WHERE workspace_id=$1",[workspaceId,account.subscription_id?'canceled':'none']);
 }
 
-export async function checkout(db:Database,user:User){
+type CheckoutStripe = Pick<Stripe, 'prices' | 'customers' | 'checkout' | 'subscriptions'>;
+export async function checkout(db:Database,user:User,getStripe:()=>CheckoutStripe=client){
  if(user.demo)throw new AppError(400,'Create a permanent account before testing a subscription.');
- const stripe=client();
+ const stripe=getStripe();
  if (!checkoutReleased()) throw new AppError(503, 'New subscriptions are not open yet. You have not been charged.');
  const price=await stripe.prices.retrieve(process.env.STRIPE_STUDIO_PRICE_ID!);
  if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!=='usd'||price.unit_amount!==3900||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
@@ -68,8 +69,11 @@ export async function checkout(db:Database,user:User){
   if(account.checkout_id){const current=await stripe.checkout.sessions.retrieve(account.checkout_id);if(current.status==='open'&&current.url)return {url:current.url};}
   const subscriptions=await stripe.subscriptions.list({customer:customerId,status:'all',limit:100});
   if(subscriptions.data.some(s=>!['canceled','incomplete_expired'].includes(s.status)))throw new AppError(409,'You already have a subscription or a pending payment. Use Manage subscription.');
-  const suffix=Array.from(randomBytes(8),b=>String.fromCharCode(97+b%26)).join('');
-  const session=await stripe.checkout.sessions.create({mode:'subscription',customer:customerId,line_items:[{price:price.id,quantity:1}],integration_identifier:`inkshot_studio_${suffix}`,success_url:`${config.origin}/studio/billing?checkout=complete`,cancel_url:`${config.origin}/studio/billing?checkout=canceled`},{idempotencyKey:`inkshot-checkout:${user.workspaceId}:${account.checkout_id||'initial'}`});
+  // A provider success can outlive a rolled-back database transaction. Reusing
+  // its idempotency key must also reuse every request parameter.
+  const attemptKey=`inkshot-checkout:${user.workspaceId}:${account.checkout_id||'initial'}`;
+  const suffix=Array.from(createHash('sha256').update(attemptKey).digest().subarray(0,16),b=>String.fromCharCode(97+b%26)).join('');
+  const session=await stripe.checkout.sessions.create({mode:'subscription',customer:customerId,line_items:[{price:price.id,quantity:1}],integration_identifier:`inkshot_studio_${suffix}`,success_url:`${config.origin}/studio/billing?checkout=complete`,cancel_url:`${config.origin}/studio/billing?checkout=canceled`},{idempotencyKey:attemptKey});
   await tx.query('UPDATE billing_accounts SET checkout_id=$2 WHERE workspace_id=$1',[user.workspaceId,session.id]);
   if(!session.url)throw new AppError(502,'Checkout did not return a payment page.');return {url:session.url};
  });

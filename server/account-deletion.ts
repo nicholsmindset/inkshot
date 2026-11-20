@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Database, Queryable } from './db.js';
 import type { User } from '../shared/types.js';
 import { AppError } from './config.js';
+import { reportOpsAlert } from './ops.js';
 import { reconcileBillingForDeletion, type DeletionBillingReader } from './billing.js';
 
 export const deletionEnabled = () => process.env.ENABLE_ACCOUNT_DELETION === 'true' && process.env.INKSHOT_SHARED_PROJECT_LIVE !== 'true';
@@ -97,6 +98,8 @@ export async function runDeletionOnce(db: Database, adapters: DeletionAdapters):
       await tx.query("UPDATE account_deletions SET state='complete',user_id=NULL,provider_ids='[]',provider_deleted='[]',locked_until=NULL,error_code=NULL,completed_at=now() WHERE id=$1",[task.id]);
     });
   }catch{
+    // Only an aggregate event is allowed; never log the task or adapter error.
+    reportOpsAlert('inkshot_deletion_failed', { count: 1 });
     // Never report completion while a provider, storage or identity call is uncertain.
     await db.query("UPDATE account_deletions SET locked_until=NULL,error_code=$2,available_at=now()+interval '5 minutes' WHERE id=$1",[task.id,`DELETION_${stage.toUpperCase()}_RETRY`]);
   }

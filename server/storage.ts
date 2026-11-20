@@ -34,13 +34,15 @@ export async function persistMedia(file:string,workspaceId:string,kind:MediaBuck
  if(error)throw new AppError(503,'Media could not be saved. Please retry.');
  return `${PREFIX}${bucket}/${key}`;
 }
-export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket,signal?:AbortSignal){
+export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket,signal?:AbortSignal,temporaryDirectory?:string){
  if(!reference.startsWith(PREFIX)) {
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return reference;
  }
  const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
- const target=path.join(config.dataDir,'cache',bucket,key);
+ const target=temporaryDirectory
+  ? path.join(temporaryDirectory,bucket,key)
+  : path.join(config.dataDir,'cache',bucket,key);
  await mkdir(path.dirname(target),{recursive:true});
  const {data,error}=await client(signal).storage.from(bucket).download(key);
  if(error||!data)throw new AppError(503,'Your media could not be downloaded. Please retry.');

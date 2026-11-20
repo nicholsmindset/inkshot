@@ -103,3 +103,20 @@ Fresh hosted checks on the integration preview:
 - Invalid auth callback: the fetch client followed a response to an HTML page. This is not sufficient evidence of correct error messaging, so callback acceptance remains open.
 
 No customer email was sent, no paid call was made and no production change was performed. Full email delivery and session acceptance still require a controlled test mailbox and an interactive HTTP/browser test session; the existing disposable CI journey must not be repointed at hosted credentials.
+
+## Multi-agent reliability pass — 20 November 2026
+
+Authentication, exports and operations/deletion were reviewed independently. Follow-up work addressed concrete failures rather than rebuilding completed features:
+
+- Password recovery now reports a safe 503 for provider credential/configuration failures instead of falsely promising email delivery. Unknown-account and per-user throttle responses remain private.
+- ZIP inputs use a per-job temporary directory and are cleaned on success/failure. Distinct storage keys cannot overwrite files with the same basename. Category and full-kit caption contents are covered.
+- Deletion retry/backlog counts and age are included in protected ops status; failures and overdue requests emit redacted events. Actual adapter tests cover storage pagination/isolation, partial failures, provider receipt validation and Auth retry behavior using mocked requests.
+- Checkout request identifiers are now stable across provider-success/database-failure retries; the regression test uses a fake provider and makes no Stripe calls.
+
+Preview-only configuration now includes a worker secret, enabled redacted operational logging, and explicit disabled deletion/Higgsfield callback flags. This does not prove an external alert destination receives events.
+
+Hosted security checks: zero public-schema tables without RLS, zero public buckets, zero public-table grants for anon/authenticated, and no elevated privileges on inkshot_app. Supabase security advisor reports no findings. Server-side workspace checks still require full end-to-end acceptance.
+
+Hosted interactive acceptance remains blocked: the isolated browser encounters Vercel authentication, and automatic approval review rejected a temporary shareable bypass. No alternative bypass was attempted. A controlled test mailbox and authorized browser access are required for signup/confirmation/reset acceptance.
+
+Combined verification after these fixes: **111 tests passed, 0 failed**; TypeScript/Vite build passed. Tests use disposable databases and mocked external requests. No paid calls were made.

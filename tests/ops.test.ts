@@ -67,7 +67,7 @@ test('real PostgreSQL metrics distinguish old pending work, completed work and n
     ('processing',now()-interval '20 minutes'),('done',now()-interval '1 day'),('failed',now()-interval '1 day');`);
   const db: Database = { query: (sql, params) => local.query(sql, params),
     transaction: fn => local.transaction(tx => fn(tx)), close: () => local.close() };
-  assert.deepEqual(await readOpsMetrics(db), { queuedOver15Minutes: 1, processingOver15Minutes: 1, lastStripeEventAgeSeconds: null, provider: { enabled: false, actualChargeReconciliationSupported: false } });
+  assert.deepEqual(await readOpsMetrics(db), { deletion: { available: false }, queuedOver15Minutes: 1, processingOver15Minutes: 1, lastStripeEventAgeSeconds: null, provider: { enabled: false, actualChargeReconciliationSupported: false } });
   await local.exec("INSERT INTO payment_events VALUES(now()-interval '5 minutes'),(now()-interval '1 hour')");
   const handler = createOpsStatusHandler(async () => db);
   const r = request('Bearer ops-secret-fixture'); await handler(r.req, r.res);
@@ -130,4 +130,36 @@ test('a hung database initializer returns a safe failure within the status deadl
   assert.equal(JSON.parse(r.response.body).databaseReachable, false);
   assert.equal(JSON.parse(logs[0]).event, 'inkshot_service_unavailable');
   assert(!r.response.body.includes('ops-secret-fixture'));
+});
+
+
+test('deletion retries and overdue requests degrade ops status without exposing identities', async t => {
+  environment(t, { CRON_SECRET: 'ops-secret-fixture', OPS_ALERTS_ENABLED: 'true' });
+  const logs: string[] = []; t.mock.method(console, 'error', (value: string) => logs.push(value));
+  const local = new PGlite(); t.after(() => local.close());
+  await local.exec(`CREATE TABLE jobs(state text, created_at timestamptz);
+    CREATE TABLE payment_events(created_at timestamptz);
+    CREATE TABLE account_deletions(state text, error_code text, created_at timestamptz, workspace_id text);
+    INSERT INTO account_deletions VALUES
+      ('pending',NULL,now()-interval '5 minutes','private-draining'),
+      ('deleting','DELETION_STORAGE_RETRY',now()-interval '20 minutes','private-retrying'),
+      ('deleting',NULL,now()-interval '35 minutes','private-overdue'),
+      ('complete','OLD_ERROR',now()-interval '1 day','private-completed');`);
+  const db: Database = { query: (s,p) => local.query(s,p), transaction: fn => local.transaction(tx => fn(tx)), close: () => local.close() };
+  const handler = createOpsStatusHandler(async () => db);
+  const response = request('Bearer ops-secret-fixture'); await handler(response.req, response.res);
+  const body = JSON.parse(response.response.body);
+  assert.equal(response.response.statusCode,503);
+  assert.deepEqual({ ...body.deletion, oldestPendingAgeSeconds: undefined }, { available:true,pending:3,retrying:1,overdue:1,oldestPendingAgeSeconds:undefined });
+  assert(body.deletion.oldestPendingAgeSeconds >= 2100 && body.deletion.oldestPendingAgeSeconds < 2110);
+  assert.equal(JSON.parse(logs[0]).event,'inkshot_deletions_stuck');
+  assert.equal(JSON.parse(logs[0]).count,1);
+  assert(!JSON.stringify([body,logs]).includes('private-'));
+  assert(!JSON.stringify(body).includes('DELETION_STORAGE_RETRY'));
+  await local.exec("UPDATE account_deletions SET state='complete' WHERE state='deleting'");
+  const draining = request('Bearer ops-secret-fixture'); await handler(draining.req,draining.res);
+  assert.equal(draining.response.statusCode,200,'Normal 15-minute drain must not be an outage');
+  await local.exec("UPDATE account_deletions SET state='complete'");
+  const done = await readOpsMetrics(db);
+  assert.deepEqual(done.deletion,{available:true,pending:0,retrying:0,overdue:0,oldestPendingAgeSeconds:null});
 });

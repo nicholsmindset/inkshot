@@ -272,7 +272,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { error } = await authClient(req, res, true).auth.resetPasswordForEmail(email, {
       redirectTo: `${config.origin}/api/auth/recovery-callback`,
     });
-    if (error && (!error.status || error.status >= 500))
+    if (error && (!error.status || error.status === 401 || error.status === 403 || error.status >= 500))
       throw new AppError(503, "Recovery email is temporarily unavailable. Please try again.");
     // Identical response for existing and unknown accounts, including per-user throttles.
     res.json({ ok: true });

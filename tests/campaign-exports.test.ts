@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
-import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -10,7 +10,7 @@ import { config } from '../server/config.js';
 import { runWorkerOnce } from '../server/worker.js';
 import { createApp } from '../server/app.js';
 import { requestCampaignExport, findCampaignExport, runExportOnce } from '../server/campaign-exports.js';
-import { signedMediaUrl, SIGNED_MEDIA_TTL_SECONDS } from '../server/storage.js';
+import { materializeMedia, signedMediaUrl, SIGNED_MEDIA_TTL_SECONDS } from '../server/storage.js';
 
 async function fixture(t: {after: (fn:()=>Promise<void>)=>void}) {
  const dir=await mkdtemp(path.join(tmpdir(),'inkshot-export-'));
@@ -147,4 +147,71 @@ test('private storage operations propagate cancellation before a timed-out job r
  const pending=persistMedia(file,workspace,'generated-media',controller.signal);
  await ready; controller.abort();
  await assert.rejects(pending); assert(aborted);
+});
+
+
+test('cloud category and full-kit archives retain matching captions and clean temporary inputs',async t=>{
+ const {dir,db,workspace,campaign,asset}=await fixture(t);
+ const values={STORAGE_PROVIDER:'supabase',SUPABASE_URL:'https://test-project.supabase.co',SUPABASE_SECRET_KEY:'test-secret',INKSHOT_SHARED_PROJECT_LIVE:'false'};
+ for(const [key,value] of Object.entries(values)){const old=process.env[key];t.after(async()=>{if(old===undefined)delete process.env[key];else process.env[key]=old;});process.env[key]=value;}
+ for(const kind of ['video','image','post']) await asset(kind,`supabase://generated-media/${workspace}/${kind}.${kind==='video'?'mp4':'jpg'}`,`${kind} approved caption`);
+ let uploaded:Buffer|undefined;
+ let failUpload=false;
+ t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=String(input);
+  assert(url.startsWith('https://test-project.supabase.co/storage/v1/object/'));
+  if(init?.method==='POST'){
+   if(failUpload)return Response.json({message:'Upload unavailable'},{status:503});
+   uploaded=Buffer.from(await new Response(init.body).arrayBuffer());
+   return Response.json({Key:`${workspace}/archive.zip`});
+  }
+  return new Response('private media bytes',{headers:{'content-type':'application/octet-stream'}});
+ });
+ for(const category of ['video','image','post','all'] as const){
+  uploaded=undefined;
+  const queued=await requestCampaignExport(db,campaign,workspace,category);
+  assert(await runExportOnce(db));
+  const ready=await findCampaignExport(db,queued.id,workspace);
+  assert.equal(ready.state,'ready');assert(ready.file_path?.startsWith('supabase://generated-media/'));
+  assert(uploaded);
+  const archive=path.join(dir,`download-${category}.zip`);await writeFile(archive,uploaded);
+  const filenames=execFileSync('unzip',['-Z1',archive],{encoding:'utf8'});
+  const captions=execFileSync('unzip',['-p',archive,'captions.txt'],{encoding:'utf8'});
+  for(const kind of ['video','image','post']){
+   assert.equal(filenames.includes(`-${kind}.`),category==='all'||category===kind);
+   assert.equal(captions.includes(`${kind} approved caption`),category==='all'||category===kind);
+  }
+  assert.equal(execFileSync('unzip',['-p',archive,'destination-url.txt'],{encoding:'utf8'}),'https://example.test/offer\n');
+  await assert.rejects(access(path.join(dir,'exports',queued.id)),{code:'ENOENT'});
+  await assert.rejects(access(path.join(dir,'cache')),{code:'ENOENT'});
+ }
+ // A failed upload must also remove materialized files before retrying later.
+ failUpload=true;
+ await db.query("UPDATE assets SET caption='Revised image caption' WHERE campaign_id=$1 AND kind='image'",[campaign]);
+ const retry=await requestCampaignExport(db,campaign,workspace,'image');
+ assert(await runExportOnce(db));
+ assert.equal((await findCampaignExport(db,retry.id,workspace)).state,'queued');
+ await assert.rejects(access(path.join(dir,'exports',retry.id)),{code:'ENOENT'});
+ await assert.rejects(access(path.join(dir,'cache')),{code:'ENOENT'});
+});
+
+
+test('job-local media preserves bucket and owner paths for identical filenames',async t=>{
+ const {dir,workspace}=await fixture(t);
+ const other=randomUUID();
+ const values={STORAGE_PROVIDER:'supabase',SUPABASE_URL:'https://test-project.supabase.co',SUPABASE_SECRET_KEY:'test-secret',INKSHOT_SHARED_PROJECT_LIVE:'false'};
+ for(const [key,value] of Object.entries(values)){const old=process.env[key];t.after(async()=>{if(old===undefined)delete process.env[key];else process.env[key]=old;});process.env[key]=value;}
+ t.mock.method(globalThis,'fetch',async(input:RequestInfo|URL)=>new Response(String(input)));
+ const destination=path.join(dir,'job-inputs');
+ const sources=[
+  {bucket:'generated-media' as const,owner:workspace},
+  {bucket:'brand-uploads' as const,owner:workspace},
+  {bucket:'generated-media' as const,owner:other},
+ ];
+ const files=await Promise.all(sources.map(({bucket,owner})=>materializeMedia(`supabase://${bucket}/${owner}/same.jpg`,owner,bucket,undefined,destination)));
+ assert.equal(new Set(files).size,3);
+ for(const [index,file] of files.entries()){
+  assert.equal(file,path.join(destination,sources[index].bucket,sources[index].owner,'same.jpg'));
+  assert((await readFile(file,'utf8')).endsWith(`/${sources[index].bucket}/${sources[index].owner}/same.jpg`));
+ }
 });

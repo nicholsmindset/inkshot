@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { providerOperationsSummary } from './provider-webhooks.js';
 import type { Database } from './db.js';
 
-const events = ['inkshot_service_unavailable', 'inkshot_worker_failed', 'inkshot_stripe_webhook_failed', 'inkshot_jobs_stuck'] as const;
+const events = ['inkshot_service_unavailable', 'inkshot_worker_failed', 'inkshot_stripe_webhook_failed', 'inkshot_jobs_stuck', 'inkshot_deletion_failed', 'inkshot_deletions_stuck'] as const;
 type Event = typeof events[number];
 // This deliberately accepts no error objects, messages, URLs or customer data.
 export function reportOpsAlert(event: Event, details: { reference?: string; count?: number } = {}) {
@@ -30,7 +30,7 @@ const settingNames = [
   'STRIPE_STUDIO_PRICE_ID', 'GENERATION_MODE', 'ALLOW_LIVE_GENERATION',
   'HF_API_KEY_ID', 'HF_API_KEY_SECRET', 'HF_DAILY_BUDGET_USD',
   'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'WRITING_DAILY_REQUEST_LIMIT',
-  'WRITING_WORKSPACE_DAILY_REQUEST_LIMIT', 'OPS_ALERTS_ENABLED', 'HF_WEBHOOKS_ENABLED', 'HF_WEBHOOK_SECRET',
+  'WRITING_WORKSPACE_DAILY_REQUEST_LIMIT', 'OPS_ALERTS_ENABLED', 'ENABLE_ACCOUNT_DELETION', 'HF_WEBHOOKS_ENABLED', 'HF_WEBHOOK_SECRET',
 ] as const;
 
 export async function readOpsMetrics(db: Database) {
@@ -44,7 +44,19 @@ export async function readOpsMetrics(db: Database) {
         (SELECT CASE WHEN max(created_at) IS NULL THEN NULL ELSE greatest(0,extract(epoch FROM now()-max(created_at)))::integer END FROM payment_events) AS stripe_age
     `);
     const row = result.rows[0];
-    return { queuedOver15Minutes: row.queued, processingOver15Minutes: row.processing, lastStripeEventAgeSeconds: row.stripe_age, provider: await providerOperationsSummary(tx) };
+    const deletionTable = (await tx.query<{ present: boolean }>("SELECT to_regclass('account_deletions') IS NOT NULL AS present")).rows[0].present;
+    let deletion: { available: boolean; pending?: number; retrying?: number; overdue?: number; oldestPendingAgeSeconds?: number | null } = { available: false };
+    if (deletionTable) {
+      const counts = (await tx.query<{ pending: number; retrying: number; overdue: number; oldest: number | null }>(`
+        SELECT count(*)::integer AS pending,
+          count(*) FILTER(WHERE error_code IS NOT NULL)::integer AS retrying,
+          count(*) FILTER(WHERE created_at < now()-interval '30 minutes')::integer AS overdue,
+          CASE WHEN min(created_at) IS NULL THEN NULL ELSE greatest(0,extract(epoch FROM now()-min(created_at)))::integer END AS oldest
+        FROM account_deletions WHERE state<>'complete'`)).rows[0];
+      // Aggregate only: never expose workspace, user, provider IDs or error text.
+      deletion = { available: true, pending: counts.pending, retrying: counts.retrying, overdue: counts.overdue, oldestPendingAgeSeconds: counts.oldest };
+    }
+    return { deletion, queuedOver15Minutes: row.queued, processingOver15Minutes: row.processing, lastStripeEventAgeSeconds: row.stripe_age, provider: await providerOperationsSummary(tx) };
   });
 }
 
@@ -52,6 +64,7 @@ export async function monitorStuckJobs(db: Database) {
   const metrics = await readOpsMetrics(db);
   const count = metrics.queuedOver15Minutes + metrics.processingOver15Minutes;
   if (count > 0) reportOpsAlert('inkshot_jobs_stuck', { count });
+  if ((metrics.deletion.overdue ?? 0) > 0) reportOpsAlert('inkshot_deletions_stuck', { count: metrics.deletion.overdue });
   return metrics;
 }
 
@@ -72,7 +85,7 @@ export function createOpsStatusHandler(database: () => Promise<Database>, timeou
         Promise.resolve().then(database).then(monitorStuckJobs),
         new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Ops deadline exceeded")), timeoutMs); }),
       ]);
-      const ok = metrics.queuedOver15Minutes + metrics.processingOver15Minutes === 0;
+      const ok = metrics.queuedOver15Minutes + metrics.processingOver15Minutes + (metrics.deletion.retrying ?? 0) + (metrics.deletion.overdue ?? 0) === 0;
       res.statusCode = ok ? 200 : 503;
       res.end(JSON.stringify({ ok, settings, databaseReachable: true, ...metrics }));
     } catch {
