@@ -258,6 +258,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     // A manually entered email code works without the original browser's PKCE
     // verifier. The existing confirmation-link flow stays browser-bound.
     const { data, error } = await authClient(req, res).auth.verifyOtp({ email, token, type: "email" });
+    if (error && (!error.status || error.status >= 500))
+      throw new AppError(503, "Email verification is temporarily unavailable. Please try again.");
     if (error || !data.user || !data.session || !data.user.email_confirmed_at)
       throw new AppError(401, "That code is invalid or has expired. Request a new confirmation email.");
     await provisionManagedUser(db, data.user);
@@ -310,6 +312,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       .parse(req.body);
     if (managedAuthEnabled()) {
       const {data,error} = await authClient(req,res).auth.signInWithPassword(input);
+      if (error && (!error.status || error.status >= 500))
+        throw new AppError(503, 'Sign-in is temporarily unavailable. Please try again.');
       if(error || !data.user) throw new AppError(401,'Unable to sign in. Check your email, password and email confirmation.');
       await provisionManagedUser(db,data.user);
       res.json({ok:true}); return;

@@ -60,3 +60,5 @@ Next execution: complete the hosted signup, email and returning-user journey, th
 ## Reliability follow-up
 
 Password-recovery configuration errors, export temporary-file cleanup, checkout retry parameters and deletion monitoring were fixed. The combined suite passes 111 tests and the production build. Preview worker authentication is configured; redacted operational events are enabled, while deletion, provider callbacks and payment activation stay disabled. Full hosted email/account acceptance remains open behind the preview-access and controlled-mailbox prerequisites.
+
+Latest follow-up: approved temporary preview access allowed hosted HTTP checks on `91f7a59`; health and signed-out access controls passed, including cross-origin rejection and disabled unauthenticated checkout/generation. Temporary access was revoked. Login/verification outage diagnostics were improved and the combined suite now passes **112 tests** with a successful build. A controlled mailbox is still needed for confirmed signup/reset and signed-in acceptance; no email was sent during this pass.

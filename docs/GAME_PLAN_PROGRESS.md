@@ -120,3 +120,17 @@ Hosted security checks: zero public-schema tables without RLS, zero public bucke
 Hosted interactive acceptance remains blocked: the isolated browser encounters Vercel authentication, and automatic approval review rejected a temporary shareable bypass. No alternative bypass was attempted. A controlled test mailbox and authorized browser access are required for signup/confirmation/reset acceptance.
 
 Combined verification after these fixes: **111 tests passed, 0 failed**; TypeScript/Vite build passed. Tests use disposable databases and mocked external requests. No paid calls were made.
+
+## Hosted HTTP acceptance and auth diagnostics — 20 November 2026
+
+After the owner approved temporary preview access, tested deployment `dpl_DooKpMJLdqW6afZZRbpPphusRhuo` at `91f7a59`. The one-hour share access was revoked immediately after these checks.
+
+- Health: 200, mock generation, billing off, demo disabled.
+- Login, signup, recovery, privacy and terms routes: 200 application HTML. This is not a visual or email-delivery acceptance test.
+- Signed-out studio, downloads, operations and worker: 401.
+- Malformed signup/login: 400. Nonexistent credentials: generic 401.
+- Cross-origin signup: 403. Signed-out checkout and generation: 401.
+
+Follow-up code distinguishes provider outages/network errors from incorrect credentials or verification codes: login and email-code verification return a safe 503 during outages; credential/code failures remain generic 401. Regression tests check private details are not returned and rejected requests create no session or local user.
+
+Validation: **112 tests passed, 0 failed**; TypeScript/Vite build passed. No email was sent, no customer was created, no paid API was called and production was not changed. Hosted confirmed signup, reset, signed-in campaign/export and cross-account acceptance still require a controlled test mailbox. External alert delivery remains unproven.
