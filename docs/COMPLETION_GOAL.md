@@ -40,6 +40,6 @@ Begin after Phase 1 acceptance, as specified in the source plan.
 
 ## Current checkpoint
 
-Latest observed checks on PR #37: verification and confirmed-auth journey passed; managed-preview rerun in progress; both Vercel project checks failed. Local combined code previously passed 102 tests and the production build. The updated export acceptance script passed TypeScript. These results do not satisfy hosted release acceptance.
+Latest observed checks on PR #37 at `3a6020b`: verification, confirmed-auth journey and managed-preview all passed; both Vercel project checks failed. Local combined code previously passed 102 tests and the production build. The updated export acceptance script passed TypeScript. These results do not satisfy hosted release acceptance.
 
-Next execution: finish managed-preview diagnosis, restore access to the intended Vercel project, validate the hosted preview, then advance the phase gates. Track completion evidence in GAME_PLAN_PROGRESS.md and update this checklist; do not silently mark access or owner decisions complete.
+Next execution: restore access to the intended Vercel project, validate the hosted preview, then advance the phase gates. Track completion evidence in GAME_PLAN_PROGRESS.md and update this checklist; do not silently mark access or owner decisions complete.

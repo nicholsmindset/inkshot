@@ -69,3 +69,9 @@ Phase 3 starts with a manual competitor board using merchant-collected Meta Ad L
 The prior integration revision passed GitHub verification and the confirmed-auth journey. Managed preview failed because its acceptance script still downloaded the old campaign GET route as a ZIP. Commit `ede20a0` changes this to queue an export, run the worker, verify ready status and download the owned archive, retaining unauthenticated/foreign-workspace rejection checks. TypeScript and diff checks passed; CI rerun is in progress.
 
 The shared-schema acceptance script and migration ordering were independently reviewed with no further concrete issue found. Vercel build-log access remains unavailable through the connected account, and no associated browser-control runtime is exposed for this session. Production configuration and payment switches remain untouched. Phase 2 remains gated on preview acceptance as specified in the supplied plan.
+
+## Verified checkpoint — 20 November 2026
+
+At commit `3a6020b`, GitHub Actions run `44708555330` passed both `confirmed-auth-journey` and `managed-preview`. Verification and GitGuardian checks also passed. This closes the outdated export acceptance-test failure and verifies the disposable managed integration, including the workflow's shared-schema and restore checks. It does not prove production readiness.
+
+Both Vercel project deployments still fail. Read access to `inkshot-live` returns 404 even with the verified owning team ID. Hosted deployment diagnosis therefore remains blocked on connection access; no production or billing configuration was changed.
