@@ -53,3 +53,15 @@ The original pilot and competitor-research validation remain separate open work.
 - Production build, TypeScript and whitespace validation: passed.
 - Fresh sandbox: all new column types and restricted-runtime read/write privileges verified; security advisor has no findings.
 - Tests exercise HTTP routes, real local database schemas, fake provider transports, failure/retry paths and lock ordering. Actual concurrent hosted PostgreSQL, external delivery and paid-provider quality are not established by these tests.
+
+### Integration preview acceptance at `ab69097`
+
+- Vercel `inkshot-live` deployment `dpl_4oCKHfyHazYjG5xsEmqVc514Egdt`: READY.
+- Hosted `/api/health`: HTTP 200, `ok=true`, `mode=mock`, `billingMode=off`, `demoAvailable=false`.
+- Hosted `/login`: HTTP 200 and application shell; CSP and `X-Frame-Options: DENY` verified.
+- Signed-out `/api/studio`: HTTP 401.
+- GitHub verify, confirmed-auth-journey, managed-preview, browser and GitGuardian checks: passed. Auth/service checks run against disposable CI services, not a real customer's mailbox.
+- Temporary preview access used for checks was revoked. Ordinary Vercel authentication still applies.
+- Separate legacy `inkshot` deployment remains failed with its known missing preview `APP_ORIGIN` configuration. It was not changed or promoted; do not call the full two-project deployment set green.
+
+[Preview login](https://inkshot-live-4kc4jlp8o-nicholsmindset-gmailcoms-projects.vercel.app/login) · [Draft PR #37](https://github.com/nicholsmindset/inkshot/pull/37).
