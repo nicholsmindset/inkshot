@@ -58,6 +58,17 @@ test("confirmation recovery hides account existence and limits resend and code g
     assert.equal(unavailable.status, 503);
     assert(!JSON.stringify(await unavailable.json()).includes("Private provider detail"));
   }
+  // Provider authentication/configuration failures must not falsely promise a
+  // recovery email. Account-specific rejection and throttling remain private.
+  for (const status of [400, 422, 429, 401, 403, 500]) {
+    providerStatus = status;
+    const recovery = await post("forgot-password", { email: `recovery-${status}@example.test` });
+    assert.equal(recovery.status, [401, 403, 500].includes(status) ? 503 : 200);
+    assert.equal(recovery.headers.get("cache-control"), "no-store");
+    const body = await recovery.json();
+    assert(!JSON.stringify(body).includes("Private provider detail"));
+    if (recovery.status === 200) assert.deepEqual(body, { ok: true });
+  }
   providerStatus = 403;
   for (let i = 0; i < 10; i++) {
     const badCode = await post("verify-email", { email: "guess@example.test", token: "12345678" });

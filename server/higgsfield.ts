@@ -13,7 +13,7 @@ export type HFStatus = {
   video?: { url: string };
   error?: unknown;
 };
-async function hf<T>(route: string, body?: unknown, key?: string): Promise<T> {
+async function hf<T>(route: string, body?: unknown, key?: string, signal?: AbortSignal): Promise<T> {
   if (!config.liveAllowed || !config.hfKey || !config.hfSecret)
     throw new AppError(503, "Live generation is not configured.");
   const url = new URL(route, BASE);
@@ -26,7 +26,7 @@ async function hf<T>(route: string, body?: unknown, key?: string): Promise<T> {
       ...(key ? { "Idempotency-Key": key } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]),
   });
   if (!response.ok) {
     const error = new AppError(
@@ -37,11 +37,11 @@ async function hf<T>(route: string, body?: unknown, key?: string): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
-export const estimate = (model: string, input: unknown) =>
-  hf<{ usd: string; credits: string }>(`/estimate/${model}`, input);
-export const submit = (model: string, input: unknown, key: string) => {
+export const estimate = (model: string, input: unknown, signal?: AbortSignal) =>
+  hf<{ usd: string; credits: string }>(`/estimate/${model}`, input, undefined, signal);
+export const submit = (model: string, input: unknown, key: string, signal?: AbortSignal) => {
   const callback = providerWebhookUrl();
-  return hf<HFStatus>(`/${model}${callback ? `?hf_webhook=${encodeURIComponent(callback)}` : ""}`, input, key);
+  return hf<HFStatus>(`/${model}${callback ? `?hf_webhook=${encodeURIComponent(callback)}` : ""}`, input, key, signal);
 };
-export const status = (id: string) =>
-  hf<HFStatus>(`/requests/${encodeURIComponent(id)}/status`);
+export const status = (id: string, signal?: AbortSignal) =>
+  hf<HFStatus>(`/requests/${encodeURIComponent(id)}/status`, undefined, undefined, signal);

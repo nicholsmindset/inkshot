@@ -11,6 +11,7 @@ const events = [
   "checkout.session.completed", "checkout.session.async_payment_succeeded",
   "invoice.paid", "invoice.payment_failed", "customer.subscription.created",
   "customer.subscription.updated", "customer.subscription.deleted",
+  "charge.refunded", "charge.dispute.created",
 ];
 
 export function productionOrigin(value: string) {

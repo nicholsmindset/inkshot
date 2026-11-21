@@ -12,6 +12,7 @@ import { useStudio } from "../context";
 import { api } from "../api";
 import { Button, Field, Highlight, Notice } from "../ui";
 import type { Brand } from "../../shared/types";
+import { brandDraftKey, readBrandDraft, writeBrandDraft, clearBrandDraft } from "../brand-draft";
 function sameSiteLogo(value: string | undefined, website: string) {
   try {
     if (!value) return undefined;
@@ -26,19 +27,28 @@ function sameSiteLogo(value: string | undefined, website: string) {
 export function BrandPage() {
   const { studio } = useStudio();
   return studio ? (
-    <BrandForm key={studio.user.id} initial={studio.brand} />
+    <BrandForm key={`${studio.user.id}:${studio.user.workspaceId}`} initial={studio.brand} />
   ) : null;
 }
 function BrandForm({ initial }: { initial: Brand }) {
   const { studio, refresh, notify } = useStudio();
+  const navigate = useNavigate();
+  const draftKey = brandDraftKey(studio!.user.id, studio!.user.workspaceId);
+  const [recovery] = useState(() => {
+    try { return readBrandDraft(window.sessionStorage, draftKey); } catch { return null; }
+  });
+  const [restored, setRestored] = useState(!!recovery);
+  const [savedBrand, setSavedBrand] = useState(initial);
+  const [draftStored, setDraftStored] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedWebsite = searchParams.get("website");
   const startedWebsiteRead = useRef(false);
-  const [brand, setBrand] = useState(initial);
+  const [brand, setBrand] = useState<Brand>(recovery?.brand ?? initial);
+  const dirty = JSON.stringify(brand) !== JSON.stringify(savedBrand);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [readPreview, setReadPreview] = useState<Brand | null>(null);
-  const [url, setUrl] = useState(searchParams.get("website") || initial.website);
+  const [url, setUrl] = useState(searchParams.get("website") || recovery?.brand.website || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
     setBrand((b) => ({
       ...b,
@@ -46,7 +56,27 @@ function BrandForm({ initial }: { initial: Brand }) {
       evidence: (b.evidence || []).filter(item => item.field !== key),
       inferredFields: (b.inferredFields || []).filter(field => field !== key),
     }));
+  useEffect(() => {
+    try {
+      if (dirty) setDraftStored(writeBrandDraft(window.sessionStorage, draftKey, brand, savedBrand));
+      else { clearBrandDraft(window.sessionStorage, draftKey); setDraftStored(false); }
+    } catch { setDraftStored(false); }
+  }, [brand, savedBrand, dirty, draftKey]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const warnNavigation = (event: MouseEvent) => {
+      if (draftStored || !(event.target instanceof Element) || !event.target.closest("a[href]")) return;
+      if (!window.confirm("Your brief has unsaved changes and browser recovery is unavailable. Leave without saving?")) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    document.addEventListener("click", warnNavigation, true);
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", warnNavigation, true); };
+  }, [dirty, draftStored]);
   async function read(requestedUrl = url) {
+    if ((dirty || brand.description.trim()) && !window.confirm("Replace the brief fields with a new website reading? Your photo, logo and certificate will be kept. Choose Cancel to keep your current wording.")) return;
     setBusy("read");
     setError("");
     setReadPreview(null);
@@ -76,6 +106,7 @@ function BrandForm({ initial }: { initial: Brand }) {
   useEffect(() => {
     if (!requestedWebsite || startedWebsiteRead.current) return;
     startedWebsiteRead.current = true;
+    if (recovery) { setSearchParams({}, { replace: true }); return; }
     void read(requestedWebsite).finally(() => setSearchParams({}, { replace: true }));
   }, [requestedWebsite, setSearchParams]);
   const logoLink = sameSiteLogo(brand.logoUrl?.trim(), brand.website);
@@ -94,8 +125,9 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBusy("");
     }
   }
-  async function save(e: FormEvent) {
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const continueToCampaign = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "continue";
     setBusy("save");
     setError("");
     try {
@@ -103,9 +135,14 @@ function BrandForm({ initial }: { initial: Brand }) {
       if (logoUrl && !logoLink) {
         throw new Error("Choose an HTTPS logo link on the same site as your brand website.");
       }
-      await api("/brand", { ...brand, logoUrl: logoUrl || undefined }, "PUT");
+      const saved = await api<Brand>("/brand", { ...brand, logoUrl: logoUrl || undefined }, "PUT");
+      setBrand(saved);
+      setSavedBrand(saved);
+      setRestored(false);
+      try { clearBrandDraft(window.sessionStorage, draftKey); } catch { /* Storage can be unavailable. */ }
       await refresh();
       notify("Your brand brief has been saved.");
+      if (continueToCampaign) navigate("/studio/new");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -143,11 +180,19 @@ function BrandForm({ initial }: { initial: Brand }) {
           </h1>
           <p>Review your business facts and creative direction before making a campaign.</p>
         </div>
-        <Link to="/studio/new" className="button secondary">
-          New campaign
+        <Button type="submit" form="brand-brief-form" name="action" value="continue" variant="secondary" disabled={!!busy}>
+          Save and start a campaign
           <ArrowUpRight size={17} />
-        </Link>
+        </Button>
       </div>
+      {restored ? <Notice>
+        Your unsaved brief from this tab has been restored. Review it before saving.
+        {recovery?.base !== JSON.stringify(initial) ? " The saved brief has changed since this draft began." : ""}
+        {" "}<button type="button" disabled={!!busy} onClick={() => { setBrand(initial); setSavedBrand(initial); setRestored(false); }}>Discard draft and use saved brief</button>
+      </Notice> : null}
+      <p className="brand-save-status" role="status">{dirty
+        ? draftStored ? "Unsaved changes · recovered in this tab for up to 24 hours. Save before starting a campaign." : "Unsaved changes · browser recovery is unavailable. Save before leaving."
+        : "No unsaved changes. Review your brief before starting a campaign."}</p>
       <div className="brand-layout">
         <div>
           <div className="website-reader">
@@ -190,7 +235,8 @@ function BrandForm({ initial }: { initial: Brand }) {
           {busy === "read" || readPreview ? (
             <SiteReadingScene website={url} brief={readPreview} />
           ) : null}
-          <form className="brand-form" onSubmit={save}>
+          <form id="brand-brief-form" className="brand-form" onSubmit={save}>
+            <fieldset className="brand-fields" disabled={!!busy}>
             <div className="form-section-heading">
               <span className="hand">01</span>
               <h2>Your story</h2>
@@ -343,7 +389,9 @@ function BrandForm({ initial }: { initial: Brand }) {
                 <Check size={17} />
                 Save my brand
               </Button>
+              <Button type="submit" name="action" value="continue" disabled={!!busy}>Save and continue <ArrowUpRight size={17} /></Button>
             </div>
+            </fieldset>
           </form>
         </div>
         <aside className="brand-aside">

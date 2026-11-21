@@ -134,3 +134,21 @@ test('legacy checkout reconciliation permits terminal sessions only with no acti
  await assert.rejects(requestDeletion(db,user,async()=>({checkoutStatus:null,subscriptionStatuses:[]})),/needs reconciliation/);
  assert.equal((await db.query('SELECT id FROM account_deletions')).rows.length,0);
 });
+
+
+test('deletion adapter failures emit only a redacted retry event when alerts are enabled',async t=>{
+ flags(t);const {pg,db,user}=await fixture(t);
+ const previous=process.env.OPS_ALERTS_ENABLED; process.env.OPS_ALERTS_ENABLED='true';
+ t.after(()=>{if(previous===undefined)delete process.env.OPS_ALERTS_ENABLED;else process.env.OPS_ALERTS_ENABLED=previous;});
+ const logs:string[]=[];t.mock.method(console,'error',(value:string)=>logs.push(value));
+ await requestDeletion(db,user);await pg.exec("UPDATE account_deletions SET available_at=now(),provider_ids='[\"private-provider-id\"]'");
+ await runDeletionOnce(db,{...noop,deleteProviderRequest:async()=>{throw new Error('private-credential');}});
+ assert.equal(logs.length,1);
+ const event=JSON.parse(logs[0]);assert.equal(event.event,'inkshot_deletion_failed');assert.equal(event.count,1);
+ assert.deepEqual(Object.keys(event).sort(),['alert','count','event','reference']);
+ assert.match(event.reference,/^[0-9a-f-]{36}$/);
+ assert(!logs[0].includes('private-'));assert(!logs[0].includes(user.email));
+ process.env.OPS_ALERTS_ENABLED='false';await pg.exec('UPDATE account_deletions SET available_at=now()');
+ await runDeletionOnce(db,{...noop,deleteProviderRequest:async()=>{throw new Error('private-credential');}});
+ assert.equal(logs.length,1);
+});

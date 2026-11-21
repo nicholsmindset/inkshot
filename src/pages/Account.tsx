@@ -1,5 +1,5 @@
 import { AccountDeletion } from "./AccountDeletion";
-import {useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {api} from "../api";
 import {
   Check,
@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   KeyRound,
   ExternalLink,
+  FolderOpen,
 } from "lucide-react";
 import { useStudio } from "../context";
 import { Highlight, Button, Empty, Notice } from "../ui";
@@ -171,6 +172,7 @@ export function SettingsPage() {
       </div>
       <div className="settings-stack">
         <AccountDeletion enabled={Boolean(studio.accountDeletionEnabled)} />
+        <UploadStorage key={`${studio.user.id}:${studio.user.workspaceId}`} />
         <section className="settings-card">
           <h2>
             <ShieldCheck size={20} />
@@ -233,7 +235,7 @@ export function SettingsPage() {
             {studio.mode === 'live' ? 'About your studio' : 'About this preview'}
           </h2>
           <p>
-            {studio.mode === 'live' ? 'Your brand, campaigns and exports are saved in your private workspace.' : 'Your brand, campaigns and exports are saved in your private workspace. Sample video exports use a still image for five seconds; they are not AI-generated motion.'}
+            {studio.mode === 'live' ? 'Your brand, campaigns and exports are saved in your private workspace.' : 'Your brand, campaigns and exports are saved in your private workspace. Sample videos are still-image clips using the duration shown in your campaign. They are not AI-generated motion.'}
           </p>
           {studio.mode !== 'live' ? <p>Live generation and payments remain in launch testing.</p> : null}
           <a
@@ -249,4 +251,66 @@ export function SettingsPage() {
       </div>
     </>
   );
+}
+
+type StoredUpload = { id: string; sizeBytes: number | null; createdAt: string; inUse: boolean };
+function UploadStorage() {
+  const [uploads, setUploads] = useState<StoredUpload[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const epoch = useRef(0);
+  async function refreshUploads() {
+    const current = ++epoch.current;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api<{ uploads: StoredUpload[] }>("/uploads");
+      if (epoch.current === current) setUploads(result.uploads);
+    } catch (e) {
+      if (epoch.current === current) setError((e as Error).message);
+    } finally {
+      if (epoch.current === current) setLoading(false);
+    }
+  }
+  useEffect(() => {
+    void refreshUploads();
+    return () => { epoch.current++; };
+  }, []);
+  async function removeUpload(upload: StoredUpload) {
+    if (upload.inUse || deleting || !window.confirm("Permanently delete this unused upload? It cannot be restored. If it is selected in an unsaved brief, you will need to upload it again.")) return;
+    setDeleting(upload.id);
+    setError("");
+    setMessage("");
+    try {
+      await api(`/uploads/${encodeURIComponent(upload.id)}`, undefined, "DELETE");
+      setUploads(current => current?.filter(item => item.id !== upload.id) ?? null);
+      setMessage("Unused upload deleted.");
+      await refreshUploads();
+    } catch (e) { setError((e as Error).message); }
+    finally { setDeleting(""); }
+  }
+  const knownBytes = uploads?.reduce((sum, upload) => sum + (upload.sizeBytes ?? 0), 0) ?? 0;
+  const unknownSizes = uploads?.some(upload => upload.sizeBytes === null);
+  const size = (bytes: number | null) => bytes === null ? "Size not recorded" : `${(bytes / 1048576).toFixed(1)} MiB`;
+  return <section className="settings-card upload-storage" aria-labelledby="upload-storage-heading">
+    <h2 id="upload-storage-heading"><FolderOpen size={20} /> Your uploaded files</h2>
+    <p>Each workspace can keep up to 100 uploads and 250 MiB of uploaded files. Remove unused files to make room. Files used by a saved brand or campaign are protected from deletion.</p>
+    {uploads && <p><strong>{uploads.length} of 100 files · {unknownSizes ? "at least " : ""}{size(knownBytes)} of 250 MiB</strong></p>}
+    <Button type="button" variant="secondary" busy={loading} disabled={!!deleting} onClick={() => void refreshUploads()}>Refresh files</Button>
+    {error && <Notice>{error}</Notice>}
+    {message && <p role="status">{message}</p>}
+    {loading && uploads === null && <p role="status">Loading your uploads…</p>}
+    {uploads?.length === 0 && <p>No uploaded files yet.</p>}
+    {!!uploads?.length && <div className="table-wrap"><table>
+      <thead><tr><th scope="col">Upload</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+      <tbody>{uploads.map(upload => <tr key={upload.id}>
+        <td><a href={`/api/uploads/${encodeURIComponent(upload.id)}`} target="_blank" rel="noopener noreferrer">View file <span className="sr-only">{upload.id.slice(-8)} (opens in a new tab)</span></a><small>{new Date(upload.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</small></td>
+        <td>{size(upload.sizeBytes)}</td>
+        <td>{upload.inUse ? "In use or processing" : "Unused"}</td>
+        <td>{upload.inUse ? <span>Protected</span> : <Button type="button" variant="small secondary" busy={deleting === upload.id} disabled={!!deleting || loading} onClick={() => void removeUpload(upload)}>Delete<span className="sr-only"> unused file {upload.id.slice(-8)}</span></Button>}</td>
+      </tr>)}</tbody>
+    </table></div>}
+  </section>;
 }

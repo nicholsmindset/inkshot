@@ -70,6 +70,8 @@ export type Version = {
   motion_prompt?: string | null;
   video_duration_seconds?: number;
   first_frame_source?: "merchant_photo" | "generated" | "sample" | null;
+  reviewFingerprint?: string;
+  reviewed?: boolean;
   headline: string;
   cta: string;
   note: string;
@@ -98,6 +100,7 @@ export type Ledger = {
   created_at: string;
 };
 export type Studio = {
+  exportReviewRequired?: boolean;
   videoDurationSeconds?: number;
   user: User;
   brand: Brand;
