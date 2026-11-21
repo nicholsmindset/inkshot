@@ -1,5 +1,6 @@
 """Exercise the public campaign viewer against the built frontend in Chrome."""
 import os
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
@@ -7,6 +8,11 @@ from urllib.request import urlopen
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+
+def luminance(css_colour):
+    channels = [int(v) / 255 for v in re.findall(r"\d+", css_colour)[:3]]
+    linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in channels]
+    return sum(v * weight for v, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
 
 base = "http://127.0.0.1:4173"
 screens = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "inkshot-public"
@@ -47,6 +53,20 @@ with TemporaryDirectory() as downloads:
                         assert file.read_bytes() == urlopen(link.get_attribute("href")).read()
                 if path == "/":
                     driver.find_element(By.XPATH, "//button[normalize-space(.)='Image ad']").click()
+                    control = driver.find_element(By.CLASS_NAME, "home-control")
+                    background = luminance(control.value_of_css_property("background-color"))
+                    for heading in control.find_elements(By.CSS_SELECTOR, "h2, h2 em, h3"):
+                        foreground = luminance(heading.value_of_css_property("color"))
+                        assert (max(background, foreground) + .05) / (min(background, foreground) + .05) >= 4.5
+                    gallery = driver.find_element(By.CLASS_NAME, "social-gallery")
+                    assert len(gallery.find_elements(By.CLASS_NAME, "platform-label")) == 3
+                    assert "Facebook feed" in gallery.text and "Instagram feed" in gallery.text and "TikTok placement" in gallery.text
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'})", gallery)
+                    for img in gallery.find_elements(By.TAG_NAME, "img"):
+                        wait.until(lambda d: d.execute_script("return arguments[0].naturalWidth > 0", img))
+                    assert driver.execute_script("return document.documentElement.scrollWidth <= innerWidth"), (width, "social gallery")
+                    gallery.screenshot(str(screens / f"social-gallery-{width}.png"))
+                    control.screenshot(str(screens / f"control-contrast-{width}.png"))
                     workflow = driver.find_element(By.ID, "workflow")
                     steps = workflow.find_elements(By.CSS_SELECTOR, ".workflow-selector button")
                     assert len(steps) == 4

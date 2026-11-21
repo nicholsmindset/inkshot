@@ -7,6 +7,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { BrandMark, Highlight, Button, Field, Notice } from "../ui";
+import { SocialAdExamples } from "./SocialAdExamples";
 import { WorkflowDemo } from "./WorkflowDemo";
 import { CampaignExample } from "./CampaignExample";
 import { api } from "../api";
@@ -107,11 +108,7 @@ export function Landing() {
       </section>
       <section className="home-output" aria-labelledby="output-heading">
         <div className="home-section-heading"><div><span className="home-eyebrow">ONE OFFER. DIFFERENT WAYS TO TELL IT.</span><h2 id="output-heading">A campaign that<br /><em>looks like it belongs together.</em></h2></div><a href="#examples" className="brief-start">Try the sample downloads <ArrowRight size={17} /></a></div>
-        <div className="home-output-grid">
-          <figure><div className="output-image"><img src="/examples/bakery-image.jpg" width="1080" height="1350" loading="lazy" alt="Portrait strawberry shortcake image ad for June Bakery" /></div><figcaption><span>01 / IMAGE ADS</span><h3>Put your offer in focus.</h3><p>Product-led visuals with a headline and a clear next step.</p></figcaption></figure>
-          <figure><div className="output-image output-video"><img src="/examples/bakery-poster.webp" width="1080" height="1920" loading="lazy" alt="Vertical bakery video sample poster" /><a href="#examples" aria-label="Explore the bakery video sample">Explore video sample <ArrowUpRight size={16} /></a></div><figcaption><span>02 / VERTICAL VIDEO</span><h3>Give your story a little room.</h3><p>Portrait video creatives. The demo above is a five-second still preview.</p></figcaption></figure>
-          <figure><div className="output-image output-social"><img src="/examples/bakery-post.jpg" width="1080" height="1080" loading="lazy" alt="Square June Bakery social post featuring a strawberry shortcake" /></div><figcaption><span>03 / SOCIAL POSTS</span><h3>Keep the conversation going.</h3><p>Feed-ready images and editable captions for your own channels.</p></figcaption></figure>
-        </div>
+        <SocialAdExamples />
       </section>
       <section className="home-control" aria-labelledby="control-heading"><div><span className="home-eyebrow">AI MAKES THE DRAFT. YOU MAKE THE CALL.</span><h2 id="control-heading">Your brand deserves<br /><em>the final say.</em></h2><p>Inkshot helps you create advertising assets. You decide what is accurate, what feels right and what gets published.</p></div><ul><li><Check /><div><h3>Approve before generation</h3><p>See the brief, prompts and credit cost before you commit.</p></div></li><li><Check /><div><h3>Keep your product recognisable</h3><p>Bring your own product photo and check the result before downloading.</p></div></li><li><Check /><div><h3>Refine without starting over</h3><p>Edit headlines and captions, keep version history and review the latest creative.</p></div></li></ul></section>
       <section id="pricing" className="pricing-section">

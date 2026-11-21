@@ -5,6 +5,7 @@ on:
       - 'src/pages/Public.tsx'
       - 'src/pages/CampaignExample.tsx'
       - 'src/pages/WorkflowDemo.tsx'
+      - 'src/pages/SocialAdExamples.tsx'
       - 'src/pages/public-studio.css'
       - 'src/styles.css'
       - 'public/examples/**'
