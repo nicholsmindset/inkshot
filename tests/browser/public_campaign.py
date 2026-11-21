@@ -51,7 +51,8 @@ with TemporaryDirectory() as downloads:
                     logo = brief.find_element(By.CSS_SELECTOR, "img")
                     wait.until(lambda d: d.execute_script("return arguments[0].naturalWidth > 0", logo))
                     assert not brief.find_elements(By.CSS_SELECTOR, "a[href^='http']")
-                    assert "Smart Calculator" in brief.text and "#B7102A" in brief.text
+                    assert "June Bakery" in brief.text and "Pre-order by Friday" in brief.text
+                    assert "Smart Calculator" not in driver.find_element(By.TAG_NAME, "body").text
                     driver.execute_script("arguments[0].scrollIntoView({block:'center'})", brief)
                     brief.screenshot(str(screens / f"brand-brief-{width}.png"))
                     brief.find_element(By.LINK_TEXT, "Start with my website").click()

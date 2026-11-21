@@ -38,13 +38,13 @@ export function Landing() {
     }
   }
   return (
-    <div className="landing">
+    <div className="landing landing-premium">
       <nav className="landing-nav">
         <Link to="/">
           <BrandMark />
         </Link>
         <div className="landing-nav-center">
-          <a href="#how">Example brief</a>
+          <a href="#how">How it works</a>
           <a href="#examples">Sample campaign</a>
           <a href="#pricing">Pricing</a>
           <a href="#questions">Questions</a>
@@ -60,15 +60,15 @@ export function Landing() {
       </nav>
       <section className="hero">
         <div className="hero-copy">
+          <div className="home-eyebrow"><span /> YOUR SMALL BUSINESS. YOUR CREATIVE STUDIO.</div>
           <h1>
-            Ad creative for{" "}
+            Your next offer.{" "}
             <Highlight>
-              <em>small businesses.</em>
+              <em>A whole campaign.</em>
             </Highlight>
           </h1>
           <p>
-            Turn one offer into image ads, vertical video ads and social posts with captions.
-            Explore a sample kit, then enter your website to start your own free campaign brief.
+            Turn your website and product photos into image ads, vertical videos and social posts. One brief. A consistent look. Copy you can make your own.
           </p>
           <label className="website-label" htmlFor="hero-website">Your business website</label>
           <form className="hero-website" onSubmit={startWithWebsite}>
@@ -85,51 +85,52 @@ export function Landing() {
             {studio ? "Opens in your brand workspace." : "Create a free account to review and save your brief."}
           </div>
         </div>
-        <CampaignExample />
+        <div className="hero-demo"><div className="demo-caption"><span>FROM A SINGLE OFFER</span><span>Try the formats below ↙</span></div><CampaignExample /><p className="demo-disclosure">Fictional bakery campaign · Downloadable samples · Video is a still preview</p></div>
+      </section>
+      <div className="deliverable-strip" aria-label="What is in a campaign kit"><span>ONE CAMPAIGN KIT</span><strong>3 video ads</strong><span aria-hidden="true">+</span><strong>3 image ads</strong><span aria-hidden="true">+</span><strong>3 social posts</strong><span className="strip-note">Captions included. Yours to review.</span></div>
+      <section className="home-workflow" aria-labelledby="workflow-heading">
+        <div className="home-section-heading"><div><span className="home-eyebrow">LESS STARTING FROM SCRATCH</span><h2 id="workflow-heading">From “what do I post?”<br /><em>to a campaign you can use.</em></h2></div><p>For the new product, the weekend offer, or the service you want more people to discover.</p></div>
+        <ol className="home-workflow-steps">
+          <li><span>01 / THE BUSINESS</span><h3>Bring your website.</h3><p>Start with public pages and your own product photos. Review the brand details before moving on.</p></li>
+          <li><span>02 / THE IDEA</span><h3>Make the brief yours.</h3><p>Choose your offer and ad angles. Edit the words and prompts before spending generation credits.</p></li>
+          <li><span>03 / THE CAMPAIGN</span><h3>Review. Refine. Download.</h3><p>Check each creative, adjust its copy and download the finished files for your own channels.</p></li>
+        </ol>
       </section>
       <section id="how" className="how-section" aria-labelledby="brief-heading">
         <div className="brief-intro">
-          <h2 id="brief-heading">Your website becomes<br /><em>the creative brief.</em></h2>
-          <p>Inkshot read Smart Calculator’s homepage and About page to build this profile. Review the details, then choose the offer you want to advertise.</p>
+          <span className="home-eyebrow">A BRIEF WITH YOUR BUSINESS IN IT</span>
+          <h2 id="brief-heading">Your product.<br /><em>The starting point.</em></h2>
+          <p>A good campaign starts with a clear offer. Keep your product, audience and brand details together, then review the creative direction before making ads.</p>
+          <p className="brief-example-note">Meet June Bakery: our fictional example of a weekend shortcake campaign.</p>
           <a className="brief-start" href="#hero-website">Start with my website <ArrowRight size={17} aria-hidden="true" /></a>
         </div>
-        <article className="campaign-example brand-sheet" aria-label="Smart Calculator sample brand brief">
-          <header className="example-heading">
-            <span>Sample brand brief</span>
-            <b>Smart Calculator</b>
-          </header>
-          <div className="brief-identity">
-            <img src="/examples/smart-calculator-icon.svg" alt="Smart Calculator’s red SG site icon" width="68" height="68" />
-            <div>
-              <span>smartcalculator.sg</span>
-              <h3>Smart Calculator</h3>
-            </div>
-          </div>
-          <div className="brief-facts">
-            <div>
-              <h4>What it offers</h4>
-              <p>Free Singapore calculators for CPF, tax, housing and everyday decisions.</p>
-            </div>
-            <div className="brief-palette">
-              <h4>Brand colour</h4>
-              <p><span className="brand-chip" aria-hidden="true" /><code>#B7102A</code></p>
-            </div>
-          </div>
-          <footer className="brief-provenance">
-            <span>Imported from</span>
-            <strong>Homepage &amp; About page</strong>
-          </footer>
+        <article className="campaign-example brand-sheet bakery-brief" aria-label="June Bakery fictional campaign brief">
+          <header className="example-heading"><span>THE CAMPAIGN BRIEF</span><b>Sample · June Bakery</b></header>
+          <div className="bakery-brief-product"><img src="/examples/strawberry-cake.webp" alt="Strawberry shortcake used in the June Bakery sample campaign" width="180" height="180" loading="lazy" /><div><span>JUNE BAKERY</span><h3>A little celebration,<br />made from scratch.</h3><p>Fresh strawberries. Vanilla sponge. Weekend plans, sorted.</p></div></div>
+          <dl className="bakery-brief-details"><div><dt>The offer</dt><dd>Weekend strawberry shortcakes.<br />Pre-order by Friday.</dd></div><div><dt>The audience</dt><dd>Local customers planning a birthday, a gathering or a weekend treat.</dd></div><div><dt>The voice</dt><dd><span className="voice-tag">Warm</span><span className="voice-tag">Simple</span><span className="voice-tag">Celebratory</span></dd></div><div><dt>The palette</dt><dd className="bakery-swatches"><span style={{background:'#29483d'}} aria-label="Forest green" /><span style={{background:'#f4eee2'}} aria-label="Cream" /><span style={{background:'#b34d42'}} aria-label="Strawberry red" /><span>Inspired by the sample</span></dd></div></dl>
+          <footer className="brief-provenance"><Check size={16} aria-hidden="true" /><span>You review the details before generation.</span></footer>
         </article>
       </section>
+      <section className="home-output" aria-labelledby="output-heading">
+        <div className="home-section-heading"><div><span className="home-eyebrow">ONE OFFER. DIFFERENT WAYS TO TELL IT.</span><h2 id="output-heading">A campaign that<br /><em>looks like it belongs together.</em></h2></div><a href="#examples" className="brief-start">Try the sample downloads <ArrowRight size={17} /></a></div>
+        <div className="home-output-grid">
+          <figure><div className="output-image"><img src="/examples/bakery-image.jpg" width="1080" height="1350" loading="lazy" alt="Portrait strawberry shortcake image ad for June Bakery" /></div><figcaption><span>01 / IMAGE ADS</span><h3>Put your offer in focus.</h3><p>Product-led visuals with a headline and a clear next step.</p></figcaption></figure>
+          <figure><div className="output-image output-video"><img src="/examples/bakery-poster.webp" width="1080" height="1920" loading="lazy" alt="Vertical bakery video sample poster" /><a href="#examples" aria-label="Explore the bakery video sample">Explore video sample <ArrowUpRight size={16} /></a></div><figcaption><span>02 / VERTICAL VIDEO</span><h3>Give your story a little room.</h3><p>Portrait video creatives. The demo above is a five-second still preview.</p></figcaption></figure>
+          <figure><div className="output-image output-social"><img src="/examples/bakery-post.jpg" width="1080" height="1080" loading="lazy" alt="Square June Bakery social post featuring a strawberry shortcake" /></div><figcaption><span>03 / SOCIAL POSTS</span><h3>Keep the conversation going.</h3><p>Feed-ready images and editable captions for your own channels.</p></figcaption></figure>
+        </div>
+      </section>
+      <section className="home-control" aria-labelledby="control-heading"><div><span className="home-eyebrow">AI MAKES THE DRAFT. YOU MAKE THE CALL.</span><h2 id="control-heading">Your brand deserves<br /><em>the final say.</em></h2><p>Inkshot helps you create advertising assets. You decide what is accurate, what feels right and what gets published.</p></div><ul><li><Check /><div><h3>Approve before generation</h3><p>See the brief, prompts and credit cost before you commit.</p></div></li><li><Check /><div><h3>Keep your product recognisable</h3><p>Bring your own product photo and check the result before downloading.</p></div></li><li><Check /><div><h3>Refine without starting over</h3><p>Edit headlines and captions, keep version history and review the latest creative.</p></div></li></ul></section>
       <section id="pricing" className="pricing-section">
         <div>
-          <h2>{publicStatus.billingMode === "live" ? "Studio pricing" : "Planned Studio pricing"}</h2>
+          <span className="home-eyebrow">START WITH THE BRIEF</span>
+          <h2>See the direction.<br /><em>Then make the campaign.</em></h2>
           <p>Import your site and review your brand brief for free.
             Each nine-asset kit uses 100 credits when you approve it.</p>
+          <div className="free-brief-note"><Check size={20} /><div><strong>Your brand brief is free.</strong><p>Create an account, bring your website and review the details before subscribing.</p></div></div>
         </div>
         <div className="pricing-card">
           <div className="pricing-title">
-            <span>Studio</span>
+            <span>Studio</span><span className="plan-status">{publicStatus.billingMode === "live" ? "Monthly plan" : "Planned pricing"}</span>
   
           </div>
           <div className="price">
@@ -159,14 +160,16 @@ export function Landing() {
         </div>
       </section>
       <section id="questions" className="questions-section">
-        <h2>Before you begin.</h2>
+        <span className="home-eyebrow">A FEW THINGS WORTH KNOWING</span><h2>Before you begin.</h2>
         <div className="question-list">
+          <details><summary>Will Inkshot run my advertising campaigns?</summary><p>Inkshot creates creative assets for you to review and download. You publish them through your own social or advertising accounts. Media buying and guaranteed campaign results are not included.</p></details>
           <details><summary>Do you need access to my website account?</summary><p>No. Inkshot reads public pages from the URL you provide. You can edit the brief and upload your own photos.</p></details>
           <details><summary>Can I change the words before making ads?</summary><p>Yes. Review your brand brief and campaign ideas before generation. Headline edits to finished assets do not use generation credits.</p></details>
           <details><summary>What happens if an asset fails?</summary><p>Successful assets remain available. Credits for an asset that could not be completed are returned to your workspace.</p></details>
           <details><summary>How are generation credits used?</summary><p>One nine-asset kit uses 100 credits. The Studio plan includes 300 monthly credits. We show the credit cost before you approve generation.</p></details>
         </div>
       </section>
+      <section className="home-closing"><span className="home-eyebrow">YOUR NEXT CAMPAIGN STARTS HERE</span><h2>Something worth selling.<br /><em>Now give it something worth seeing.</em></h2><a href="#hero-website" className="button">Build my free brief <ArrowUpRight size={17} /></a><p>Start with your website. Keep control of the creative.</p></section>
       <footer className="landing-footer">
         <TrustLinks />
         <BrandMark />
