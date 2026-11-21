@@ -3625,3 +3625,35 @@ th:last-child {
 .campaign-downloads label { display: grid; gap: .35rem; font-size: .875rem; }
 .campaign-downloads select { width: 100%; }
 .campaign-downloads small { color: var(--muted, #66645d); line-height: 1.5; }
+
+/* Essential studio instructions must stay readable at mobile sizes. */
+.brand-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.brand-save-status { color: #45463c; font-size: 14px; line-height: 1.6; margin: 0 0 24px; }
+.brand-form .form-actions { flex-wrap: wrap; }
+.app-shell .field > small,
+.app-shell .form-footnote,
+.app-shell .editor-controls > .muted,
+.app-shell .campaign-downloads small { font-size: 13px; line-height: 1.6; color: #55564c; }
+.app-shell .caption p { font-size: 15px; line-height: 1.7; color: #45463c; }
+.app-shell .settings-card p,
+.app-shell .plan-card ul li { font-size: 14px; line-height: 1.7; }
+.app-shell td, .app-shell td strong { font-size: 14px; }
+.app-shell td small { font-size: 12px; line-height: 1.5; }
+.mobile-header .icon-button { min-width: 44px; min-height: 44px; }
+.export-review { margin-top: 24px; padding: 22px; border: 1px solid #d6dccd; border-radius: 8px; background: #f4f6ee; }
+.export-review h3 { margin: 0 0 12px; font-size: 20px; }
+.export-review p { font-size: 14px; line-height: 1.6; color: #45463c; }
+.export-review fieldset { margin: 18px 0; padding: 0; border: 0; min-width: 0; }
+.export-review legend { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.export-review label { min-height: 44px; align-items: flex-start; font-size: 14px; line-height: 1.5; padding: 6px 0; }
+.export-review input[type="checkbox"] { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; accent-color: #345943; }
+.settings-card.upload-storage > .table-wrap { display: block; overflow-x: auto; padding: 0; margin-top: 20px; }
+.upload-storage table { min-width: 480px; }
+.upload-storage .notice { margin-top: 16px; }
+@media (max-width: 650px) {
+  .app-shell .field > small, .app-shell .editor-controls > .muted,
+  .app-shell .campaign-downloads small { font-size: 14px; }
+  .app-shell input:not([type="color"]), .app-shell textarea, .app-shell select { font-size: 16px; }
+  .app-shell .form-actions .button { min-height: 44px; }
+  .app-shell .sidebar nav > a { min-height: 44px; }
+}

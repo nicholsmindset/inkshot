@@ -77,6 +77,30 @@ test('failed durable writes return retryable failure and disabled webhooks do no
   await wakeProviderJobs(db);assert.equal(called,1);
 });
 
+test('multi-workspace wakeup locks workspaces before touching queued jobs',async t=>{
+  enabled(t);const db=await fixture(t);
+  await db.query("INSERT INTO workspaces(id) VALUES('aaa')");
+  await db.query("INSERT INTO campaigns(id,workspace_id,name,goal,concepts,brand,mock) VALUES('kit2','aaa','Kit','Sales','[]','{}',true)");
+  await db.query("INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format) VALUES('asset2','aaa','kit2','image','Image','4:5')");
+  await db.query("INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,mock) VALUES('version2','asset2','aaa',1,'Photo','Headline','CTA',true)");
+  await db.query("INSERT INTO jobs(id,version_id,workspace_id,available_at) VALUES('job2','version2','aaa',now()+interval '1 hour')");
+  // Both callbacks arrive before the provider receipts are persisted.
+  await acceptProviderWebhook(db,raw,signed(raw));
+  const second=Buffer.from('{"request_id":"receipt2","status":"failed"}');
+  await acceptProviderWebhook(db,second,signed(second,'msg_second'));
+  await db.query("INSERT INTO provider_spend(request_key,input_hash,usd,provider_request_id) VALUES('version:image','hash',1,'receipt'),('version2:image','hash2',1,'receipt2')");
+  const calls:{sql:string;params:unknown[]|undefined}[]=[];
+  const observed={...db,transaction:async(fn:Parameters<Database['transaction']>[0])=>db.transaction(tx=>fn({
+    query:async(sql:string,params?:unknown[])=>{calls.push({sql,params});return tx.query(sql,params);},
+  }))} as Database;
+  await wakeProviderJobs(observed);
+  assert.match(calls[0].sql,/SELECT w.id FROM workspaces/);
+  assert.match(calls[0].sql,/ORDER BY w.id FOR UPDATE/);
+  assert.deepEqual(calls.filter(call=>call.sql.startsWith('UPDATE jobs')).map(call=>call.params),[['aaa'],['ws']]);
+  assert.deepEqual((await db.query("SELECT id,available_at<=now() AS ready FROM jobs ORDER BY id")).rows,
+    [{id:'job',ready:true},{id:'job2',ready:true}]);
+});
+
 test('HTTP route verifies raw JSON and bypasses customer session and cross-site checks',async t=>{
   enabled(t);const db=await fixture(t);
   const server=createApp(db).listen(0,'127.0.0.1'); await new Promise<void>(resolve=>server.once('listening',resolve));

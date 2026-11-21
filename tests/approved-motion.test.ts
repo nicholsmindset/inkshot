@@ -89,7 +89,8 @@ test('approved merchant photo is the signed first frame, uses saved duration, an
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (url.origin === 'https://photo-fixture.supabase.co') {
       assert.equal(url.pathname, '/storage/v1/object/sign/brand-uploads/merchant/photo.jpg');
-      assert.equal(body.expiresIn, 600); signed++;
+      // Provider input must survive its bounded generation window; customer downloads remain ten minutes.
+      assert.equal(body.expiresIn, 3600); signed++;
       return Response.json({ signedURL: '/object/sign/brand-uploads/merchant/photo.jpg?token=test-signed-photo' });
     }
     assert.equal(url.origin, 'https://api.higgsfield.ai');

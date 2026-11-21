@@ -138,7 +138,7 @@ export function Landing() {
           <p>Enough credits for three complete kits.</p>
           <ul>
             {[
-              "300 generation credits each month",
+              "Each monthly payment tops your balance up to 300 credits",
               "3 videos, 3 images and 3 posts per kit",
               "Headline edits included",
               "Version history and finished downloads",

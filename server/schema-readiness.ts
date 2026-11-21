@@ -7,6 +7,7 @@ export const schemaReadinessCodes = [
   "SCHEMA_ACCOUNT_DELETION_REQUIRED",
   "SCHEMA_PROVIDER_EVENTS_REQUIRED",
   "SCHEMA_CAMPAIGN_EXPORTS_REQUIRED",
+  "SCHEMA_LAUNCH_SAFEGUARDS_REQUIRED",
 ] as const;
 type SchemaCode = (typeof schemaReadinessCodes)[number];
 
@@ -20,6 +21,11 @@ export class SchemaReadinessError extends Error {
 // migrate a hosted database or let a public table stand in for a missing live one.
 export async function verifySchemaReadiness(db: Queryable, shared = false) {
   const requirements = [
+    { table_name: "uploads", column_name: "size_bytes", column_type: "bigint", code: schemaReadinessCodes[6] },
+    { table_name: "billing_accounts", column_name: "spend_blocked", column_type: "boolean", code: schemaReadinessCodes[6] },
+    { table_name: "billing_accounts", column_name: "spend_block_reason", column_type: "text", code: schemaReadinessCodes[6] },
+    { table_name: "versions", column_name: "review_fingerprint", column_type: "text", code: schemaReadinessCodes[6] },
+    { table_name: "versions", column_name: "reviewed_at", column_type: "timestamp with time zone", code: schemaReadinessCodes[6] },
     { table_name: "provider_events", column_name: "webhook_id", column_type: "text", code: schemaReadinessCodes[4] },
     { table_name: "provider_events", column_name: "body_hash", column_type: "text", code: schemaReadinessCodes[4] },
     { table_name: "campaign_exports", column_name: "manifest", column_type: "jsonb", code: schemaReadinessCodes[5] },

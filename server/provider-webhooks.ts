@@ -56,10 +56,18 @@ async function matchEvents(tx: Queryable) {
   // The provider may deliver before its submit response is recorded locally.
   // Keep unmatched events and retry the join from the worker. Never interrupt a
   // leased job or revive a completed/refunded version.
-  await tx.query(`UPDATE jobs j SET available_at=least(j.available_at,now())
-    WHERE j.state='queued' AND EXISTS (
+  // Child-write triggers lock workspaces. Lock every candidate workspace first,
+  // in stable order, so a generation/deletion transaction cannot deadlock with
+  // this multi-workspace wake-up while holding its workspace and waiting on jobs.
+  const workspaces = (await tx.query<{ id: string }>(`SELECT w.id FROM workspaces w
+    WHERE EXISTS (SELECT 1 FROM jobs j WHERE j.workspace_id=w.id AND j.state='queued' AND EXISTS (
       SELECT 1 FROM provider_events e JOIN provider_spend s ON s.provider_request_id=e.request_id
-      WHERE e.matched_at IS NULL AND s.request_key IN (j.version_id||':image',j.version_id||':video'))`);
+      WHERE e.matched_at IS NULL AND s.request_key IN (j.version_id||':image',j.version_id||':video')))
+    ORDER BY w.id FOR UPDATE`)).rows;
+  for (const workspace of workspaces) await tx.query(`UPDATE jobs j SET available_at=least(j.available_at,now())
+    WHERE j.workspace_id=$1 AND j.state='queued' AND EXISTS (
+      SELECT 1 FROM provider_events e JOIN provider_spend s ON s.provider_request_id=e.request_id
+      WHERE e.matched_at IS NULL AND s.request_key IN (j.version_id||':image',j.version_id||':video'))`, [workspace.id]);
   await tx.query(`UPDATE provider_events e SET matched_at=now()
     WHERE matched_at IS NULL AND EXISTS (SELECT 1 FROM provider_spend s WHERE s.provider_request_id=e.request_id)`);
 }

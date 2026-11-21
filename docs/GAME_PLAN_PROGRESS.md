@@ -1,8 +1,44 @@
 # Inkshot game-plan progress
 
-Updated 20 November 2026 (Singapore). Source: the supplied `INKSHOT_GAME_PLAN.md`.
 
-Phase 1 code is prepared in draft PRs and deployed to the hosted preview. Four pending migrations were applied to the fresh sandbox project. This is **not launch acceptance**: production settings, live payment switches, real deletions and paid provider calls remain untouched. The final combined branch is `inkshot/phase-one-integration`. The latest checkpoint below supersedes earlier dated access-blocker notes.
+**21 November verification:** 149 tests passed, production build and TypeScript passed, diff checks passed. Sandbox safeguard columns and restricted runtime privileges verified; security advisor returned no findings. Preview deployment verification is recorded in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). These are not paid-provider or production acceptance results.
+
+Updated 21 November 2026. Source: the supplied `INKSHOT_GAME_PLAN.md`. Branch: `inkshot/phase-one-integration`.
+
+## Current checkpoint — audit remediation
+
+**Implemented does not mean hosted or production accepted.** The current working changes address the full-audit findings below. Final integrated checks and deployment evidence must be recorded for this exact revision before marking the corresponding acceptance items complete. Earlier counts, deployments and access failures are historical snapshots, not current release evidence.
+
+| Area | Implemented in the remediation | Acceptance still required |
+| --- | --- | --- |
+| Provider jobs | Invocation deadlines, durable retry/reservation safeguards, recovery of known provider receipts and conservative handling of ambiguous submissions | Hosted crash/retry recovery and an approved capped provider run; verify webhook secret, training opt-out, output quality/duration and actual-charge reconciliation |
+| Payments | Verified refund/dispute events create a spending hold that later renewals do not clear; checkout/generation/deletion respect the hold; Stripe preflight requires both events | Add `charge.refunded` and `charge.dispute.created` to the existing endpoint in place, run Stripe test-mode acceptance, approve refund economics and audited release workflow; see [PAYMENT_REVIEW.md](PAYMENT_REVIEW.md) |
+| Uploads | Per-workspace limits of 100 files/250 MiB, 10 MiB per file, transactional reservations, owned unused-upload listing/deletion and Settings recovery controls | Apply schema migration; prove concurrent upload/deletion isolation and hosted storage cleanup. These safety limits are not paid-plan entitlements |
+| Creative review and export | Explicit human review recorded against a content fingerprint, invalidation on changed content and server-side download/export enforcement; safer rendering and archive handling | Hosted changed-version/caption/destination checks, private large/expired downloads and human review of pilot creative. This does not authenticate certificates or inspect every pixel |
+| Operations | Redacted alert delivery, bounded/deduplicated notifications, stuck-job/payment-review/reconciliation signals and runtime scheduling safeguards | Select destination, configure it, prove receipt and outage behavior; local fixtures do not demonstrate operator notification |
+| Studio and navigation | Workspace/user-scoped session draft recovery, reread replacement confirmation, save-and-continue, mobile disclosure/focus/Escape behavior, visible-page polling and recovery controls | Actual desktop/mobile keyboard and assistive-technology checks, reload/navigation/draft recovery and a complete hosted campaign journey |
+| Commercial copy | Correct campaign-duration description and monthly credit top-up wording | Approve SGD pricing and monthly regeneration cap before changing prices or claiming that phase complete |
+
+### Migration and verification status
+
+The new additive `20261121063442_launch_safeguards.sql` migration adds billing holds, upload byte accounting and review metadata in both existing `public` and `inkshot_live` schemas. Existing uploads receive a conservative size charge until inventory is measured. Startup schema checks are updated. Applied to the fresh sandbox on 21 November; all five column types were verified and the Supabase security advisor returned no findings. The migration filename matches the hosted migration history. No production schema was changed; application-level hosted acceptance remains open.
+
+Focused regression tests have been added alongside the fixes. The final combined result is deliberately not asserted here until the integration run finishes. No production change, live charge, paid generation, real refund/dispute or approved policy decision is implied by code or fixture tests.
+
+### Release gates still open
+
+1. Complete signup, delivered email confirmation, returning login, reset, session expiry and logout with a controlled mailbox on the intended hosted preview. Continue through campaign approval, mock generation and owned downloads.
+2. Verify provider signing configuration and exclusion from training; obtain actual invoice/charge evidence or approve an auditable manual reconciliation process. A capped real-provider trial requires separate approval.
+3. Approve SGD prices and a monthly video-regeneration cap, then implement/test them. Existing USD prices remain unchanged.
+4. Confirm operator identity, a working support/contact mailbox, policies, retention/refund terms and an audited payment-hold release procedure. Do not present a draft address as verified.
+5. Configure and test the alert destination and the two new Stripe webhook events in test mode. Preserve payment-off switches during rehearsal.
+6. Accept hosted schema, upload quotas/cleanup, review gates, deletion isolation, mobile behavior and expiring/large downloads. Rehearse restore and rollback, resolve production startup/configuration, and obtain a separate cutover decision before enabling live payments or generation.
+
+Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` and `ALLOW_LIVE_GENERATION=false` for the no-spend rehearsal. Phase 2 pilot and Phase 3 research validation remain open; remediation is not blanket completion of the original plan.
+
+## Historical implementation record — through 20 November 2026
+
+The following sections preserve earlier evidence and review order. Their claims and counts apply to the named revision/date only; the current checkpoint above takes precedence.
 
 ## Review order
 
@@ -20,7 +56,7 @@ These PRs are stacked; review and merge their prerequisites in order, then retar
 | Combined acceptance | `inkshot/phase-one-integration` | New-table startup diagnostics, bounded read-only billing checks, correct video revision payloads, updated isolated acceptance script | CI passed; preview startup passed; hosted user journeys remain |
 | P1-7 cutover | [#31](https://github.com/nicholsmindset/inkshot/pull/31) | Separate live-project runbook, payment-off rehearsal, backups and rollback gates | Owner-controlled execution after preview acceptance; this docs PR can be reviewed separately after #30 |
 
-## Verification completed
+## Historical verification completed
 
 Final combined implementation at `50d9d8f`:
 
@@ -50,7 +86,7 @@ Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` an
 
 [Higgsfield's usage documentation](https://docs.higgsfield.ai/docs/enterprise/usage-and-billing) says `/models/usage` exposes estimated cost and is not an invoice source. The implementation keeps estimates and explicitly reports that actual-charge reconciliation is unsupported. A documented invoice/billing feed or an approved manual reconciliation process is required before calling this item complete.
 
-## Next acceptance work
+## Historical acceptance work
 
 1. Completed: restore preview project access and configure the integration branch without enabling production or billing.
 2. Migrations and restricted-role startup completed. Verify private-bucket behavior through owned and foreign-user download tests.

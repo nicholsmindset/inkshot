@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS provider_spend(request_key text PRIMARY KEY,input_has
 ALTER TABLE provider_spend ADD COLUMN IF NOT EXISTS provider_request_id text;
 
 ALTER TABLE public.billing_accounts ADD COLUMN IF NOT EXISTS last_allowance_invoice_created bigint NOT NULL DEFAULT 0;
+ALTER TABLE billing_accounts ADD COLUMN IF NOT EXISTS spend_blocked boolean NOT NULL DEFAULT false;
+ALTER TABLE billing_accounts ADD COLUMN IF NOT EXISTS spend_block_reason text;
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS size_bytes bigint NOT NULL DEFAULT 10485760 CHECK(size_bytes>=0);
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS review_fingerprint text;
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS writing_daily_usage (
   usage_day date NOT NULL,

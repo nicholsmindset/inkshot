@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
-import { mkdtemp, writeFile, rm, readFile, access } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile, access, truncate } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { createDatabase } from '../server/db.js';
 import { config } from '../server/config.js';
 import { runWorkerOnce } from '../server/worker.js';
 import { createApp } from '../server/app.js';
-import { requestCampaignExport, findCampaignExport, runExportOnce } from '../server/campaign-exports.js';
+import { requestCampaignExport, findCampaignExport, runExportOnce, campaignExportFailureCode } from '../server/campaign-exports.js';
 import { materializeMedia, signedMediaUrl, SIGNED_MEDIA_TTL_SECONDS } from '../server/storage.js';
 
 async function fixture(t: {after: (fn:()=>Promise<void>)=>void}) {
@@ -214,4 +214,68 @@ test('job-local media preserves bucket and owner paths for identical filenames',
   assert.equal(file,path.join(destination,sources[index].bucket,sources[index].owner,'same.jpg'));
   assert((await readFile(file,'utf8')).endsWith(`/${sources[index].bucket}/${sources[index].owner}/same.jpg`));
  }
+});
+
+test('oversized immutable archives fail once with a safe actionable code',async t=>{
+ const {dir,db,workspace,campaign,asset}=await fixture(t);
+ const file=path.join(dir,'large.mp4');await writeFile(file,'');await truncate(file,96*1024*1024);
+ await asset('video',file,'A large video');
+ const queued=await requestCampaignExport(db,campaign,workspace,'video');
+ assert(await runExportOnce(db));
+ const failed=await findCampaignExport(db,queued.id,workspace);
+ assert.equal(failed.state,'failed');assert.equal(failed.attempts,1);
+ assert.equal(campaignExportFailureCode(failed),'archive_too_large');
+ const repeated=await requestCampaignExport(db,campaign,workspace,'video');
+ assert.equal(repeated.id,queued.id);assert.equal(repeated.state,'failed');assert.equal(repeated.attempts,1);
+ assert.equal(await runExportOnce(db),false);
+ await assert.rejects(access(path.join(dir,'exports',queued.id)),{code:'ENOENT'});
+ // A changed selected manifest can be attempted rather than permanently freezing
+ // the entire campaign's future exports.
+ await db.query("UPDATE assets SET caption='New selected manifest' WHERE campaign_id=$1",[campaign]);
+ const changed=await requestCampaignExport(db,campaign,workspace,'video');
+ assert.notEqual(changed.id,queued.id);assert.equal(changed.state,'queued');
+});
+
+test('export requests require selected version reviews and recheck changed caption evidence',async t=>{
+ const {dir,db,workspace,campaign,asset}=await fixture(t);
+ const old=process.env.ENABLE_EXPORT_REVIEW;process.env.ENABLE_EXPORT_REVIEW='true';
+ t.after(()=>{if(old===undefined)delete process.env.ENABLE_EXPORT_REVIEW;else process.env.ENABLE_EXPORT_REVIEW=old;});
+ const file=path.join(dir,'approved.jpg');await writeFile(file,'photo');
+ const vid=await asset('image',file,'Approved caption');
+ await assert.rejects(requestCampaignExport(db,campaign,workspace,'image'),/Review each selected/);
+ const {ownedReview}=await import('../server/asset-review.js');
+ const review=await ownedReview(db,workspace,vid);
+ await db.query('UPDATE versions SET review_fingerprint=$2 WHERE id=$1',[vid,review.fingerprint]);
+ const queued=await requestCampaignExport(db,campaign,workspace,'image');assert.equal(queued.state,'queued');
+ await db.query("UPDATE assets SET caption='Different caption needs review' WHERE campaign_id=$1",[campaign]);
+ await assert.rejects(requestCampaignExport(db,campaign,workspace,'image'),/Review each selected/);
+});
+
+test('archive request, claim and completion use workspace-first locks without table locks',async t=>{
+ const {dir,db,workspace,campaign,asset}=await fixture(t);
+ const file=path.join(dir,'lock-order.jpg');await writeFile(file,'photo');await asset('image',file,'Caption');
+ const sequences:string[][]=[];
+ const guarded:typeof db={...db,transaction:fn=>db.transaction(async tx=>{
+  const statements:string[]=[];sequences.push(statements);
+  return fn({query:async <T>(sql:string,params?:unknown[])=>{
+   statements.push(sql);
+   assert(!/LOCK TABLE/i.test(sql),'claims must not lock the export table');
+   if(/(?:INSERT INTO|UPDATE) campaign_exports|FROM campaign_exports.*FOR UPDATE|pg_advisory_xact_lock/s.test(sql)) {
+    assert(statements.some(s=>/FROM workspaces WHERE id=\$1 FOR UPDATE/.test(s)),'workspace lock must precede export locks and writes');
+   }
+   return tx.query<T>(sql,params);
+  }});
+ })};
+ const requested=await requestCampaignExport(guarded,campaign,workspace,'image');
+ assert(await runExportOnce(guarded));
+ assert.equal((await findCampaignExport(db,requested.id,workspace)).state,'ready');
+ assert(sequences.some(s=>s.some(q=>q.includes('inkshot-export-claim'))));
+ assert.equal(sequences.length,3,'request, claim, completion each hold their workspace lock in a transaction');
+ // A queued archive cannot start once its workspace has requested deletion.
+ await db.query('UPDATE assets SET caption=$2 WHERE campaign_id=$1',[campaign,'Changed caption']);
+ const next=await requestCampaignExport(guarded,campaign,workspace,'image');
+ await db.query('UPDATE workspaces SET deletion_requested_at=now() WHERE id=$1',[workspace]);
+ assert.equal(await runExportOnce(guarded),false);
+ assert.equal((await findCampaignExport(db,next.id,workspace)).attempts,0);
+ await assert.rejects(requestCampaignExport(guarded,campaign,workspace,'image'),/being deleted/);
 });

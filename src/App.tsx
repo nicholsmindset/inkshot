@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Routes,
   Route,
@@ -24,6 +24,7 @@ import {
 import { StudioProvider, useStudio } from "./context";
 import { BrandMark, Button, Notice } from "./ui";
 import { api } from "./api";
+import { brandDraftKey, clearBrandDraft } from "./brand-draft";
 import { PasswordRecovery } from "./pages/PasswordRecovery";
 import { Landing, Auth } from "./pages/Public";
 import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
@@ -36,7 +37,23 @@ function Shell() {
   const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
+  const mobileToggle = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
   const navigate = useNavigate();
+  useEffect(() => {
+    if (!mobile) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMobile(false);
+      mobileToggle.current?.focus();
+    };
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !sidebar.current?.contains(event.target) && !mobileToggle.current?.contains(event.target)) setMobile(false);
+    };
+    document.addEventListener("keydown", escape);
+    document.addEventListener("pointerdown", outside);
+    return () => { document.removeEventListener("keydown", escape); document.removeEventListener("pointerdown", outside); };
+  }, [mobile]);
   if (signedOut) return <Navigate to="/" replace />;
   if (loading)
     return (
@@ -61,6 +78,7 @@ function Shell() {
     setSignOutError("");
     try {
       await api("/auth/logout", {});
+      try { clearBrandDraft(window.sessionStorage, brandDraftKey(studio!.user.id, studio!.user.workspaceId)); } catch { /* Storage may be blocked. */ }
       setSignedOut(true);
       clearSession();
       navigate("/", { replace: true });
@@ -80,14 +98,17 @@ function Shell() {
           <BrandMark />
         </Link>
         <button
+          ref={mobileToggle}
           className="icon-button"
           aria-label={mobile ? "Close navigation" : "Open navigation"}
+          aria-expanded={mobile}
+          aria-controls="studio-sidebar"
           onClick={() => setMobile(!mobile)}
         >
           {mobile ? <X /> : <Menu />}
         </button>
       </header>
-      <aside className={`sidebar ${mobile ? "open" : ""}`}>
+      <aside ref={sidebar} id="studio-sidebar" className={`sidebar ${mobile ? "open" : ""}`}>
         <Link to="/studio" className="sidebar-logo">
           <BrandMark />
         </Link>
@@ -98,7 +119,12 @@ function Shell() {
             <small>Your creative studio</small>
           </div>
         </div>
-        <nav aria-label="Main navigation" onClick={() => setMobile(false)}>
+        <nav aria-label="Main navigation" onClick={(event) => {
+          if (mobile && event.target instanceof Element && event.target.closest("a")) {
+            setMobile(false);
+            requestAnimationFrame(() => document.getElementById("main")?.focus());
+          }
+        }}>
           <NavLink end to="/studio">
             <LayoutGrid />
             Overview
@@ -173,7 +199,7 @@ function Shell() {
               : "Live generation"}
           </span>
         </div>
-        <main id="main">
+        <main id="main" tabIndex={-1}>
           {error ? (
             <Notice>
               {error}{" "}
