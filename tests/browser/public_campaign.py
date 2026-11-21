@@ -47,6 +47,18 @@ with TemporaryDirectory() as downloads:
                         assert file.read_bytes() == urlopen(link.get_attribute("href")).read()
                 if path == "/":
                     driver.find_element(By.XPATH, "//button[normalize-space(.)='Image ad']").click()
+                    workflow = driver.find_element(By.ID, "workflow")
+                    steps = workflow.find_elements(By.CSS_SELECTOR, ".workflow-selector button")
+                    assert len(steps) == 4
+                    for index, expected in enumerate(("junebakery.example", "DRAFT BRAND BRIEF", "100 credits", "Three sample previews")):
+                        steps[index].click()
+                        wait.until(lambda d: steps[index].get_attribute("aria-pressed") == "true")
+                        assert expected in workflow.text
+                        assert driver.execute_script("return document.documentElement.scrollWidth <= innerWidth"), (width, "workflow", index)
+                    workflow.screenshot(str(screens / f"workflow-{width}.png"))
+                    steps[0].click()
+                    workflow.find_element(By.CSS_SELECTOR, ".workflow-footer button").click()
+                    assert steps[1].get_attribute("aria-pressed") == "true"
                     brief = driver.find_element(By.ID, "how")
                     logo = brief.find_element(By.CSS_SELECTOR, "img")
                     wait.until(lambda d: d.execute_script("return arguments[0].naturalWidth > 0", logo))

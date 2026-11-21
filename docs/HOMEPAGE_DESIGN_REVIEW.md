@@ -17,3 +17,5 @@ Preserve Inkshot's cream, forest-green and serif identity and the working bakery
 The page now explains what the customer gets, how a website becomes a campaign, where they retain control and what credits mean. The sample is explicitly fictional; the video is labelled as a still preview. Planned pricing remains clearly planned while billing is off. No testimonials, performance guarantees, publishing integrations or competitor-intelligence features were invented.
 
 The free brief CTA preserves website handoff to signup/brand setup. Existing sample downloads and format controls remain functional. Pricing and payment settings are unchanged. Review the new composition at desktop/tablet/mobile sizes before production cutover.
+
+An interactive four-stage walkthrough now shows website input, editable brief, ad angles with credit approval, and campaign previews. Each stage explains the customer decision. It is explicitly illustrative and makes no requests to generation services.

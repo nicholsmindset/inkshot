@@ -7,6 +7,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { BrandMark, Highlight, Button, Field, Notice } from "../ui";
+import { WorkflowDemo } from "./WorkflowDemo";
 import { CampaignExample } from "./CampaignExample";
 import { api } from "../api";
 import { useStudio } from "../context";
@@ -44,7 +45,7 @@ export function Landing() {
           <BrandMark />
         </Link>
         <div className="landing-nav-center">
-          <a href="#how">How it works</a>
+          <a href="#workflow">How it works</a>
           <a href="#examples">Sample campaign</a>
           <a href="#pricing">Pricing</a>
           <a href="#questions">Questions</a>
@@ -88,14 +89,7 @@ export function Landing() {
         <div className="hero-demo"><div className="demo-caption"><span>FROM A SINGLE OFFER</span><span>Try the formats below ↙</span></div><CampaignExample /><p className="demo-disclosure">Fictional bakery campaign · Downloadable samples · Video is a still preview</p></div>
       </section>
       <div className="deliverable-strip" aria-label="What is in a campaign kit"><span>ONE CAMPAIGN KIT</span><strong>3 video ads</strong><span aria-hidden="true">+</span><strong>3 image ads</strong><span aria-hidden="true">+</span><strong>3 social posts</strong><span className="strip-note">Captions included. Yours to review.</span></div>
-      <section className="home-workflow" aria-labelledby="workflow-heading">
-        <div className="home-section-heading"><div><span className="home-eyebrow">LESS STARTING FROM SCRATCH</span><h2 id="workflow-heading">From “what do I post?”<br /><em>to a campaign you can use.</em></h2></div><p>For the new product, the weekend offer, or the service you want more people to discover.</p></div>
-        <ol className="home-workflow-steps">
-          <li><span>01 / THE BUSINESS</span><h3>Bring your website.</h3><p>Start with public pages and your own product photos. Review the brand details before moving on.</p></li>
-          <li><span>02 / THE IDEA</span><h3>Make the brief yours.</h3><p>Choose your offer and ad angles. Edit the words and prompts before spending generation credits.</p></li>
-          <li><span>03 / THE CAMPAIGN</span><h3>Review. Refine. Download.</h3><p>Check each creative, adjust its copy and download the finished files for your own channels.</p></li>
-        </ol>
-      </section>
+      <WorkflowDemo />
       <section id="how" className="how-section" aria-labelledby="brief-heading">
         <div className="brief-intro">
           <span className="home-eyebrow">A BRIEF WITH YOUR BUSINESS IN IT</span>
