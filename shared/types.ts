@@ -1,4 +1,5 @@
 export type Brand = {
+  briefPromptVersion?: string;
   name: string;
   website: string;
   description: string;
@@ -109,6 +110,7 @@ export type Studio = {
   balance: number;
   ledger: Ledger[];
   mode: "mock" | "live";
+  writingMode?: "mock" | "live";
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
   checkoutReleased: boolean;

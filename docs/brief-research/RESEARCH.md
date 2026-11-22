@@ -138,3 +138,11 @@ No production or provider settings were changed by this research. No model API b
 [8] Love, Bonito Singapore, About Us (observed 22 November 2026): https://www.lovebonito.com/sg/global/about-us
 
 Effie guide PDFs were discovered but could not be fetched successfully. They were not used as substantive evidence for this specification. No claimed performance uplift is extrapolated to Inkshot.
+
+## Integration update — 22 November 2026
+
+Implemented the current-schema bridge in `server/brief-prompt.ts`, with prompt version stored on generated briefs. The import merge now preserves the writer's description and evidence snippets while keeping extracted identity and visual metadata authoritative. Concept instructions now call for concrete, differentiated scenes and scoped claims; output limits align with editable asset limits.
+
+Added optional `WRITING_MODE` and `ALLOW_LIVE_WRITING` controls. When WRITING_MODE is absent, existing generation-mode behaviour is preserved. An explicit live writing override requires ALLOW_LIVE_WRITING=true. Daily request limits and provider credentials still apply. Neither setting enables billing or media rendering. No hosted configuration values were changed.
+
+This is the compatible first integration, not the entire proposed v2 architecture: structured claim scope, follow-up questions, semantic evidence grading and model quality benchmarks remain outstanding. The preview remains text-only until a capped writing trial is approved.

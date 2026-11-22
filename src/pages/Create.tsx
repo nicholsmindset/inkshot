@@ -94,7 +94,7 @@ function BrandForm({ initial }: { initial: Brand }) {
       }));
       setReadPreview(next);
       notify(
-        studio?.mode === "mock"
+        (studio?.writingMode ?? studio?.mode) === "mock"
           ? "Website text imported. Review and refine your brief below."
           : "Your brand brief is ready to review.",
       );
@@ -227,7 +227,7 @@ function BrandForm({ initial }: { initial: Brand }) {
             </div>
             {busy === "read" ? <p className="read-progress" role="status"><span className="read-spinner" /> Reading public pages and preparing your editable brief…</p> : null}
             {!busy && readPreview ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
-            {studio?.mode === "mock" ? (
+            {(studio?.writingMode ?? studio?.mode) === "mock" ? (
               <small>
                 Preview mode imports page text for you to refine. AI brief
                 writing is not active.

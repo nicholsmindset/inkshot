@@ -21,7 +21,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { requestCampaignExport, findCampaignExport, campaignExportFailureCode } from './campaign-exports.js';
 import { z } from "zod";
-import { config, AppError, videoDurationSeconds } from "./config.js";
+import { config, AppError, videoDurationSeconds, writingMode } from "./config.js";
 import type { Database, Queryable } from "./db.js";
 import {
   requireUser,
@@ -30,7 +30,7 @@ import {
   session,
   tokenHash,
 } from "./auth.js";
-import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
+import { brandSchema, demoBrand, emptyBrand, mergeImportedBrief } from "./brand.js";
 import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
@@ -430,6 +430,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       }),
       ledger: ledger.rows,
       mode: config.mode,
+      writingMode: writingMode(),
       videoDurationSeconds: videoDurationSeconds(),
       providers: {
         higgsfield: !!config.hfKey && !!config.hfSecret,
@@ -467,8 +468,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "There is very little readable text on this page. Please add your brand details manually.",
       );
-    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(db, req.user!.workspaceId, pages);
-    res.json({ ...brief, color: emptyBrand.color, ...identity });
+    const aiWritten = writingMode() === "live";
+    const brief = aiWritten ? await writeBrief(db, req.user!.workspaceId, pages) : emptyBrand;
+    res.json(mergeImportedBrief(brief, identity, aiWritten));
   });
   app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
     const { website, logoUrl } = z.object({

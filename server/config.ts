@@ -81,3 +81,11 @@ export function videoDurationSeconds() {
     throw new AppError(503, 'Video duration must be an integer from 3 to 15 seconds.');
   return value;
 }
+
+// Explicit preview writing is independent from paid media rendering.
+// Missing settings preserve the existing deployment behaviour.
+export function resolveWritingMode(generationMode: "mock" | "live", env: NodeJS.ProcessEnv = process.env): "mock" | "live" {
+  if (env.WRITING_MODE === undefined) return generationMode;
+  return env.WRITING_MODE === "live" && env.ALLOW_LIVE_WRITING === "true" ? "live" : "mock";
+}
+export function writingMode() { return resolveWritingMode(config.mode); }

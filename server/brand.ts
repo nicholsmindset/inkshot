@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Brand, Concept } from "../shared/types.js";
 export const briefFields = ["description", "audience", "voice", "offer", "proof", "pain", "trigger", "visualDirection"] as const;
 export const brandSchema = z.object({
+  briefPromptVersion: z.string().max(80).optional(),
   name: z.string().trim().min(1).max(100),
   website: z.string().max(2048).default(""),
   description: z.string().max(4000),
@@ -116,4 +117,18 @@ export function sampleConcepts(brand: Brand, offer: string): Concept[] {
       cta: "Discover more",
     },
   ];
+}
+
+// Extraction owns identity and observed visual metadata. AI owns the grounded
+// summary and its provenance; an imported SEO description must not replace it.
+export function mergeImportedBrief(brief: Brand, identity: { name: string; website: string; description: string; color?: string; logoUrl?: string; sources: Brand["sources"] }, aiWritten: boolean): Brand {
+  return {
+    ...brief,
+    name: identity.name,
+    website: identity.website,
+    description: aiWritten && brief.description.trim() ? brief.description : identity.description,
+    color: identity.color || emptyBrand.color,
+    logoUrl: identity.logoUrl,
+    sources: aiWritten && brief.sources.length ? brief.sources : identity.sources,
+  };
 }
