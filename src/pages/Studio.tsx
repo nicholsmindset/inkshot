@@ -503,6 +503,8 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
         {campaign.brand.logoId && <img src={"/api/uploads/" + campaign.brand.logoId} alt="Approved brand logo" />}
         <span>Brand colour <strong>{campaign.brand.color}</strong></span>
       </div>
+      {!draft.photoId && <Notice>No product photo is attached. {campaign.mock ? "Preview assets will use the sample image, not your actual product." : "The provider will invent the scene; product appearance is not guaranteed."} Add your own photo in the brand brief before starting a new campaign.</Notice>}
+      {studio.balance < 100 && <Notice><strong>You need {100 - studio.balance} more credits to generate this kit.</strong> {campaign.mock ? "This preview has no paid checkout. You can save and edit every prompt without credits; sample rendering needs a test allowance." : "Your draft is saved. Review your plan before generating."} <Link to="/studio/billing">View usage and billing</Link></Notice>}
       <div className="approval-panel">
         <div><h3>Approve your saved prompts</h3><label className="checkbox-label"><input type="checkbox" checked={approved === review} disabled={locked || dirty || saving || !validAssets || !!error}
           onChange={(event) => setApproved(event.target.checked ? review : "")} />I’ve checked the prompts, offer and claims, and approve these nine assets.</label></div>

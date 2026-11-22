@@ -62,6 +62,11 @@ export const demoBrand: Brand = {
   proof: ["Fictional sample brand"],
   sources: [],
 };
+export function previewOfferCopy(offer: string): string {
+  const text = offer.trim();
+  // Preview templates cannot reliably rewrite instructions into advertising copy.
+  return text.length <= 120 && !/\b(preview|test only|instructions?|ignore|prompt|do not|don.t|no discount|introduce)\b/i.test(text) ? text : "";
+}
 export function sampleConcepts(brand: Brand, offer: string): Concept[] {
   return [
     {
@@ -84,9 +89,9 @@ export function sampleConcepts(brand: Brand, offer: string): Concept[] {
     {
       id: "offer",
       title: "Something worth discovering",
-      hook: offer || "Find your next favourite.",
+      hook: previewOfferCopy(offer) || `Discover ${brand.name}.`.slice(0, 120),
       description:
-        "A clear invitation with your chosen offer. No invented discounts or promises.",
+        offer ? `Build a clear invitation around the approved offer: ${offer}. Keep instructions out of customer-facing copy.` : `Introduce ${brand.name} using the approved description. No invented discounts or promises.`,
       cta: "Explore the collection",
     },
     {

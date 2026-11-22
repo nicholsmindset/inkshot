@@ -12,6 +12,7 @@ import { useStudio } from "../context";
 import { api } from "../api";
 import { Button, Field, Highlight, Notice } from "../ui";
 import type { Brand } from "../../shared/types";
+import { BriefReadiness } from "../components/BriefReadiness";
 import { brandDraftKey, readBrandDraft, writeBrandDraft, clearBrandDraft } from "../brand-draft";
 function sameSiteLogo(value: string | undefined, website: string) {
   try {
@@ -170,7 +171,7 @@ function BrandForm({ initial }: { initial: Brand }) {
   return (
     <>
       <div className="journey-steps" aria-label="Campaign setup progress">
-        <span className="active">01 Your site</span><span>02 Your brief</span><span>03 Your kit</span>
+        <span>01 Your site</span><span className="active">02 Your brief</span><span>03 Your kit</span>
       </div>
       <div className="page-heading">
         <div>
@@ -193,6 +194,7 @@ function BrandForm({ initial }: { initial: Brand }) {
       <p className="brand-save-status" role="status">{dirty
         ? draftStored ? "Unsaved changes · recovered in this tab for up to 24 hours. Save before starting a campaign." : "Unsaved changes · browser recovery is unavailable. Save before leaving."
         : "No unsaved changes. Review your brief before starting a campaign."}</p>
+      <BriefReadiness brand={brand} />
       <div className="brand-layout">
         <div>
           <div className="website-reader">
@@ -331,7 +333,7 @@ function BrandForm({ initial }: { initial: Brand }) {
                 }
               />
             </Field>
-            <div className="form-section-heading"><span className="hand">03</span><h2>Certification wording</h2></div>
+            <details className="optional-certification"><summary>Certification claims <span>Optional · only if relevant to your business</span></summary>
             <p>Halal and MUIS wording is blocked until you upload a certificate and confirm it applies to this business. An upload is your declaration; Inkshot does not verify authenticity or current certification status.</p>
             <Field label="Certificate image" hint="Upload a clear PNG, JPG or WebP of your current certificate. It stays private and is not added to your ads.">
               <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
@@ -346,6 +348,8 @@ function BrandForm({ initial }: { initial: Brand }) {
               </select>
             </Field>
             <p className="muted">Generated visuals must never draw certification logos, seals or marks. Review every ad before publishing.</p>
+            </details>
+            <div className="form-section-heading"><span className="hand">03</span><h2>Your visual identity</h2></div>
             <Field label="Logo for exported ads" hint="Upload a PNG, JPG or WebP you own. Transparent PNGs retain their background transparency.">
               <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
                 onChange={(e) => void upload(e.target.files?.[0], "logo")} />
@@ -565,6 +569,7 @@ export function NewCampaign() {
           <p>A little direction. A lot of possibility.</p>
         </div>
       </div>
+      <BriefReadiness brand={studio.brand} editLink />
       <div className="campaign-create-layout">
         <form className="campaign-form" onSubmit={submit}>
           <Field label="Give your campaign a name">
@@ -600,8 +605,8 @@ export function NewCampaign() {
             </div>
           </Field>
           <Field
-            label="Anything special to share?"
-            hint="An offer, a launch or just a reason to say hello. Optional."
+            label="Customer-facing offer or launch"
+            hint="Write only the message customers should see, not instructions for the AI. Leave blank if there is no offer."
           >
             <textarea
               name="offer"

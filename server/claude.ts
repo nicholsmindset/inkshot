@@ -1,6 +1,6 @@
 import { config, AppError, videoDurationSeconds } from "./config.js";
 import { assertApprovedClaims, assertVisualClaims } from "./claims.js";
-import { brandSchema, sampleConcepts } from "./brand.js";
+import { brandSchema, sampleConcepts, previewOfferCopy } from "./brand.js";
 import { z } from "zod";
 import type { Brand, Concept, AssetDraft } from "../shared/types.js";
 import type { Database } from "./db.js";
@@ -164,7 +164,7 @@ export async function writeAssetPrompts(
         cta: concept.cta.slice(0, 55),
         prompt: `${concept.description} ${brand.description.slice(0, 1000)}. ${brand.visualDirection?.slice(0, 750) || "A realistic setting, soft natural light and a clear focal subject"}. ${kind === "video" ? "Vertical opening frame, with room for the subject to move." : kind === "image" ? "Campaign photograph with clear negative space for the approved headline." : "Candid editorial photograph showing a natural everyday moment."} No rendered text, logos or watermarks.`,
         ...(kind === "video" ? { motionPrompt: `0–${opening}s: establish the subject and setting from the approved opening frame. ${opening}–${closing}s: show one natural action that illustrates this concept: ${concept.description}. ${closing}–${duration}s: settle on the subject with a steady closing frame. Natural movement, no rendered text or logos. Silent video.` } : {}),
-        ...(kind === "post" ? { caption: `${concept.hook} ${brand.description} ${offer || ""} ${concept.cta}`.trim().slice(0, 2000) } : {}),
+        ...(kind === "post" ? { caption: `${concept.hook} ${brand.description} ${previewOfferCopy(offer)} ${concept.cta}`.trim().slice(0, 2000) } : {}),
       }))), concepts);
   }
   const result = await ask(db, workspaceId,
