@@ -26,6 +26,7 @@ import { BrandMark, Button, Notice } from "./ui";
 import { api } from "./api";
 import { brandDraftKey, clearBrandDraft } from "./brand-draft";
 import { PasswordRecovery } from "./pages/PasswordRecovery";
+import { AuthOriginGate } from "./components/AuthOriginGate";
 import { Landing, Auth } from "./pages/Public";
 import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
 import { BrandPage, NewCampaign } from "./pages/Create";
@@ -227,10 +228,10 @@ export default function App() {
         <Route path="/privacy" element={<TrustPage kind="privacy" />} />
         <Route path="/terms" element={<TrustPage kind="terms" />} />
         <Route path="/ai-notice" element={<TrustPage kind="ai" />} />
-        <Route path="/login" element={<Auth key="login" />} />
-        <Route path="/forgot-password" element={<PasswordRecovery key="request" />} />
+        <Route path="/login" element={<AuthOriginGate><Auth key="login" /></AuthOriginGate>} />
+        <Route path="/forgot-password" element={<AuthOriginGate><PasswordRecovery key="request" /></AuthOriginGate>} />
         <Route path="/reset-password" element={<PasswordRecovery key="reset" reset />} />
-        <Route path="/signup" element={<Auth key="signup" signup />} />
+        <Route path="/signup" element={<AuthOriginGate><Auth key="signup" signup /></AuthOriginGate>} />
         <Route path="/studio" element={<Shell />}>
           <Route index element={<Dashboard />} />
           <Route path="new" element={<NewCampaign />} />

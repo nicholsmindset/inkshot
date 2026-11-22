@@ -189,6 +189,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.get("/api/health", (_req, res) =>
     res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
+  // Only server configuration controls the host; never echo request Host or Origin.
+  app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() ? config.origin : null }));
   const authLimit = rateLimit({
     store: new PostgresRateLimitStore(db, "auth"),
     keyGenerator: clientRateLimitKey,

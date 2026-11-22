@@ -67,9 +67,9 @@ export function Billing() {
           </ul>
           {error ? <Notice>{error}</Notice> : null}
           <Button className="full" disabled={!studio.billingEnabled || checkoutHeld} busy={busy} onClick={()=>openBilling(canSubscribe ? 'checkout' : 'portal')}>
-            {checkoutHeld ? 'Subscriptions open soon' : studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
+            {studio.billingMode === 'off' ? 'Payments are off during preview' : checkoutHeld ? 'Subscriptions open soon' : studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
           </Button>
-          <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : 'Stripe sandbox only. No real payment is collected.'}</small>
+          <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : studio.billingMode === 'sandbox' ? 'Stripe sandbox only. No real payment is collected.' : 'No payment is collected. The plan shown is for the planned launch.'}</small>
         </section>
         <section className="balance-panel">
           <Feather size={25} />
