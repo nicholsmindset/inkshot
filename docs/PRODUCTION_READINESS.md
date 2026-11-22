@@ -65,3 +65,19 @@ The original pilot and competitor-research validation remain separate open work.
 - Separate legacy `inkshot` deployment remains failed with its known missing preview `APP_ORIGIN` configuration. It was not changed or promoted; do not call the full two-project deployment set green.
 
 [Preview login](https://inkshot-live-4kc4jlp8o-nicholsmindset-gmailcoms-projects.vercel.app/login) · [Draft PR #37](https://github.com/nicholsmindset/inkshot/pull/37).
+
+### Product-photo campaign acceptance — 22 November 2026
+
+`tests/full-kit.test.ts` now runs the existing complete campaign test with a real
+bakery image uploaded through the multipart API and export review enabled.
+Verified locally: nine ready assets sourced from the merchant photo; export
+blocked until all assets are reviewed; free overlay revision; another workspace
+cannot read the upload or export; ZIP contains three decodable MP4s, six JPGs,
+captions and the destination URL; duplicate generation approval is charged once;
+failed rendering refunds once. `node --import tsx --test tests/full-kit.test.ts`
+and `npm run build` passed.
+
+This is local mock-generation acceptance using a disposable database and a
+synthetic invoice fact. It does not prove real email delivery, Stripe event
+delivery, hosted storage expiry, AI product fidelity or paid-provider costs.
+No deployed settings were changed and no provider requests were purchased.
