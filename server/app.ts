@@ -190,7 +190,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
   // Only server configuration controls the host; never echo request Host or Origin.
-  app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() ? config.origin : null }));
+  app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() && (config.production || process.env.VERCEL === "1") ? config.origin : null }));
   const authLimit = rateLimit({
     store: new PostgresRateLimitStore(db, "auth"),
     keyGenerator: clientRateLimitKey,

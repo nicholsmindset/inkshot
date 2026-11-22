@@ -9,7 +9,7 @@ export function canonicalAuthDestination(origin: string | null, currentUrl: stri
   const path = ["/login", "/signup", "/forgot-password"].includes(current.pathname) ? current.pathname : "/login";
   const destination = new URL(path, origin);
   // Never carry auth codes, tokens, passwords or arbitrary redirect parameters.
-  if (path === "/signup" && current.searchParams.has("website"))
+  if ((path === "/signup" || path === "/login") && current.searchParams.has("website"))
     destination.searchParams.set("website", current.searchParams.get("website")!.slice(0, 2048));
   return destination.href;
 }
