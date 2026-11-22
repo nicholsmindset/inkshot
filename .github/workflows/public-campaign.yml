@@ -11,6 +11,7 @@ on:
       - 'src/pages/SocialAdExamples.tsx'
       - 'src/pages/public-studio.css'
       - 'src/styles.css'
+      - 'src/studio-polish.css'
       - 'public/examples/**'
       - 'tests/browser/public_campaign.py'
       - '.github/workflows/public-campaign.yml'

@@ -24,6 +24,14 @@ import { isCampaignDestination } from "../../shared/destination";
 import { VERSION_CREDITS } from "../../shared/types";
 import { startVisiblePolling } from "../visible-polling";
 const icons = { video: Film, image: Image, post: MessageSquare };
+function CampaignProgress({ step }: { step: number }) {
+  return <ol className="campaign-progress" aria-label="Campaign workflow">
+    {["Brand brief", "Choose angles", "Edit prompts", "Review & export"].map((label, index) =>
+      <li key={label} aria-current={index === step ? "step" : undefined} className={index === step ? "current" : index < step ? "previous" : ""}>
+        <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong>
+      </li>)}
+  </ol>;
+}
 function selectedVersion(asset: Asset) {
   return asset.versions.find((version) => version.id === asset.current_version_id) || asset.versions[0];
 }
@@ -49,7 +57,7 @@ export function Dashboard() {
   const nextLabel = draft ? "Continue draft" : studio.brand.description ? "Create a campaign" : "Set up your brand";
   return <>
     <div className="page-heading">
-      <div><h1>{studio.brand.name}<em> studio</em></h1><p>Plan campaigns, review your ads and download approved versions.</p></div>
+      <div><span className="studio-page-kicker">YOUR CREATIVE WORKSPACE</span><h1>{studio.brand.name}<em> studio</em></h1><p>Plan campaigns, review your ads and download approved versions.</p></div>
       <Link to="/studio/brand" className="button secondary">Brand brief <ArrowUpRight size={17} /></Link>
     </div>
     <section className="studio-overview">
@@ -84,9 +92,11 @@ export function Dashboard() {
     <div className="section-heading"><h2>Recent campaigns</h2><Link className="text-link" to="/studio/library">Open library <ArrowUpRight size={15} /></Link></div>
     {studio.campaigns.length ? <div className="campaign-list">
       {studio.campaigns.slice(0, 5).map((campaign) => {
-        const summary = assetCounts(studio.assets.filter((asset) => asset.campaign_id === campaign.id));
+        const campaignAssets = studio.assets.filter((asset) => asset.campaign_id === campaign.id);
+        const summary = assetCounts(campaignAssets);
+        const cover = campaignAssets.map(selectedVersion).find(version => version?.status === "ready");
         return <Link key={campaign.id} to={`/studio/campaign/${campaign.id}`} className="campaign-row studio-campaign-row">
-          <div className="campaign-icon"><FolderOpen size={21} /></div>
+          <div className="campaign-cover">{cover ? <img src={media(cover.id, true)} alt="" loading="lazy" /> : studio.brand.photoId ? <img src={`/api/uploads/${studio.brand.photoId}`} alt="" loading="lazy" /> : <FolderOpen size={25} aria-hidden="true" />}</div>
           <div><strong>{campaign.name}</strong><small>{campaign.goal} · {new Date(campaign.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</small>
             <span className="studio-campaign-summary">{campaign.status === "draft" ? `${campaign.draft?.assets.length || 0} prompts saved` : `${summary.ready} ready · ${summary.running} in progress · ${summary.failed} failed`}</span></div>
           <Status status={campaign.status} /><ArrowUpRight size={18} />
@@ -441,6 +451,7 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
     edit({ ...draft!, assets: draft!.assets.map((asset, position) => position === index ? { ...asset, ...patch } : asset) });
   }
   return <div className="campaign-planner">
+    <CampaignProgress step={draft.assets.length ? 2 : 1} />
     <div className="planner-save" role="status" aria-live="polite">
       {saving ? "Saving changes…" : error ? "Changes need attention" : dirty ? "Changes waiting to save" : "Saved to your studio"}
     </div>
