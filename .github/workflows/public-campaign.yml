@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'src/pages/Public.tsx'
+      - 'src/App.tsx'
+      - 'src/auth-origin.ts'
+      - 'src/components/AuthOriginGate.tsx'
       - 'src/pages/CampaignExample.tsx'
       - 'src/pages/WorkflowDemo.tsx'
       - 'src/pages/SocialAdExamples.tsx'
@@ -29,10 +32,12 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/public-browser"
           "$RUNNER_TEMP/public-browser/bin/pip" install selenium==4.34.2
-          ./node_modules/.bin/vite preview --port 4173 --strictPort --host 127.0.0.1 &
+          # Auth pages now verify the canonical host before displaying credentials.
+          # Serve the real local API as well as the built assets; never stub this check.
+          NODE_ENV=test PORT=4173 APP_ORIGIN=http://127.0.0.1:4173 DATA_DIR="$RUNNER_TEMP/public-api" GENERATION_MODE=mock ALLOW_LIVE_GENERATION=false WRITING_MODE=mock ALLOW_LIVE_WRITING=false BILLING_MODE=off node --import tsx server/index.ts &
           server=$!
           trap 'kill "$server"' EXIT
-          curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:4173/ -o /dev/null
+          curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:4173/api/auth/config -o /dev/null
           "$RUNNER_TEMP/public-browser/bin/python" tests/browser/public_campaign.py
       - uses: actions/upload-artifact@v4
         if: always()
