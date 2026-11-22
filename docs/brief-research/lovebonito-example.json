@@ -1,0 +1,32 @@
+{
+  "status": "illustrative_research_draft_not_merchant_approved",
+  "observedAt": "2026-11-22",
+  "source": "https://www.lovebonito.com/sg/global/about-us",
+  "evidence": [
+    {"id": "lb-about-01", "quote": "clothes engineered for women’s real lives", "scope": "brand positioning"}
+  ],
+  "campaignAssumptions": {
+    "objective": "Encourage collection browsing",
+    "placement": "Instagram feed",
+    "note": "Both are illustrative choices, not merchant instructions."
+  },
+  "proposedBrief": {
+    "audienceSituation": "A shopper choosing an outfit for a working day.",
+    "tension": "Wanting to feel put-together without making the morning routine more complicated.",
+    "tensionStatus": "hypothesis_needs_merchant_review",
+    "organisingIdea": "One less decision before your day begins.",
+    "evidenceIds": ["lb-about-01"],
+    "scene": "An approved outfit beside a work bag in a morning setting; product details remain unchanged.",
+    "cta": "Explore the collection",
+    "offer": null,
+    "questions": [
+      "Which specific outfit or collection should this campaign feature?",
+      "Can you provide an approved product photo and destination page?"
+    ],
+    "constraints": [
+      "Do not infer properties of a selected garment from brand-wide feature navigation.",
+      "Do not invent discounts, testimonials or guaranteed outcomes.",
+      "Do not imply a partnership with Inkshot."
+    ]
+  }
+}
