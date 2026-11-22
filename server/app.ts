@@ -1,3 +1,4 @@
+import { allowedRequestOrigins } from "./request-origin.js";
 import "./render-fonts.js";
 import {persistMedia,materializeMedia,signedMediaUrl,cloudStorageEnabled,removePrivateMedia,uploadMediaReference} from './storage.js';
 import {withUploadQuota} from './upload-limits.js';
@@ -175,12 +176,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.use("/api", (req, _res, next) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       const origin = req.headers.origin;
-      const allowed = [
-        config.origin,
-        ...(!config.production
-          ? ["http://127.0.0.1:5173", "http://localhost:5173"]
-          : []),
-      ];
+      const allowed = allowedRequestOrigins(config.origin, config.production);
       if (origin && !allowed.includes(origin))
         return next(
           new AppError(403, "This request came from another website."),
