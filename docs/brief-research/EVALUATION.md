@@ -54,7 +54,7 @@ Measure p50/p95 latency, per-stage token usage, actual provider charge, retry ra
 
 ## Initial fixtures
 
-All except LB01 are synthetic fixtures to be authored and frozen before execution. Assertions are requirements, not observed results.
+Initial fixtures are now frozen in `benchmarks/briefs/fixtures.json`. LB01 is a short verified excerpt, not a full crawl; all other cases are synthetic. Assertions are requirements, not observed results. Use `scripts/prepare-writing-trial.ts` for offline preparation; see AD-COPY.md for execution blockers.
 
 | ID | Input scenario | Must do | Must not do |
 |---|---|---|---|
