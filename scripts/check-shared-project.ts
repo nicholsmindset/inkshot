@@ -54,7 +54,7 @@ if (phase === "setup") {
     await admin.connect();
     // All passwords below are generated UUIDs, used only by this disposable stack.
     await admin.query(
-      `CREATE ROLE inkshot_app LOGIN PASSWORD '${test.sandboxPassword}'`,
+      `ALTER ROLE inkshot_app LOGIN PASSWORD '${test.sandboxPassword}'`,
     );
     const tables = [
       "workspaces",
@@ -71,6 +71,9 @@ if (phase === "setup") {
       "provider_spend",
       "writing_daily_usage",
       "rate_limit_buckets",
+      "campaign_exports",
+      "provider_events",
+      "account_deletions",
     ];
     for (const table of tables) {
       await admin.query(
@@ -102,6 +105,8 @@ if (phase === "setup") {
       "ON_ERROR_STOP=1",
       "-f",
       "scripts/setup-shared-live.sql",
+      "-f",
+      "supabase/migrations/20261119210000_account_deletion.sql",
     ]);
     await admin.query(
       `ALTER ROLE inkshot_live_app LOGIN PASSWORD '${test.livePassword}'`,
@@ -359,10 +364,17 @@ if (phase === "setup") {
           /not linked/,
         );
         for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
-        assert.equal(
-          (await request(`/campaigns/${sand.campaignId}/download`)).status,
-          200,
-        );
+        const exportRequest=await request(`/campaigns/${sand.campaignId}/exports`, 'POST', {category:'all'});
+        assert.equal(exportRequest.status,202);
+        const archive=await exportRequest.json();
+        assert(await runWorkerOnce(db));
+        const status=await request(`/exports/${archive.id}`);
+        assert.equal(status.status,200);
+        assert.equal((await status.json()).state,'ready');
+        const download=await request(`/exports/${archive.id}/download`);
+        assert.equal(download.status,200);
+        const archiveBytes=Buffer.from(await download.arrayBuffer());
+        assert.equal(archiveBytes.subarray(0,2).toString(),'PK');
       } else {
         const liveState = JSON.parse(
           await readFile(path.join(dir, "live.json"), "utf8"),

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { api } from "./api";
 import type { Studio } from "../shared/types";
+import { startVisiblePolling } from "./visible-polling";
 type State = {
   studio: Studio | null;
   loading: boolean;
@@ -68,17 +69,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  const pending = studio?.assets.some((a) =>
-    a.versions.some((v) =>
-      ["queued", "making", "rendering"].includes(v.status),
-    ),
-  );
+  const pending = studio?.assets.flatMap(a => a.versions
+    .filter(v => ["queued", "making", "rendering"].includes(v.status))
+    .map(v => `${v.id}:${v.status}`)).join("|") || "";
   useEffect(() => {
     if (!pending) return;
-    const timer = setInterval(() => {
-      void refresh();
-    }, 2000);
-    return () => clearInterval(timer);
+    return startVisiblePolling(() => refresh());
   }, [pending, refresh]);
   useEffect(() => {
     if (!toast) return;

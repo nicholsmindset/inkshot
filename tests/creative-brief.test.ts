@@ -34,3 +34,11 @@ test("prompt plan must cover every selected angle and include video motion", () 
   assert.throws(() => validateAssetPrompts([...drafts.slice(0, 8), drafts[0]], selected));
   assert.throws(() => validateAssetPrompts(drafts.map(item => ({ ...item, motionPrompt: undefined })), selected));
 });
+
+test("preview offers never become verbatim headlines or overflow the headline limit", () => {
+  const instruction = "Preview test only: introduce womenswear. No discount or limited-time offer.";
+  const concepts = sampleConcepts({ ...demoBrand, name: "Love, Bonito" }, instruction);
+  assert(concepts.every(concept => !concept.hook.includes("Preview test only")));
+  assert(concepts.every(concept => concept.hook.length <= 120));
+  assert(concepts.find(concept => concept.id === "offer")?.description.includes(instruction));
+});

@@ -12,6 +12,8 @@ import { useStudio } from "../context";
 import { api } from "../api";
 import { Button, Field, Highlight, Notice } from "../ui";
 import type { Brand } from "../../shared/types";
+import { BriefReadiness } from "../components/BriefReadiness";
+import { brandDraftKey, readBrandDraft, writeBrandDraft, clearBrandDraft } from "../brand-draft";
 function sameSiteLogo(value: string | undefined, website: string) {
   try {
     if (!value) return undefined;
@@ -26,19 +28,28 @@ function sameSiteLogo(value: string | undefined, website: string) {
 export function BrandPage() {
   const { studio } = useStudio();
   return studio ? (
-    <BrandForm key={studio.user.id} initial={studio.brand} />
+    <BrandForm key={`${studio.user.id}:${studio.user.workspaceId}`} initial={studio.brand} />
   ) : null;
 }
 function BrandForm({ initial }: { initial: Brand }) {
   const { studio, refresh, notify } = useStudio();
+  const navigate = useNavigate();
+  const draftKey = brandDraftKey(studio!.user.id, studio!.user.workspaceId);
+  const [recovery] = useState(() => {
+    try { return readBrandDraft(window.sessionStorage, draftKey); } catch { return null; }
+  });
+  const [restored, setRestored] = useState(!!recovery);
+  const [savedBrand, setSavedBrand] = useState(initial);
+  const [draftStored, setDraftStored] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedWebsite = searchParams.get("website");
   const startedWebsiteRead = useRef(false);
-  const [brand, setBrand] = useState(initial);
+  const [brand, setBrand] = useState<Brand>(recovery?.brand ?? initial);
+  const dirty = JSON.stringify(brand) !== JSON.stringify(savedBrand);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [readPreview, setReadPreview] = useState<Brand | null>(null);
-  const [url, setUrl] = useState(searchParams.get("website") || initial.website);
+  const [url, setUrl] = useState(searchParams.get("website") || recovery?.brand.website || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
     setBrand((b) => ({
       ...b,
@@ -46,7 +57,27 @@ function BrandForm({ initial }: { initial: Brand }) {
       evidence: (b.evidence || []).filter(item => item.field !== key),
       inferredFields: (b.inferredFields || []).filter(field => field !== key),
     }));
+  useEffect(() => {
+    try {
+      if (dirty) setDraftStored(writeBrandDraft(window.sessionStorage, draftKey, brand, savedBrand));
+      else { clearBrandDraft(window.sessionStorage, draftKey); setDraftStored(false); }
+    } catch { setDraftStored(false); }
+  }, [brand, savedBrand, dirty, draftKey]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const warnNavigation = (event: MouseEvent) => {
+      if (draftStored || !(event.target instanceof Element) || !event.target.closest("a[href]")) return;
+      if (!window.confirm("Your brief has unsaved changes and browser recovery is unavailable. Leave without saving?")) {
+        event.preventDefault(); event.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    document.addEventListener("click", warnNavigation, true);
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", warnNavigation, true); };
+  }, [dirty, draftStored]);
   async function read(requestedUrl = url) {
+    if ((dirty || brand.description.trim()) && !window.confirm("Replace the brief fields with a new website reading? Your photo, logo and certificate will be kept. Choose Cancel to keep your current wording.")) return;
     setBusy("read");
     setError("");
     setReadPreview(null);
@@ -57,12 +88,13 @@ function BrandForm({ initial }: { initial: Brand }) {
       const next = await api<Brand>("/brand/read", { url: address });
       setBrand((current) => ({
         ...next,
+        ...(current.certifications ? { certifications: current.certifications } : {}),
         ...(current.photoId ? { photoId: current.photoId } : {}),
         ...(current.logoId ? { logoId: current.logoId } : {}),
       }));
       setReadPreview(next);
       notify(
-        studio?.mode === "mock"
+        (studio?.writingMode ?? studio?.mode) === "mock"
           ? "Website text imported. Review and refine your brief below."
           : "Your brand brief is ready to review.",
       );
@@ -75,6 +107,7 @@ function BrandForm({ initial }: { initial: Brand }) {
   useEffect(() => {
     if (!requestedWebsite || startedWebsiteRead.current) return;
     startedWebsiteRead.current = true;
+    if (recovery) { setSearchParams({}, { replace: true }); return; }
     void read(requestedWebsite).finally(() => setSearchParams({}, { replace: true }));
   }, [requestedWebsite, setSearchParams]);
   const logoLink = sameSiteLogo(brand.logoUrl?.trim(), brand.website);
@@ -93,8 +126,9 @@ function BrandForm({ initial }: { initial: Brand }) {
       setBusy("");
     }
   }
-  async function save(e: FormEvent) {
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const continueToCampaign = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "continue";
     setBusy("save");
     setError("");
     try {
@@ -102,16 +136,21 @@ function BrandForm({ initial }: { initial: Brand }) {
       if (logoUrl && !logoLink) {
         throw new Error("Choose an HTTPS logo link on the same site as your brand website.");
       }
-      await api("/brand", { ...brand, logoUrl: logoUrl || undefined }, "PUT");
+      const saved = await api<Brand>("/brand", { ...brand, logoUrl: logoUrl || undefined }, "PUT");
+      setBrand(saved);
+      setSavedBrand(saved);
+      setRestored(false);
+      try { clearBrandDraft(window.sessionStorage, draftKey); } catch { /* Storage can be unavailable. */ }
       await refresh();
       notify("Your brand brief has been saved.");
+      if (continueToCampaign) navigate("/studio/new");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy("");
     }
   }
-  async function upload(file?: File, purpose: "photo" | "logo" = "photo") {
+  async function upload(file?: File, purpose: "photo" | "logo" | "certificate" = "photo") {
     if (!file) return;
     setBusy("upload");
     setError("");
@@ -120,7 +159,8 @@ function BrandForm({ initial }: { initial: Brand }) {
       data.append("purpose", purpose);
       data.append("photo", file);
       const result = await api<{ id: string }>("/uploads", data);
-      set(purpose === "logo" ? "logoId" : "photoId", result.id);
+      if (purpose === "certificate") set("certifications", { muisHalal: "not_certified", certificateId: result.id });
+      else set(purpose === "logo" ? "logoId" : "photoId", result.id);
       notify("Upload added. Save your brief to keep it.");
     } catch (e) {
       setError((e as Error).message);
@@ -131,7 +171,7 @@ function BrandForm({ initial }: { initial: Brand }) {
   return (
     <>
       <div className="journey-steps" aria-label="Campaign setup progress">
-        <span className="active">01 Your site</span><span>02 Your brief</span><span>03 Your kit</span>
+        <span>01 Your site</span><span className="active">02 Your brief</span><span>03 Your kit</span>
       </div>
       <div className="page-heading">
         <div>
@@ -141,11 +181,20 @@ function BrandForm({ initial }: { initial: Brand }) {
           </h1>
           <p>Review your business facts and creative direction before making a campaign.</p>
         </div>
-        <Link to="/studio/new" className="button secondary">
-          New campaign
+        <Button type="submit" form="brand-brief-form" name="action" value="continue" variant="secondary" disabled={!!busy}>
+          Save and start a campaign
           <ArrowUpRight size={17} />
-        </Link>
+        </Button>
       </div>
+      {restored ? <Notice>
+        Your unsaved brief from this tab has been restored. Review it before saving.
+        {recovery?.base !== JSON.stringify(initial) ? " The saved brief has changed since this draft began." : ""}
+        {" "}<button type="button" disabled={!!busy} onClick={() => { setBrand(initial); setSavedBrand(initial); setRestored(false); }}>Discard draft and use saved brief</button>
+      </Notice> : null}
+      <p className="brand-save-status" role="status">{dirty
+        ? draftStored ? "Unsaved changes · recovered in this tab for up to 24 hours. Save before starting a campaign." : "Unsaved changes · browser recovery is unavailable. Save before leaving."
+        : "No unsaved changes. Review your brief before starting a campaign."}</p>
+      <BriefReadiness brand={brand} />
       <div className="brand-layout">
         <div>
           <div className="website-reader">
@@ -178,7 +227,7 @@ function BrandForm({ initial }: { initial: Brand }) {
             </div>
             {busy === "read" ? <p className="read-progress" role="status"><span className="read-spinner" /> Reading public pages and preparing your editable brief…</p> : null}
             {!busy && readPreview ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
-            {studio?.mode === "mock" ? (
+            {(studio?.writingMode ?? studio?.mode) === "mock" ? (
               <small>
                 Preview mode imports page text for you to refine. AI brief
                 writing is not active.
@@ -188,7 +237,8 @@ function BrandForm({ initial }: { initial: Brand }) {
           {busy === "read" || readPreview ? (
             <SiteReadingScene website={url} brief={readPreview} />
           ) : null}
-          <form className="brand-form" onSubmit={save}>
+          <form id="brand-brief-form" className="brand-form" onSubmit={save}>
+            <fieldset className="brand-fields" disabled={!!busy}>
             <div className="form-section-heading">
               <span className="hand">01</span>
               <h2>Your story</h2>
@@ -283,6 +333,23 @@ function BrandForm({ initial }: { initial: Brand }) {
                 }
               />
             </Field>
+            <details className="optional-certification"><summary>Certification claims <span>Optional · only if relevant to your business</span></summary>
+            <p>Halal and MUIS wording is blocked until you upload a certificate and confirm it applies to this business. An upload is your declaration; Inkshot does not verify authenticity or current certification status.</p>
+            <Field label="Certificate image" hint="Upload a clear PNG, JPG or WebP of your current certificate. It stays private and is not added to your ads.">
+              <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
+                onChange={e => void upload(e.target.files?.[0], "certificate")} />
+            </Field>
+            {brand.certifications?.certificateId ? <p>Certificate uploaded. <a href={"/api/uploads/" + brand.certifications.certificateId} target="_blank" rel="noopener noreferrer">Review certificate</a> <button type="button" onClick={() => set("certifications", { muisHalal: "not_certified" })}>Remove certificate</button></p> : null}
+            <Field label="MUIS certification declaration">
+              <select value={brand.certifications?.muisHalal || "not_certified"}
+                onChange={e => set("certifications", { ...brand.certifications, muisHalal: e.target.value })}>
+                <option value="not_certified">Not attested — keep certification wording off</option>
+                <option value="attested" disabled={!brand.certifications?.certificateId}>I confirm this certificate is current and applies to my business</option>
+              </select>
+            </Field>
+            <p className="muted">Generated visuals must never draw certification logos, seals or marks. Review every ad before publishing.</p>
+            </details>
+            <div className="form-section-heading"><span className="hand">03</span><h2>Your visual identity</h2></div>
             <Field label="Logo for exported ads" hint="Upload a PNG, JPG or WebP you own. Transparent PNGs retain their background transparency.">
               <input type="file" accept="image/png,image/jpeg,image/webp" disabled={!!busy}
                 onChange={(e) => void upload(e.target.files?.[0], "logo")} />
@@ -326,7 +393,9 @@ function BrandForm({ initial }: { initial: Brand }) {
                 <Check size={17} />
                 Save my brand
               </Button>
+              <Button type="submit" name="action" value="continue" disabled={!!busy}>Save and continue <ArrowUpRight size={17} /></Button>
             </div>
+            </fieldset>
           </form>
         </div>
         <aside className="brand-aside">
@@ -500,6 +569,7 @@ export function NewCampaign() {
           <p>A little direction. A lot of possibility.</p>
         </div>
       </div>
+      <BriefReadiness brand={studio.brand} editLink />
       <div className="campaign-create-layout">
         <form className="campaign-form" onSubmit={submit}>
           <Field label="Give your campaign a name">
@@ -535,8 +605,8 @@ export function NewCampaign() {
             </div>
           </Field>
           <Field
-            label="Anything special to share?"
-            hint="An offer, a launch or just a reason to say hello. Optional."
+            label="Customer-facing offer or launch"
+            hint="Write only the message customers should see, not instructions for the AI. Leave blank if there is no offer."
           >
             <textarea
               name="offer"
@@ -602,10 +672,10 @@ export function NewCampaign() {
           </div>
           <div className="kit-price">
             <span>A complete kit</span>
-            <strong>100 credits</strong>
+            <strong>{studio.plan?.kitCredits ?? "…"} credits</strong>
           </div>
           <p>{studio.balance} credits available in your workspace</p>
-          <small>{studio.mode === 'live' ? 'Video generations target 15 seconds. We return credits for assets that fail.' : 'Preview mode makes sample assets. Live videos will target 15 seconds after provider validation.'}</small>
+          <small>{studio.mode === 'live' ? `Video generations target ${studio.videoDurationSeconds ?? 10} seconds. We return credits for assets that fail.` : `Preview mode makes sample assets. New live videos target ${studio.videoDurationSeconds ?? 10} seconds after provider validation.`}</small>
         </aside>
       </div>
     </>

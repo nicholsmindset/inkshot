@@ -1,19 +1,27 @@
+import { allowedRequestOrigins } from "./request-origin.js";
 import "./render-fonts.js";
-import {persistMedia,materializeMedia} from './storage.js';
+import {persistMedia,materializeMedia,signedMediaUrl,cloudStorageEnabled,removePrivateMedia,uploadMediaReference} from './storage.js';
+import {withUploadQuota} from './upload-limits.js';
+import {listUploads,removeUnusedUpload} from './upload-management.js';
+import {exportReviewRequired,reviewFingerprint,ownedReview,assertExportReviewed} from './asset-review.js';
+import { assertApprovedClaims, assertVisualClaims, requireOwnedCertificate } from "./claims.js";
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import express from "express";
+import { createOpsStatusHandler, reportOpsAlert } from "./ops.js";
+import { acceptProviderWebhook } from "./provider-webhooks.js";
+import { requestDeletion, rejectFrozenWorkspace, deletionEnabled } from "./account-deletion.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { PostgresRateLimitStore, clientRateLimitKey } from "./rate-limit.js";
 import multer from "multer";
 import { randomUUID, randomBytes } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { ZipArchive } from "archiver";
+import { requestCampaignExport, findCampaignExport, campaignExportFailureCode } from './campaign-exports.js';
 import { z } from "zod";
-import { config, AppError } from "./config.js";
+import { config, AppError, videoDurationSeconds, writingMode } from "./config.js";
 import type { Database, Queryable } from "./db.js";
 import {
   requireUser,
@@ -22,15 +30,16 @@ import {
   session,
   tokenHash,
 } from "./auth.js";
-import { brandSchema, demoBrand, emptyBrand } from "./brand.js";
+import { brandSchema, demoBrand, emptyBrand, mergeImportedBrief } from "./brand.js";
 import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
-import {billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
+import {briefFingerprints,editedBriefFields,recordEvent,websiteFailureReason,trackedBriefFields} from './events.js';
+import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
+import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
+import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
-  KIT_CREDITS,
-  VERSION_CREDITS,
   type Brand,
   type Campaign,
   type CampaignDraft,
@@ -61,12 +70,12 @@ function socialCaption(headline: string, cta: string, brand: Pick<Brand, "descri
 async function queueRevision(tx: Queryable, revision: {
   id: string; assetId: string; workspaceId: string; n: number; prompt: string;
   headline: string; cta: string; note: string; cost: number; mock: boolean;
-  sourcePath: string | null; motionPrompt?: string | null; checkpoint?: Record<string, string>;
+  sourcePath: string | null; videoDuration?: number; firstFrameSource?: string | null; motionPrompt?: string | null; checkpoint?: Record<string, string>;
 }) {
   await tx.query(
-    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path,motion_prompt) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+    "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,note,credit_cost,mock,source_path,motion_prompt,video_duration_seconds,first_frame_source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     [revision.id, revision.assetId, revision.workspaceId, revision.n, revision.prompt,
-     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath, revision.motionPrompt ?? null],
+     revision.headline, revision.cta, revision.note, revision.cost, revision.mock, revision.sourcePath, revision.motionPrompt ?? null, revision.videoDuration ?? 15, revision.firstFrameSource ?? null],
   );
   await tx.query(
     "INSERT INTO jobs(id,version_id,workspace_id,checkpoint) VALUES($1,$2,$3,$4)",
@@ -81,16 +90,51 @@ async function saveUpload(db: Database, workspaceId: string, buffer: Buffer, isL
     const file = path.join(dir, `${uploadId}.${isLogo ? "png" : "jpg"}`);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(file, buffer);
-    const storedFile = await persistMedia(file,workspaceId,'brand-uploads');
-    await db.query(
-      "INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3)",
-      [uploadId, workspaceId, storedFile],
-    );
+    const reference = uploadMediaReference(file,workspaceId,'brand-uploads');
+    let saved=false;
+    try {
+      // Reserve quota durably before the external write. If a process dies or
+      // cleanup is ambiguous, the reservation continues to count against quota.
+      await withUploadQuota(db,workspaceId,buffer.length,async tx => {
+        await tx.query('INSERT INTO uploads(id,workspace_id,file_path,size_bytes) VALUES($1,$2,$3,$4)',[uploadId,workspaceId,reference,buffer.length]);
+      });
+      try {
+        // A reservation can outlive a paused request. Serialize the actual
+        // external write with upload/account deletion and revalidate after the
+        // lock: never recreate an object whose reservation was already removed.
+        await db.transaction(async tx => {
+          const workspace=(await tx.query<{deletion_requested_at:unknown}>(
+            'SELECT deletion_requested_at FROM workspaces WHERE id=$1 FOR UPDATE',[workspaceId])).rows[0];
+          if(!workspace)throw new AppError(404,'Workspace not found.');
+          if(workspace.deletion_requested_at)throw new AppError(410,'Account deletion has been requested.');
+          const reservation=(await tx.query<{file_path:string}>(
+            'SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2 FOR UPDATE',[uploadId,workspaceId])).rows[0];
+          if(!reservation || reservation.file_path!==reference)
+            throw new AppError(409,'This upload was removed before it finished. Choose the file again.');
+          await persistMedia(file,workspaceId,'brand-uploads');
+        });
+        saved=true;
+      }
+      catch(error) {
+        try {
+          await removePrivateMedia(reference,workspaceId,'brand-uploads');
+          await db.query('DELETE FROM uploads WHERE id=$1 AND workspace_id=$2',[uploadId,workspaceId]);
+        } catch { reportOpsAlert('inkshot_service_unavailable'); }
+        throw error;
+      }
+    } finally {
+      if(cloudStorageEnabled() || !saved)await rm(file,{force:true});
+    }
     return uploadId;
 }
 
 export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
+  planConfig(); // fail at startup, not on a customer request, if commercial settings are inconsistent
   const app = express();
+  let storageSource: string[] = [];
+  if (process.env.STORAGE_PROVIDER === 'supabase' && process.env.SUPABASE_URL) {
+    try { const url = new URL(process.env.SUPABASE_URL); if(url.protocol==='https:' && !url.username && !url.password) storageSource=[url.origin]; } catch { /* Startup configuration checks handle invalid storage URLs. */ }
+  }
   app.disable("x-powered-by");
   app.use(
     helmet({
@@ -99,8 +143,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          imgSrc: ["'self'", "blob:", "data:"],
-          mediaSrc: ["'self'", "blob:"],
+          imgSrc: ["'self'", "blob:", "data:", ...storageSource],
+          mediaSrc: ["'self'", "blob:", ...storageSource],
           connectSrc: ["'self'"],
           fontSrc: ["'self'"],
           upgradeInsecureRequests: config.production ? [] : null,
@@ -108,12 +152,16 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       },
     }),
   );
+  app.get("/api/ops/status", createOpsStatusHandler(async () => db));
   app.use(cookieParser());
   app.use("/api/auth", (_req, res, next) => {
     res.set("Cache-Control", "no-store").set("Referrer-Policy", "no-referrer");
     next();
   });
-  app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');await webhook(db,req.body,signature);res.json({received:true})});
+  app.post('/api/webhooks/stripe',express.raw({type:'application/json',limit:'256kb'}),async(req,res)=>{const signature=req.headers['stripe-signature'];if(typeof signature!=='string')throw new AppError(400,'Missing Stripe signature.');try { await webhook(db,req.body,signature); } catch (error) { reportOpsAlert('inkshot_stripe_webhook_failed'); throw error; } res.json({received:true})});
+  app.post('/api/webhooks/higgsfield', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+    res.json(await acceptProviderWebhook(db, req.body, req.headers));
+  });
   app.use(express.json({ limit: "128kb" }));
   app.use(
     "/api",
@@ -130,12 +178,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.use("/api", (req, _res, next) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
       const origin = req.headers.origin;
-      const allowed = [
-        config.origin,
-        ...(!config.production
-          ? ["http://127.0.0.1:5173", "http://localhost:5173"]
-          : []),
-      ];
+      const allowed = allowedRequestOrigins(config.origin, config.production);
       if (origin && !allowed.includes(origin))
         return next(
           new AppError(403, "This request came from another website."),
@@ -146,8 +189,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     next();
   });
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
+    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), generationPaused: process.env.GENERATION_PAUSED === 'true', demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
+  app.get("/api/plan", (_req, res) => res.json(planConfig()));
+  // Only server configuration controls the host; never echo request Host or Origin.
+  app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() && (config.production || process.env.VERCEL === "1") ? config.origin : null }));
   const authLimit = rateLimit({
     store: new PostgresRateLimitStore(db, "auth"),
     keyGenerator: clientRateLimitKey,
@@ -201,8 +247,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         email: authEmail,
         password: z.string().min(12).max(128),
         website: onboardingWebsite.optional(),
+        inviteCode: z.string().trim().max(64).optional(),
       })
       .parse(req.body);
+    // Claim a single-use code before creating the account; release it if signup fails.
+    const invite = pilotInviteOnly() ? await redeemInvite(db, input.inviteCode, input.email) : null;
+    try {
     if (managedAuthEnabled()) {
       const {data,error} = await authClient(req,res).auth.signUp({email:input.email,password:input.password,options:{data:{name:input.name},emailRedirectTo:`${config.origin}/api/auth/callback`}});
       if (error) throw new AppError(400,'Unable to create your account. Check your details or try signing in.');
@@ -228,6 +278,16 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { userId } = await createUser(db, input, emptyBrand);
     await session(db, userId, res);
     res.status(201).json({ ok: true });
+    } catch (error) {
+      if (invite) await releaseInvite(db, invite);
+      throw error;
+    }
+  });
+  app.post("/api/waitlist", authLimit, async (req, res) => {
+    const input = z.object({ email: authEmail, businessUrl: z.string().trim().min(3).max(300) }).parse(req.body);
+    await joinWaitlist(db, input.email, input.businessUrl);
+    // The same receipt whether or not the address was already on the list.
+    res.status(202).json({ ok: true });
   });
   app.post("/api/auth/resend-confirmation", authLimit, resendLimit, async (req, res) => {
     const { email } = z.object({ email: authEmail }).parse(req.body);
@@ -246,6 +306,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     // A manually entered email code works without the original browser's PKCE
     // verifier. The existing confirmation-link flow stays browser-bound.
     const { data, error } = await authClient(req, res).auth.verifyOtp({ email, token, type: "email" });
+    if (error && (!error.status || error.status >= 500))
+      throw new AppError(503, "Email verification is temporarily unavailable. Please try again.");
     if (error || !data.user || !data.session || !data.user.email_confirmed_at)
       throw new AppError(401, "That code is invalid or has expired. Request a new confirmation email.");
     await provisionManagedUser(db, data.user);
@@ -260,7 +322,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { error } = await authClient(req, res, true).auth.resetPasswordForEmail(email, {
       redirectTo: `${config.origin}/api/auth/recovery-callback`,
     });
-    if (error && (!error.status || error.status >= 500))
+    if (error && (!error.status || error.status === 401 || error.status === 403 || error.status >= 500))
       throw new AppError(503, "Recovery email is temporarily unavailable. Please try again.");
     // Identical response for existing and unknown accounts, including per-user throttles.
     res.json({ ok: true });
@@ -298,6 +360,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       .parse(req.body);
     if (managedAuthEnabled()) {
       const {data,error} = await authClient(req,res).auth.signInWithPassword(input);
+      if (error && (!error.status || error.status >= 500))
+        throw new AppError(503, 'Sign-in is temporarily unavailable. Please try again.');
       if(error || !data.user) throw new AppError(401,'Unable to sign in. Check your email, password and email confirmation.');
       await provisionManagedUser(db,data.user);
       res.json({ok:true}); return;
@@ -335,7 +399,17 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     res.redirect('/studio/brand' + (website.success && website.data ? `?website=${encodeURIComponent(website.data)}` : ""));
   });
   app.use("/api", requireUser(db));
-  app.post('/api/billing/checkout',async(req,res)=>res.json(await checkout(db,req.user!)));
+  app.post('/api/account/deletion', async(req,res)=>{
+    if(req.headers.origin!==config.origin || req.headers['sec-fetch-site']==='cross-site')throw new AppError(403,'Account deletion must start from this studio.');
+    if(req.body?.confirmation!=='DELETE MY ACCOUNT')throw new AppError(400,'Type DELETE MY ACCOUNT to confirm.');
+    res.status(202).set('Cache-Control','no-store').json(await requestDeletion(db,req.user!));
+  });
+  app.use('/api',async(req,_res,next)=>{await rejectFrozenWorkspace(db,req.user!.workspaceId);next();});
+  app.post('/api/billing/checkout',async(req,res)=>{
+    const session=await checkout(db,req.user!);
+    await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'checkout_started'});
+    res.json(session);
+  });
   app.post('/api/billing/portal',async(req,res)=>res.json(await portal(db,req.user!)));
   app.get("/api/studio", async (req, res) => {
     const w = req.user!.workspaceId;
@@ -352,8 +426,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         "SELECT * FROM assets WHERE workspace_id=$1 ORDER BY id",
         [w],
       ),
-      db.query<Version>(
-        "SELECT id,asset_id,n,status,prompt,motion_prompt,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
+      db.query<Version & {review_fingerprint:string|null}>(
+        "SELECT id,asset_id,n,status,prompt,motion_prompt,video_duration_seconds,first_frame_source,review_fingerprint,headline,cta,note,credit_cost,mock,error,created_at FROM versions WHERE workspace_id=$1 ORDER BY n DESC",
         [w],
       ),
       db.query(
@@ -370,36 +444,59 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         const history = versions.rows.filter(v => v.asset_id === asset.id);
         const current = history.find(v => v.id === asset.current_version_id);
         const campaign = campaigns.rows.find(c => c.id === asset.campaign_id);
-        const caption = asset.kind === "post" && current && current.n > 1 && campaign && !campaign.draft
-          ? socialCaption(current.headline, current.cta, campaign.brand) : asset.caption;
-        return { ...asset, caption, versions: history };
+        const caption = asset.caption;
+        return { ...asset, caption, versions: history.map(v => {
+          const fingerprint=reviewFingerprint(v,caption,campaign?.brand.destinationUrl);
+          const {review_fingerprint,...safeVersion}=v;
+          return {...safeVersion,reviewFingerprint:fingerprint,reviewed:review_fingerprint===fingerprint};
+        }) };
       }),
       ledger: ledger.rows,
       mode: config.mode,
+      writingMode: writingMode(),
+      videoDurationSeconds: videoDurationSeconds(),
       providers: {
         higgsfield: !!config.hfKey && !!config.hfSecret,
         claude: !!config.claudeKey || !!config.openrouterKey,
       },
       billingEnabled: billingConfigured()&&!req.user!.demo,
       checkoutReleased: checkoutReleased(),
+      accountDeletionEnabled: deletionEnabled(),
+      exportReviewRequired: exportReviewRequired(),
+      plan: planConfig(),
+      videoRegen: await videoRegenUsage(db, w),
       billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
     });
   });
+  async function requireBrandFiles(tx:Queryable,workspaceId:string,brand:Brand){
+    await requireOwnedCertificate(tx,workspaceId,brand);
+    for(const uploadId of [brand.photoId,brand.logoId].filter(Boolean))
+      if(!(await tx.query('SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2',[uploadId,workspaceId])).rows.length)
+        throw new AppError(400,'Choose files uploaded to this workspace.');
+  }
   app.put("/api/brand", async (req, res) => {
     const brand = brandSchema.parse(req.body);
-    for (const uploadId of [brand.photoId, brand.logoId].filter(Boolean)) {
-      const upload = await db.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [uploadId, req.user!.workspaceId]);
-      if (!upload.rows.length) throw new AppError(400, "Choose files uploaded to this workspace.");
+    await db.transaction(async tx=>{
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[req.user!.workspaceId]);
+      await requireBrandFiles(tx,req.user!.workspaceId,brand);
+      await tx.query('UPDATE workspaces SET brand=$2 WHERE id=$1',[req.user!.workspaceId,json(brand)]);
+    });
+    const eventBase={workspaceId:req.user!.workspaceId,userId:req.user!.id};
+    await recordEvent(db,{...eventBase,event:'brief_saved'});
+    // Compare with the latest website read by field fingerprint only; no extracted text is kept.
+    const read=(await db.query<{props:{fields?:Record<string,string>}}>("SELECT props FROM product_events WHERE workspace_id=$1 AND event='website_read_succeeded' ORDER BY created_at DESC LIMIT 1",[req.user!.workspaceId]).catch(()=>({rows:[]}))).rows[0];
+    if(read?.props?.fields){
+      const edited=editedBriefFields(read.props.fields,brand as unknown as Record<string,unknown>);
+      await recordEvent(db,{...eventBase,event:'brief_fields_edited',props:{edited:edited.length,total:Object.keys(read.props.fields).length,fields:[...edited]}});
     }
-    await db.query("UPDATE workspaces SET brand=$2 WHERE id=$1", [
-      req.user!.workspaceId,
-      json(brand),
-    ]);
     res.json(brand);
   });
   app.post("/api/brand/read", websiteReadLimit, async (req, res) => {
     const { url } = z.object({ url: z.url().max(2048) }).parse(req.body);
+    const eventBase = { workspaceId: req.user!.workspaceId, userId: req.user!.id };
+    await recordEvent(db, { ...eventBase, event: 'website_read_started' });
+    try {
     const pages = await scrape(url);
     const identity = importedIdentity(pages);
     if (!pages[0].description && pages.reduce((n, p) => n + p.text.length, 0) < 300)
@@ -407,8 +504,15 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         400,
         "There is very little readable text on this page. Please add your brand details manually.",
       );
-    const brief = config.mode === "mock" ? emptyBrand : await writeBrief(db, req.user!.workspaceId, pages);
-    res.json({ ...brief, color: emptyBrand.color, ...identity });
+    const aiWritten = writingMode() === "live";
+    const brief = aiWritten ? await writeBrief(db, req.user!.workspaceId, pages) : emptyBrand;
+    const imported = mergeImportedBrief(brief, identity, aiWritten);
+    await recordEvent(db, { ...eventBase, event: 'website_read_succeeded', props: { fields: briefFingerprints(imported as unknown as Record<string, unknown>) } });
+    res.json(imported);
+    } catch (error) {
+      await recordEvent(db, { ...eventBase, event: 'website_read_failed', props: { reason: websiteFailureReason(error) } });
+      throw error;
+    }
   });
   app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
     const { website, logoUrl } = z.object({
@@ -448,6 +552,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const uploadId = await saveUpload(db, req.user!.workspaceId, buffer, isLogo);
     res.status(201).json({ id: uploadId });
   });
+  app.get('/api/uploads',async(req,res)=>res.set('Cache-Control','no-store').json({uploads:await listUploads(db,req.user!.workspaceId)}));
+  app.delete('/api/uploads/:id',async(req,res)=>{await removeUnusedUpload(db,req.user!.workspaceId,id.parse(req.params.id));res.json({ok:true});});
   app.get("/api/uploads/:id", async (req, res) => {
     const row = (
       await db.query<{ file_path: string }>(
@@ -456,6 +562,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!row) throw new AppError(404, "Photo not found.");
+    res.set('Cache-Control','private, no-store').set('Referrer-Policy','no-referrer');
+    const signed=await signedMediaUrl(row.file_path,req.user!.workspaceId,'brand-uploads');
+    if(signed){res.redirect(302,signed);return;}
     res.sendFile(await materializeMedia(row.file_path, req.user!.workspaceId, "brand-uploads"));
   });
   app.post("/api/campaigns", async (req, res) => {
@@ -480,8 +589,13 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       );
     const concepts = await writeConcepts(db, w, brand, input.goal, input.offer);
     const cid = randomUUID();
-    await db.query(
-      "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+    const initialDraft = currentDraft({ id: cid, name: input.name, goal: input.goal,
+      offer: input.offer, concepts, brand, status: 'draft', mock: config.mode === 'mock', created_at: '' });
+    await db.transaction(async tx=>{
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[w]);
+      await requireBrandFiles(tx,w,brand);
+      await tx.query(
+      "INSERT INTO campaigns(id,workspace_id,name,goal,offer,concepts,brand,mock,draft) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
       [
         cid,
         w,
@@ -491,8 +605,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         json(concepts),
         json(brand),
         config.mode === "mock",
+        json(initialDraft),
       ],
     );
+    });
+    const earlier=Number((await db.query<{n:string}>('SELECT count(*)::text AS n FROM campaigns WHERE workspace_id=$1 AND id<>$2',[w,cid])).rows[0].n);
+    if(earlier>0)await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'second_campaign_started',campaignId:cid,dedupeKey:'second_campaign_started'});
     res.status(201).json({ id: cid, concepts });
   });
   async function ownedCampaign(tx: Queryable, campaignId: string, workspaceId: string, lock = false) {
@@ -506,9 +624,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   async function saveDraft(tx: Queryable, campaign: Campaign, workspaceId: string, draft: CampaignDraft) {
     requireDraftRevision(campaign, draft.revision);
     validateDraft(campaign, draft);
+    await requireOwnedCertificate(tx, workspaceId, campaign.brand, true);
     if (draft.photoId && !(await tx.query("SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2", [draft.photoId, workspaceId])).rows.length)
       throw new AppError(400, "Choose a photo from this workspace.");
-    const saved = { ...draft, revision: draft.revision + 1 };
+    const saved = { ...draft, videoDurationSeconds: currentDraft(campaign).videoDurationSeconds, revision: draft.revision + 1 };
+    if (draft.photoId && draft.photoId === campaign.brand.certifications?.certificateId) throw new AppError(400, "A certificate cannot be used as campaign artwork.");
     await tx.query("UPDATE campaigns SET draft=$2 WHERE id=$1", [campaign.id, json(saved)]);
     return saved;
   }
@@ -520,8 +640,10 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const input = campaignDraftSchema.parse(req.body);
     const workspaceId = req.user!.workspaceId;
     const campaignId = id.parse(req.params.id);
-    const saved = await db.transaction(async tx => saveDraft(tx,
-      await ownedCampaign(tx, campaignId, workspaceId, true), workspaceId, input));
+    const saved = await db.transaction(async tx => {
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[workspaceId]);
+      return saveDraft(tx,await ownedCampaign(tx,campaignId,workspaceId,true),workspaceId,input);
+    });
     res.json(saved);
   });
   app.post("/api/campaigns/:id/prompts", async (req, res) => {
@@ -533,11 +655,14 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const draft = { ...currentDraft(campaign), selectedConceptIds: input.selectedConceptIds, assets: [] };
     validateDraft(campaign, draft);
     const selected = input.selectedConceptIds.map(conceptId => campaign.concepts.find(concept => concept.id === conceptId)!);
-    const assets = await writeAssetPrompts(db, workspaceId, campaign.brand, selected, campaign.goal, campaign.offer);
+    const assets = await writeAssetPrompts(db, workspaceId, campaign.brand, selected, campaign.goal, campaign.offer, draft.videoDurationSeconds);
     const complete = campaignDraftSchema.parse({ ...draft, assets });
     validateDraft(campaign, complete, true);
-    const saved = await db.transaction(async tx => saveDraft(tx,
-      await ownedCampaign(tx, campaignId, workspaceId, true), workspaceId, complete));
+    const saved = await db.transaction(async tx => {
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[workspaceId]);
+      return saveDraft(tx,await ownedCampaign(tx,campaignId,workspaceId,true),workspaceId,complete);
+    });
+    await recordEvent(db,{workspaceId,userId:req.user!.id,event:'angles_selected',campaignId,props:{count:input.selectedConceptIds.length}});
     res.json(saved);
   });
   app.post("/api/campaigns/:id/generate", async (req, res) => {
@@ -555,9 +680,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         cta: z.string().trim().min(1).max(55),
       })).length(9).optional(),
     }).parse(req.body);
+    assertGenerationNotPaused();
     if (config.mode === "live" && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !(Number(process.env.HF_DAILY_BUDGET_USD)>0)))
       throw new AppError(503,"Generation requires provider credentials and a configured spending limit.");
     await db.transaction(async (tx) => {
+      await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE",[w]);
+      await assertBillingSpendAllowed(tx,w);
       const c = (
         await tx.query<Campaign & { brand: Brand }>(
           "SELECT * FROM campaigns WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
@@ -565,6 +693,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         )
       ).rows[0];
       if (!c) throw new AppError(404, "Campaign not found.");
+      await requireOwnedCertificate(tx, w, c.brand, true);
       if (c.status !== "draft") return;
       let { drafts, photoId, destinationUrl } = input;
       let conceptsToGenerate = c.concepts.slice(0, 3);
@@ -573,7 +702,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         if (input.draftRevision === undefined || !c.draft)
           throw new AppError(409, "Save and approve the current draft before generating.");
         requireDraftRevision(c, input.draftRevision);
-        approvedDraft = campaignDraftSchema.parse(c.draft);
+        approvedDraft = campaignDraftSchema.parse(currentDraft(c));
         validateDraft(c, approvedDraft, true);
         photoId = approvedDraft.photoId;
         destinationUrl = approvedDraft.destinationUrl;
@@ -593,6 +722,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         if (concepts.size !== 3)
           throw new AppError(400, "This campaign needs three distinct concepts.");
       }
+      if (photoId && photoId === c.brand.certifications?.certificateId) throw new AppError(400, "A certificate cannot be used as campaign artwork.");
       if (photoId) {
         const uploaded = await tx.query(
           "SELECT id FROM uploads WHERE id=$1 AND workspace_id=$2",
@@ -614,7 +744,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       await changeCredits(
         tx,
         w,
-        -KIT_CREDITS,
+        -planConfig().kitCredits,
         "generation",
         `${c.name} · nine-asset kit`,
         `kit:${cid}`,
@@ -630,12 +760,15 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
                 ? "4:5"
                 : ["1:1", "4:5", "1.91:1"][index];
           const cost =
-            VERSION_CREDITS[kind] + (kind === "post" && index === 2 ? 1 : 0);
+            planConfig().versionCredits[kind] + (kind === "post" && index === 2 ? 1 : 0);
           const draft = overrides.get(`${concept.id}:${kind}`);
           const cta = draft?.cta ?? concept.cta;
           const headline = draft?.headline ?? concept.hook;
           const approvedAsset = approvedAssets.get(`${concept.id}:${kind}`);
           const prompt = approvedAsset?.prompt ?? `${concept.description} ${c.brand.description} Editorial product photography, natural light, clean composition. ${c.brand.voice}. No text, no logos. Encode approved headlines in the final layout, not in the generated image.`;
+          for (const copy of [headline, cta, approvedAsset?.caption || ""]) assertApprovedClaims(copy, c.brand, c.offer);
+          assertVisualClaims(prompt, c.brand, c.offer);
+          assertVisualClaims(approvedAsset?.motionPrompt || "", c.brand, c.offer);
           await tx.query(
             "INSERT INTO assets(id,workspace_id,campaign_id,kind,title,format,caption,current_version_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
             [
@@ -652,8 +785,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
             ],
           );
           await tx.query(
-            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock,motion_prompt) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9)",
-            [vid, aid, w, prompt, headline, cta, cost, c.mock, approvedAsset?.motionPrompt ?? null],
+            "INSERT INTO versions(id,asset_id,workspace_id,n,prompt,headline,cta,credit_cost,mock,motion_prompt,video_duration_seconds) VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9,$10)",
+            [vid, aid, w, prompt, headline, cta, cost, c.mock, approvedAsset?.motionPrompt ?? null, approvedDraft?.videoDurationSeconds ?? 15],
           );
           await tx.query(
             "INSERT INTO jobs(id,version_id,workspace_id) VALUES($1,$2,$3)",
@@ -665,6 +798,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         cid,
       ]);
     });
+    await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'campaign_approved',campaignId:cid,dedupeKey:`campaign_approved:${cid}`});
     res.json({ ok: true });
   });
   app.post("/api/assets/:id/revise", async (req, res) => {
@@ -677,9 +811,13 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         cta: z.string().trim().min(1).max(55),
         note: z.string().max(500),
         regenerate: z.boolean().default(false),
+        caption: z.string().trim().max(2200).optional(),
       })
       .parse(req.body);
+    if (input.regenerate) assertGenerationNotPaused();
     const versionId = await db.transaction(async (tx) => {
+      await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE",[w]);
+      if(input.regenerate)await assertBillingSpendAllowed(tx,w);
       const a = (
         await tx.query<Asset>(
           "SELECT * FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
@@ -687,6 +825,14 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         )
       ).rows[0];
       if (!a) throw new AppError(404, "Asset not found.");
+      const campaign = await ownedCampaign(tx, a.campaign_id, w);
+      await requireOwnedCertificate(tx, w, campaign.brand, true);
+      assertApprovedClaims(input.headline, campaign.brand, campaign.offer);
+      assertApprovedClaims(input.cta, campaign.brand, campaign.offer);
+      if (input.regenerate) assertVisualClaims(input.note, campaign.brand, campaign.offer);
+      if (input.regenerate && a.kind !== 'video' && campaign.brand.photoId)
+        throw new AppError(409,'Scene regeneration is not available for an uploaded product photo. Text and caption edits are free.');
+      if(input.caption!==undefined)assertApprovedClaims(input.caption,campaign.brand,campaign.offer);
       if (
         (
           await tx.query(
@@ -708,7 +854,10 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           400,
           "No source media is available. Choose regenerate.",
         );
-      const cost = input.regenerate ? VERSION_CREDITS[a.kind] : 0;
+      if(input.caption!==undefined || (a.kind==='post' && !campaign.draft))
+        await tx.query('UPDATE assets SET caption=$2 WHERE id=$1',[aid,input.caption ?? socialCaption(input.headline,input.cta,campaign.brand)]);
+      if (input.regenerate && a.kind === 'video') await assertVideoRegenAllowed(tx, w);
+      const cost = input.regenerate ? planConfig().versionCredits[a.kind] : 0;
       const vid = randomUUID();
       const n = (
         await tx.query<{ n: number }>(
@@ -729,7 +878,10 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           (input.regenerate && input.note ? ` Revision: ${input.note}` : ""),
         headline: input.headline, cta: input.cta, note: input.note || "Text and layout updated",
         cost, mock: source.mock, sourcePath: input.regenerate ? null : source.source_path,
-        motionPrompt: source.motion_prompt,
+        motionPrompt: source.motion_prompt && a.kind === "video" && input.regenerate && input.note
+          ? `${source.motion_prompt} Revision: ${input.note}` : source.motion_prompt,
+        videoDuration: source.video_duration_seconds,
+        firstFrameSource: input.regenerate ? null : source.first_frame_source,
       });
       return vid;
     });
@@ -746,11 +898,16 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       throw new AppError(400, "Give each variation a distinct headline.");
 
     const versionIds = await db.transaction(async (tx) => {
-      const asset = (await tx.query<{ kind: string }>(
-        "SELECT kind FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
+      // Match worker/deletion lock order before touching assets or queued jobs.
+      await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [workspaceId]);
+      const asset = (await tx.query<{ kind: string; campaign_id: string }>(
+        "SELECT kind,campaign_id FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE",
         [assetId, workspaceId],
       )).rows[0];
       if (!asset) throw new AppError(404, "Asset not found.");
+      const campaign = await ownedCampaign(tx, asset.campaign_id, workspaceId);
+      await requireOwnedCertificate(tx, workspaceId, campaign.brand, true);
+      for (const headline of headlines) assertApprovedClaims(headline, campaign.brand, campaign.offer);
       if (asset.kind !== "image") throw new AppError(400, "Choose an image ad for variations.");
 
       const previous = (await tx.query<{ id: string; headline: string; source: string }>(
@@ -811,6 +968,20 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     );
     res.json({ ok: true });
   });
+  app.post('/api/assets/:id/review',async(req,res)=>{
+    const aid=id.parse(req.params.id),w=req.user!.workspaceId;
+    const input=z.object({versionId:id,fingerprint:z.string().regex(/^[a-f0-9]{64}$/),checks:z.object({product:z.literal(true),offer:z.literal(true),claims:z.literal(true),logo:z.literal(true),safeArea:z.literal(true),caption:z.literal(true),destination:z.literal(true)})}).parse(req.body);
+    await db.transaction(async tx=>{
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[w]);
+      await tx.query('SELECT id FROM assets WHERE id=$1 AND workspace_id=$2 FOR UPDATE',[aid,w]);
+      const review=await ownedReview(tx,w,input.versionId);
+      if(review.asset_id!==aid)throw new AppError(404,'Asset not found.');
+      if(review.fingerprint!==input.fingerprint)throw new AppError(409,'This creative changed. Review the latest version before approving.');
+      await tx.query('UPDATE versions SET review_fingerprint=$2,reviewed_at=now() WHERE id=$1 AND workspace_id=$3',[input.versionId,review.fingerprint,w]);
+    });
+    await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'asset_reviewed',assetId:aid,props:{versionId:input.versionId},dedupeKey:`review:${input.versionId}:${input.fingerprint.slice(0,16)}`});
+    res.json({ok:true});
+  });
   app.get("/api/media/:id", async (req, res) => {
     const v = (
       await db.query<{ file_path: string; preview_path: string }>(
@@ -819,61 +990,102 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!v) throw new AppError(404, "This export is not ready.");
-    const file = await materializeMedia(req.query.preview === "true" ? v.preview_path : v.file_path, req.user!.workspaceId, "generated-media");
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    if (req.query.download === "true")
-      res.download(file, `inkshot-${req.params.id}${path.extname(file)}`);
-    else res.sendFile(file);
-  });
-  app.get("/api/campaigns/:id/download", async (req, res) => {
-    const cid = id.parse(req.params.id),
-      w = req.user!.workspaceId;
-    const c = (
-      await db.query<Pick<Campaign, "brand" | "draft">>(
-        "SELECT brand,draft FROM campaigns WHERE id=$1 AND workspace_id=$2",
-        [cid, w],
-      )
-    ).rows[0];
-    if (!c) throw new AppError(404, "Campaign not found.");
-    const rows = (
-      await db.query<{
-        id: string;
-        kind: string;
-        title: string;
-        caption: string;
-        n: number;
-        headline: string;
-        cta: string;
-        file_path: string;
-        mock: boolean;
-      }>(
-        "SELECT a.id,a.kind,a.title,a.caption,v.n,v.headline,v.cta,v.file_path,v.mock FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND a.workspace_id=$2 AND v.status='ready'",
-        [cid, w],
-      )
-    ).rows;
-    if (!rows.length)
-      throw new AppError(400, "Your first asset is still being made.");
-    res.attachment("inkshot-kit.zip");
-    const zip = new ZipArchive({ zlib: { level: 5 } });
-    zip.on("error", () => res.destroy());
-    zip.pipe(res);
-    for (const [i,a] of rows.entries()) {
-      zip.file(await materializeMedia(a.file_path, w, "generated-media"), {name:`${i+1}-${a.kind}${path.extname(a.file_path)}`});
+    if(req.query.download==='true'){
+      await assertExportReviewed(db,req.user!.workspaceId,[id.parse(req.params.id)]);
+      const owner=(await db.query<{asset_id:string;campaign_id:string}>('SELECT v.asset_id,a.campaign_id FROM versions v JOIN assets a ON a.id=v.asset_id WHERE v.id=$1',[id.parse(req.params.id)])).rows[0];
+      await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'download_completed',campaignId:owner?.campaign_id,assetId:owner?.asset_id,props:{scope:'asset',versionId:id.parse(req.params.id)},dedupeKey:`download:${id.parse(req.params.id)}`});
     }
-    zip.append(
-      rows
-        .filter((a) => a.kind === "post")
-        .map((a) => `${a.title}\n${a.n > 1 && !c.draft ? socialCaption(a.headline, a.cta, c.brand) : a.caption}`)
-        .join("\n\n---\n\n"),
-      { name: "captions.txt" },
-    );
-    if (c.brand.destinationUrl) zip.append(c.brand.destinationUrl + "\n", { name: "destination-url.txt" });
-    if (rows.some((a) => a.mock))
-      zip.append(
-        "Sample creatives for product preview. These use a sample photo or your uploaded image. Sample videos are 5-second still-image previews, not Higgsfield generations.",
-        { name: "SAMPLE-README.txt" },
-      );
-    await zip.finalize();
+    const reference = req.query.preview === "true" ? v.preview_path : v.file_path;
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    const filename = req.query.download === "true" ? `inkshot-${req.params.id}${path.extname(reference)}` : undefined;
+    const url = await signedMediaUrl(reference, req.user!.workspaceId, "generated-media", filename);
+    if (url) { res.redirect(302, url); return; }
+    const file = await materializeMedia(reference, req.user!.workspaceId, "generated-media");
+    if (filename) res.download(file, filename); else res.sendFile(file);
+  });
+  const exportCategory = z.enum(["all", "video", "image", "post"]).default("all");
+  app.post("/api/campaigns/:id/exports", async(req,res)=>{
+    const row = await requestCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId,exportCategory.parse(req.body.category));
+    res.set("Cache-Control","no-store").status(row.state==='queued'||row.state==='processing'?202:200).json({id:row.id,state:row.state,errorCode:campaignExportFailureCode(row)});
+  });
+  app.get("/api/exports/:id", async(req,res)=>{
+    const row = await findCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId);
+    res.set("Cache-Control","no-store").json({id:row.id,state:row.state,errorCode:campaignExportFailureCode(row),
+      ...(row.state==='ready' && {downloadUrl:`/api/exports/${row.id}/download`})});
+  });
+  app.get("/api/exports/:id/download", async(req,res)=>{
+    const row = await findCampaignExport(db,id.parse(req.params.id),req.user!.workspaceId);
+    if(row.state!=='ready'||!row.file_path)throw new AppError(409,"Your download is not ready yet.");
+    await assertExportReviewed(db,req.user!.workspaceId,row.manifest.entries.map(entry=>entry.id));
+    // An old archive cannot stand in for newly edited captions/destination.
+    if(exportReviewRequired())for(const entry of row.manifest.entries){
+      const current=await ownedReview(db,req.user!.workspaceId,entry.id);
+      if(current.caption!==entry.caption || (current.brand.destinationUrl??'')!==(row.manifest.destinationUrl??''))
+        throw new AppError(409,'This download contains older copy. Prepare a new download after reviewing the changes.');
+    }
+    await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'download_completed',campaignId:row.campaign_id,props:{scope:'campaign',category:row.category},dedupeKey:`download:export:${row.id}`});
+    res.set("Cache-Control","private, no-store").set("Referrer-Policy","no-referrer");
+    const filename = `inkshot-${row.category}.zip`;
+    const url = await signedMediaUrl(row.file_path,req.user!.workspaceId,'generated-media',filename);
+    if(url){res.redirect(302,url);return;}
+    res.download(row.file_path,filename);
+  });
+  // Preserve the old link as a redirect to the owned campaign, where exports
+  // are explicitly queued with POST. GET never creates background work.
+  app.get("/api/campaigns/:id/download", async(req,res)=>{
+    const cid=id.parse(req.params.id);
+    if(!(await db.query("SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",[cid,req.user!.workspaceId])).rows.length)
+      throw new AppError(404,"Campaign not found.");
+    res.redirect(303,`/studio/campaign/${cid}`);
+  });
+  // "Would you publish this?" asked after a download. The answer may be changed; the latest counts.
+  app.post("/api/assets/:id/publish-answer", async (req, res) => {
+    const assetId = id.parse(req.params.id), w = req.user!.workspaceId;
+    const input = z.object({
+      versionId: id,
+      answer: z.enum(["yes_as_is", "yes_with_edits", "no"]),
+      reason: z.enum(["wrong_product", "wrong_claim", "looks_ai_made", "text_issue", "other"]).optional(),
+    }).parse(req.body);
+    const owner = (await db.query<{ campaign_id: string }>(
+      "SELECT a.campaign_id FROM versions v JOIN assets a ON a.id=v.asset_id WHERE v.id=$1 AND a.id=$2 AND v.workspace_id=$3", [input.versionId, assetId, w])).rows[0];
+    if (!owner) throw new AppError(404, "Asset not found.");
+    await recordEvent(db, { workspaceId: w, userId: req.user!.id, event: "publish_answer", campaignId: owner.campaign_id, assetId,
+      props: { versionId: input.versionId, answer: input.answer, reason: input.answer === "no" ? input.reason ?? null : null },
+      dedupeKey: `publish:${input.versionId}`, replace: true });
+    res.json({ ok: true });
+  });
+  // Seven days after a download, ask how posting went. Answers are self-reported by the merchant.
+  app.get("/api/pilot/followup", async (req, res) => {
+    const w = req.user!.workspaceId;
+    const pending = (await db.query<{ campaign_id: string; name: string }>(
+      `SELECT d.campaign_id,c.name FROM (SELECT campaign_id,min(created_at) AS first_download FROM product_events
+          WHERE workspace_id=$1 AND event='download_completed' AND campaign_id IS NOT NULL GROUP BY campaign_id) d
+        JOIN campaigns c ON c.id=d.campaign_id AND c.workspace_id=$1
+        WHERE d.first_download<=now()-interval '7 days'
+          AND NOT EXISTS(SELECT 1 FROM product_events f WHERE f.workspace_id=$1 AND f.dedupe_key='followup:'||d.campaign_id)
+        ORDER BY d.first_download LIMIT 1`, [w])).rows[0];
+    if (!pending) { res.json({ pending: null }); return; }
+    const assets = (await db.query<{ id: string; title: string; kind: string }>(
+      "SELECT id,title,kind FROM assets WHERE campaign_id=$1 AND workspace_id=$2 ORDER BY id", [pending.campaign_id, w])).rows;
+    res.json({ pending: { campaignId: pending.campaign_id, campaignName: pending.name, assets } });
+  });
+  app.post("/api/pilot/followup", async (req, res) => {
+    const w = req.user!.workspaceId;
+    const count = z.number().int().min(0).max(10000000).optional();
+    const input = z.object({
+      campaignId: id, dismissed: z.boolean().default(false), posted: z.boolean().optional(), assetId: id.optional(),
+      platform: z.enum(["instagram", "facebook", "tiktok", "whatsapp", "other"]).optional(),
+      spend: z.number().min(0).max(10000000).optional(), results: z.string().trim().max(1000).optional(),
+      clicks: count, messages: count, orders: count,
+    }).parse(req.body);
+    await ownedCampaign(db, input.campaignId, w);
+    if (input.assetId && !(await db.query("SELECT id FROM assets WHERE id=$1 AND campaign_id=$2 AND workspace_id=$3", [input.assetId, input.campaignId, w])).rows.length)
+      throw new AppError(404, "Asset not found.");
+    const { campaignId, assetId, ...answers } = input;
+    await recordEvent(db, { workspaceId: w, userId: req.user!.id, event: "posted_followup", campaignId, assetId: assetId ?? null,
+      props: { ...answers, selfReported: true } as never, dedupeKey: `followup:${campaignId}` });
+    res.json({ ok: true });
   });
   app.use(express.static(path.resolve("dist")));
   app.get("/{*path}", (_req, res) =>

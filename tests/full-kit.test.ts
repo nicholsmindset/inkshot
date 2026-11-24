@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -12,6 +12,8 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   process.env.DATA_DIR = dir;
   process.env.GENERATION_MODE = "mock";
   process.env.BILLING_MODE = "sandbox";
+  process.env.ENABLE_EXPORT_REVIEW = "true";
+  process.env.ALLOW_LIVE_GENERATION = "false";
   assert(ffmpeg);
   process.env.FFMPEG_PATH = ffmpeg;
   const { createApp } = await import("../server/app");
@@ -52,9 +54,14 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   await applyPaymentFact(db, invoice);
   await applyPaymentFact(db, { ...invoice, eventId: "evt_duplicate" });
   assert.equal((await studio()).balance, 300);
+  const photo = new FormData();
+  photo.append("photo", new Blob([await readFile("public/examples/strawberry-cake.webp")], { type: "image/webp" }), "cake.webp");
+  const uploaded = await fetch(api + "/uploads", { method: "POST", headers: { cookie }, body: photo });
+  assert.equal(uploaded.status, 201);
+  const { id: photoId } = await uploaded.json();
   const website = "https://example.test/bakery";
   const description = "A neighbourhood bakery selling sourdough loaves for weekend collection.";
-  assert((await submit("/brand", { ...emptyBrand, name: "Weekend Bakery", website, description,
+  assert((await submit("/brand", { ...emptyBrand, name: "Weekend Bakery", website, description, photoId,
     sources: [{ url: website, text: description }] }, "PUT")).ok);
   const destinationUrl = "https://example.test/bakery/friday?utm_source=social";
   const createKit = async () => {
@@ -85,6 +92,15 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   assert.equal((await studio()).balance, 200);
   for (let i = 0; i < 9; i++) assert(await runWorkerOnce(db));
   assert.equal(await runWorkerOnce(db), false);
+  const completed = await studio();
+  assert.equal(completed.exportReviewRequired, true);
+  assert.equal(completed.assets.length, 9);
+  for (const asset of completed.assets) {
+    const current = asset.versions.find((version: { id: string }) => version.id === asset.current_version_id);
+    assert.equal(current.status, "ready");
+    assert.equal(current.first_frame_source, "merchant_photo");
+  }
+  assert.equal((await submit(`/campaigns/${first}/exports`, { category: "all" })).status, 409);
   const post = (await studio()).assets.find((a: { kind: string }) => a.kind === "post");
   const original = { versionId: post.current_version_id, caption: post.caption };
   const revised = await submit(`/assets/${post.id}/revise`, {
@@ -106,7 +122,21 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   const other = await fetch(api + "/auth/demo", { method: "POST" });
   const foreign = other.headers.get("set-cookie")!.split(";")[0];
   assert.equal((await fetch(url, { headers: { cookie: foreign } })).status, 404);
-  const response = await fetch(url, { headers: { cookie } });
+  assert.equal((await fetch(api + `/uploads/${photoId}`, { headers: { cookie: foreign } })).status, 404);
+  const checks = { product: true, offer: true, claims: true, logo: true, safeArea: true, caption: true, destination: true };
+  for (const asset of (await studio()).assets) {
+    const current = asset.versions.find((version: { id: string }) => version.id === asset.current_version_id);
+    assert.equal((await submit(`/assets/${asset.id}/review`, {
+      versionId: current.id, fingerprint: current.reviewFingerprint, checks,
+    })).status, 200);
+  }
+  const queued = await submit(`/campaigns/${first}/exports`, { category: 'all' });
+  assert.equal(queued.status, 202);
+  const exportJob = await queued.json();
+  assert(await runWorkerOnce(db));
+  const exportUrl = `${api}/exports/${exportJob.id}/download`;
+  assert.equal((await fetch(exportUrl, { headers: { cookie: foreign } })).status, 404);
+  const response = await fetch(exportUrl, { headers: { cookie } });
   assert.equal(response.status, 200);
   const archive = path.join(dir, "kit.zip");
   await writeFile(archive, Buffer.from(await response.arrayBuffer()));
@@ -154,4 +184,14 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   assert.equal((await studio()).balance, 100 + failed.credit_cost);
   const refunds = await db.query<{ amount: number }>("SELECT amount FROM ledger WHERE event_key=$1", [`refund:${failed.id}`]);
   assert.deepEqual(refunds.rows.map(row => row.amount), [failed.credit_cost]);
+  // Pilot measurement: each action was recorded once, without prompts or text.
+  const events = (await db.query<{ event: string; n: string }>("SELECT event,count(*)::text AS n FROM product_events GROUP BY event")).rows
+    .reduce((all, row) => ({ ...all, [row.event]: Number(row.n) }), {} as Record<string, number>);
+  assert(events.campaign_approved >= 2);
+  assert.equal(events.generation_failed, 1);
+  assert(events.generation_completed >= 9);
+  assert(events.asset_reviewed >= 9);
+  assert(events.download_completed >= 1);
+  assert.equal((await db.query("SELECT 1 FROM product_events WHERE dedupe_key IS NOT NULL GROUP BY workspace_id,dedupe_key HAVING count(*)>1")).rows.length, 0);
+  assert.equal((await db.query("SELECT 1 FROM product_events WHERE props::text ~* 'prompt|motion'")).rows.length, 0);
 });

@@ -1,3 +1,4 @@
+import { recordEvent } from './events.js';
 import { managedAuthEnabled, authClient, provisionManagedUser } from './managed-auth.js';
 import {
   randomBytes,
@@ -95,5 +96,6 @@ export async function createUser(
         [randomUUID(), workspaceId, `welcome:${userId}`],
       );
   });
+  if (!input.demo) await recordEvent(db, { workspaceId, userId, event: "signup_completed", dedupeKey: "signup_completed" });
   return { userId, workspaceId };
 }

@@ -45,6 +45,9 @@ test("approved campaign planning persists exact inputs and rejects stale or fore
   const initialResponse = await call(route + "/draft");
   assert.equal(initialResponse.status, 200);
   const initial = await initialResponse.json() as CampaignDraft;
+  assert.equal(initial.videoDurationSeconds, 10);
+  process.env.VIDEO_DURATION_SECONDS = '8';
+  t.after(() => { delete process.env.VIDEO_DURATION_SECONDS; });
   const selection = campaign.concepts.slice(3).map(concept => concept.id);
   assert.equal((await call(route + "/draft", undefined, "GET", stranger)).status, 404);
   assert.equal((await call(route + "/prompts", { revision: initial.revision, selectedConceptIds: selection }, "POST", stranger)).status, 404);
@@ -52,6 +55,8 @@ test("approved campaign planning persists exact inputs and rejects stale or fore
   assert.equal(written.status, 200);
   const generated = await written.json() as CampaignDraft;
   assert.equal(generated.assets.length, 9);
+  assert.equal(generated.videoDurationSeconds, 10);
+  assert(generated.assets.filter(asset => asset.kind === "video").every(asset => asset.motionPrompt?.includes("8–10s")));
   assert.deepEqual(generated.selectedConceptIds, selection);
   assert(generated.assets.every(asset => selection.includes(asset.conceptId)));
   for (const kind of ["video", "image", "post"]) {
@@ -85,11 +90,12 @@ test("approved campaign planning persists exact inputs and rejects stale or fore
   assert.equal((await call(route + "/generate", approval)).status, 200);
   assert.equal((await call(route + "/draft", restored, "PATCH")).status, 409);
   assert.equal((await call(route + "/generate", approval)).status, 200);
-  const stored = (await database.query<{ prompt: string; motion_prompt: string | null; kind: string; caption: string }>(
-    "SELECT v.prompt,v.motion_prompt,a.kind,a.caption FROM versions v JOIN assets a ON a.id=v.asset_id WHERE a.campaign_id=$1",
+  const stored = (await database.query<{ prompt: string; motion_prompt: string | null; kind: string; caption: string; video_duration_seconds: number }>(
+    "SELECT v.prompt,v.motion_prompt,v.video_duration_seconds,a.kind,a.caption FROM versions v JOIN assets a ON a.id=v.asset_id WHERE a.campaign_id=$1",
     [campaign.id],
   )).rows;
   assert.equal(stored.length, 9);
+  assert(stored.every(item => item.video_duration_seconds === 10));
   for (const asset of assets) {
     const record = stored.find(item => item.prompt === asset.prompt);
     assert(record, `Missing approved input ${asset.prompt}`);

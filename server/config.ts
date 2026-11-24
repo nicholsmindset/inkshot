@@ -39,7 +39,7 @@ export function writingLimits() {
 
 export const hostedConfigurationCodes = [
   "HOSTED_AUTH_REQUIRED", "HOSTED_STORAGE_REQUIRED", "HOSTED_DATABASE_REQUIRED",
-  "LIVE_MODE_MISMATCH", "LIVE_BILLING_REQUIRED", "LIVE_PROVIDER_REQUIRED", "WRITING_LIMITS_REQUIRED",
+  "LIVE_MODE_MISMATCH", "LIVE_BILLING_REQUIRED", "LIVE_PROVIDER_REQUIRED", "WRITING_LIMITS_REQUIRED", "VIDEO_DURATION_REQUIRED",
 ] as const;
 export class HostedConfigurationError extends Error {
   constructor(readonly code: typeof hostedConfigurationCodes[number], message: string) {
@@ -48,6 +48,9 @@ export class HostedConfigurationError extends Error {
 }
 
 export function assertHostedConfiguration() {
+  try { videoDurationSeconds(); } catch {
+    throw new HostedConfigurationError("VIDEO_DURATION_REQUIRED", "A supported video duration is required.");
+  }
   if (process.env.AUTH_PROVIDER !== "supabase")
     throw new HostedConfigurationError("HOSTED_AUTH_REQUIRED", "Hosted identity is required.");
   if (process.env.STORAGE_PROVIDER !== "supabase")
@@ -58,7 +61,7 @@ export function assertHostedConfiguration() {
   const liveGeneration = config.mode === "live";
   if (liveBilling !== liveGeneration)
     throw new HostedConfigurationError("LIVE_MODE_MISMATCH", "Live billing and generation must be enabled together.");
-  if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !process.env.STRIPE_STUDIO_PRICE_ID || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
+  if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !(process.env.PLAN_PRICE_ID || process.env.STRIPE_STUDIO_PRICE_ID) || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
     throw new HostedConfigurationError("LIVE_BILLING_REQUIRED", "Live billing requires live Stripe settings and an HTTPS app origin.");
   if (liveGeneration && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !Number.isFinite(Number(process.env.HF_DAILY_BUDGET_USD)) || Number(process.env.HF_DAILY_BUDGET_USD) <= 0 || (!config.claudeKey && !config.openrouterKey)))
     throw new HostedConfigurationError("LIVE_PROVIDER_REQUIRED", "Live generation requires provider access, writing access and a spending limit.");
@@ -70,3 +73,19 @@ export function assertHostedConfiguration() {
     }
   }
 }
+
+// Kling 3.0 Standard documents integer durations from 3 through 15 seconds.
+export function videoDurationSeconds() {
+  const value = Number(process.env.VIDEO_DURATION_SECONDS || '10');
+  if (!Number.isInteger(value) || value < 3 || value > 15)
+    throw new AppError(503, 'Video duration must be an integer from 3 to 15 seconds.');
+  return value;
+}
+
+// Explicit preview writing is independent from paid media rendering.
+// Missing settings preserve the existing deployment behaviour.
+export function resolveWritingMode(generationMode: "mock" | "live", env: NodeJS.ProcessEnv = process.env): "mock" | "live" {
+  if (env.WRITING_MODE === undefined) return generationMode;
+  return env.WRITING_MODE === "live" && env.ALLOW_LIVE_WRITING === "true" ? "live" : "mock";
+}
+export function writingMode() { return resolveWritingMode(config.mode); }
