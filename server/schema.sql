@@ -117,3 +117,6 @@ CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON campaig
 
 CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,code_hash text NOT NULL UNIQUE,label text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),expires_at timestamptz,used_at timestamptz,used_email text);
 CREATE TABLE IF NOT EXISTS waitlist(id text PRIMARY KEY,email text NOT NULL UNIQUE,business_url text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS product_events(id text PRIMARY KEY,workspace_id text NOT NULL,user_id text,event text NOT NULL,campaign_id text,asset_id text,props jsonb NOT NULL DEFAULT '{}',dedupe_key text,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,dedupe_key));
+CREATE INDEX IF NOT EXISTS product_events_event_time ON product_events(event,created_at);

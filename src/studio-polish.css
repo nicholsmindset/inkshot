@@ -175,3 +175,12 @@
 @media (forced-colors: active) {
   :where(.app-shell, .modal, .auth-page) select { appearance: auto; background-image: none; }
 }
+
+.pilot-question{border:1px solid var(--line,#d9d2c3);border-radius:12px;padding:12px 14px;margin:12px 0 0;display:grid;gap:8px}
+.pilot-question legend{font-weight:600;padding:0 6px}
+.pilot-question-options{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pilot-followup{border:1px solid var(--line,#d9d2c3);border-radius:16px;padding:16px 18px;margin:0 0 20px;display:grid;gap:12px;background:var(--paper,#fbf8f1)}
+.pilot-followup h2{margin:0 0 4px;font-size:1.1rem}
+.pilot-followup form{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.pilot-followup-actions{display:flex;gap:8px;grid-column:1/-1}
+.auth-waitlist{margin-top:16px}

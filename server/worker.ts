@@ -1,4 +1,5 @@
 import { reportOpsAlert } from './ops.js';
+import { recordEvent } from './events.js';
 import { wakeProviderJobs } from './provider-webhooks.js';
 import {runExportOnce} from './campaign-exports.js';
 import {runDeletionOnce} from './account-deletion.js';
@@ -239,6 +240,8 @@ async function handle(db:Database,job: Job, deadline: number) {
           [work!.asset_id, work!.id],
         );
       });
+      await recordEvent(db, { workspaceId: job.workspace_id, event: 'generation_completed', campaignId: work.campaign_id, assetId: work.asset_id,
+        props: { kind: work.kind, mock: work.mock, credits: work.credit_cost }, dedupeKey: `generation:${work.id}` });
     } catch (e) {
       if (e instanceof LostLease) return;
       const owns = await db.query("SELECT id FROM jobs WHERE id=$1 AND state='processing' AND locked_until=$2", [job.id, job.locked_until]);
@@ -284,6 +287,8 @@ async function handle(db:Database,job: Job, deadline: number) {
             `refund:${job.version_id}`,
           );
       });
+      await recordEvent(db, { workspaceId: job.workspace_id, event: 'generation_failed', campaignId: work?.campaign_id, assetId: work?.asset_id,
+        props: { kind: work?.kind ?? null, mock: work?.mock ?? null, reason: typeof job.checkpoint.failureCode === 'string' ? job.checkpoint.failureCode : terminal ? 'terminal' : 'retries_exhausted' }, dedupeKey: `generation:${job.version_id}` });
     } finally {
       clearTimeout(timer);
       controller.abort();

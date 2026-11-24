@@ -16,6 +16,23 @@ Single source of truth. Owner decisions: `docs/OWNER_DECISIONS.md`. Keep `BILLIN
 | 6 | Hosted schema, uploads, review gates, deletion isolation, mobile and expiring/large downloads accepted; backup/restore and rollback rehearsed; production startup configuration resolved; separate cutover decision | Both |
 | 7 | Monthly cost reconciliation: compare `provider_spend` with the Higgsfield console CSV (manual, owner decision) | Owner |
 
+## Migrations added since `main` (apply in this order, each additive and safe in `public` and `inkshot_live`)
+
+1. `20261119143158_inkshot_runtime_access.sql` runtime roles and grants
+2. `20261119160000_photo_first_video.sql` video duration and first-frame source
+3. `20261119170000_campaign_exports.sql` background ZIP queue
+4. `20261119200000_provider_events.sql` signed Higgsfield callbacks
+5. `20261119210000_account_deletion.sql` deletion queue and workspace freeze
+6. `20261121063442_launch_safeguards.sql` billing holds, upload sizes, review metadata
+7. `20261124090000_pilot_access.sql` invites and waitlist (server-only)
+8. `20261124100000_product_events.sql` pilot measurement events (server-only)
+
+Migrations 7 and 8 are not covered by the startup schema guard: apply them before deploying, or signup with `PILOT_INVITE_ONLY=true` and event recording will fail (events fail quietly and log a warning).
+
+## Pilot settings (names only)
+
+`PLAN_CURRENCY`, `PLAN_PRICE_AMOUNT` (minor units), `PLAN_CREDITS`, `KIT_CREDITS`, `CREDIT_COST_VIDEO`, `CREDIT_COST_IMAGE`, `CREDIT_COST_POST`, `VIDEO_REGEN_MONTHLY_CAP` (default 8), `PILOT_INVITE_ONLY`. The Stripe price is `STRIPE_STUDIO_PRICE_ID` (alias `PLAN_PRICE_ID`) and must match the currency and amount exactly. Create invites with `npm run invite -- --count 5 --label "cohort 1"`; read results with `npx tsx scripts/pilot-report.ts`.
+
 ## Release being prepared
 
 PR [#27](https://github.com/nicholsmindset/inkshot/pull/27) adds a sourced brand brief, six angles with three selected, nine editable prompts, saved drafts and exact-revision generation approval. It also improves the dashboard, library filters and revision feedback. Track remaining work in [#26](https://github.com/nicholsmindset/inkshot/issues/26).

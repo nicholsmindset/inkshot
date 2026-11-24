@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   Play,
 } from "lucide-react";
+import { PostingFollowup, PublishQuestion } from "./PilotFeedback";
 import { useStudio } from "../context";
 import { Button, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
@@ -55,6 +56,7 @@ export function Dashboard() {
   const nextPath = draft ? `/studio/campaign/${draft.id}` : studio.brand.description ? "/studio/new" : "/studio/brand";
   const nextLabel = draft ? "Continue draft" : studio.brand.description ? "Create a campaign" : "Set up your brand";
   return <>
+    <PostingFollowup />
     <div className="page-heading">
       <div><span className="studio-page-kicker">YOUR CREATIVE WORKSPACE</span><h1>{studio.brand.name}<em> studio</em></h1><p>Plan campaigns, review your ads and download approved versions.</p></div>
       <Link to="/studio/brand" className="button secondary">Brand brief <ArrowUpRight size={17} /></Link>
@@ -774,6 +776,7 @@ function EditorContents({ asset }: { asset: Asset }) {
   const [caption, setCaption] = useState(asset.caption);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [downloadedVersion, setDownloadedVersion] = useState("");
   const [operation, setOperation] = useState<"edit" | "generate" | "select" | "refresh" | "review" | "">("");
   const [error, setError] = useState("");
   const [checks, setChecks] = useState<Partial<Record<ExportCheck, boolean>>>({});
@@ -1062,12 +1065,13 @@ function EditorContents({ asset }: { asset: Asset }) {
             </Button>
           ) : null}
           {v.status === "ready" && (!studio?.exportReviewRequired || v.reviewed) ? (
-            <a className="button" href={`${media(v.id)}?download=true`}>
+            <a className="button" href={`${media(v.id)}?download=true`} onClick={() => setDownloadedVersion(v.id)}>
               <Download size={16} />
               Download version {v.n}
             </a>
           ) : null}
         </div>
+        {downloadedVersion === v.id && <PublishQuestion assetId={asset.id} versionId={v.id} />}
       </div>
     </>
   );

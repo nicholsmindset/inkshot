@@ -4,6 +4,7 @@ import type {Database,Queryable} from './db.js';
 import {AppError,config} from './config.js';
 import {changeCredits} from './credits.js';
 import {planConfig,stripePriceId} from './plan.js';
+import {recordEvent} from './events.js';
 import type {User} from '../shared/types.js';
 
 export type BillingMode = 'off' | 'sandbox' | 'live';
@@ -109,7 +110,9 @@ export async function portal(db:Database,user:User){const stripe=client();const 
 
 export type PaymentFact={eventId:string;eventType:string;created:number;customerId:string;subscriptionId:string;status:string;invoiceId?:string;invoiceCreated?:number;grantCredits:boolean};
 // Called only after signature verification and provider-side object validation.
-export async function applyPaymentFact(db:Database,fact:PaymentFact){return db.transaction(async tx=>{
+export async function applyPaymentFact(db:Database,fact:PaymentFact){
+ let paidWorkspace:string|null=null;
+ await db.transaction(async tx=>{
  // Resolve without a row lock, then follow checkout/deletion's workspace →
  // billing order. Revalidate the mapping after both locks, since deletion or
  // reconciliation may have changed it while this transaction waited.
@@ -130,14 +133,20 @@ export async function applyPaymentFact(db:Database,fact:PaymentFact){return db.t
      const applied = await changeCredits(tx, account.workspace_id, Math.max(0, planConfig().credits - balance),
        'subscription', billingMode() === 'live' ? 'Studio monthly allowance' : 'Studio monthly allowance · sandbox',
        `stripe-invoice:${fact.invoiceId}`);
-     if (applied) await tx.query(
-       'UPDATE billing_accounts SET last_allowance_invoice_created=$2 WHERE workspace_id=$1',
-       [account.workspace_id, invoiceCreated],
-     );
+     if (applied) {
+       await tx.query(
+         'UPDATE billing_accounts SET last_allowance_invoice_created=$2 WHERE workspace_id=$1',
+         [account.workspace_id, invoiceCreated],
+       );
+       paidWorkspace = account.workspace_id;
+     }
    }
  }
  await tx.query('INSERT INTO payment_events(id,type) VALUES($1,$2)',[fact.eventId,fact.eventType]);
-})}
+ });
+ // First paid allowance only; renewals do not repeat it. Recorded after commit, best effort.
+ if(paidWorkspace)await recordEvent(db,{workspaceId:paidWorkspace,event:'checkout_completed',dedupeKey:'checkout_completed'});
+}
 type WebhookStripe=Pick<Stripe,'webhooks'|'subscriptions'|'charges'>;
 export async function webhook(db:Database,body:Buffer,signature:string,getStripe:()=>WebhookStripe=client){
  const stripe=getStripe();let event:Stripe.Event;

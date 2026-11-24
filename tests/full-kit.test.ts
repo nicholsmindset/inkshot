@@ -184,4 +184,14 @@ test("sandbox allowance funds a private nine-asset kit and refunds a failed asse
   assert.equal((await studio()).balance, 100 + failed.credit_cost);
   const refunds = await db.query<{ amount: number }>("SELECT amount FROM ledger WHERE event_key=$1", [`refund:${failed.id}`]);
   assert.deepEqual(refunds.rows.map(row => row.amount), [failed.credit_cost]);
+  // Pilot measurement: each action was recorded once, without prompts or text.
+  const events = (await db.query<{ event: string; n: string }>("SELECT event,count(*)::text AS n FROM product_events GROUP BY event")).rows
+    .reduce((all, row) => ({ ...all, [row.event]: Number(row.n) }), {} as Record<string, number>);
+  assert(events.campaign_approved >= 2);
+  assert.equal(events.generation_failed, 1);
+  assert(events.generation_completed >= 9);
+  assert(events.asset_reviewed >= 9);
+  assert(events.download_completed >= 1);
+  assert.equal((await db.query("SELECT 1 FROM product_events WHERE dedupe_key IS NOT NULL GROUP BY workspace_id,dedupe_key HAVING count(*)>1")).rows.length, 0);
+  assert.equal((await db.query("SELECT 1 FROM product_events WHERE props::text ~* 'prompt|motion'")).rows.length, 0);
 });

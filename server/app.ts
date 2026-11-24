@@ -35,6 +35,7 @@ import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
+import {briefFingerprints,editedBriefFields,recordEvent,websiteFailureReason,trackedBriefFields} from './events.js';
 import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
 import {assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
 import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
@@ -404,7 +405,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     res.status(202).set('Cache-Control','no-store').json(await requestDeletion(db,req.user!));
   });
   app.use('/api',async(req,_res,next)=>{await rejectFrozenWorkspace(db,req.user!.workspaceId);next();});
-  app.post('/api/billing/checkout',async(req,res)=>res.json(await checkout(db,req.user!)));
+  app.post('/api/billing/checkout',async(req,res)=>{
+    const session=await checkout(db,req.user!);
+    await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'checkout_started'});
+    res.json(session);
+  });
   app.post('/api/billing/portal',async(req,res)=>res.json(await portal(db,req.user!)));
   app.get("/api/studio", async (req, res) => {
     const w = req.user!.workspaceId;
@@ -477,10 +482,21 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       await requireBrandFiles(tx,req.user!.workspaceId,brand);
       await tx.query('UPDATE workspaces SET brand=$2 WHERE id=$1',[req.user!.workspaceId,json(brand)]);
     });
+    const eventBase={workspaceId:req.user!.workspaceId,userId:req.user!.id};
+    await recordEvent(db,{...eventBase,event:'brief_saved'});
+    // Compare with the latest website read by field fingerprint only; no extracted text is kept.
+    const read=(await db.query<{props:{fields?:Record<string,string>}}>("SELECT props FROM product_events WHERE workspace_id=$1 AND event='website_read_succeeded' ORDER BY created_at DESC LIMIT 1",[req.user!.workspaceId]).catch(()=>({rows:[]}))).rows[0];
+    if(read?.props?.fields){
+      const edited=editedBriefFields(read.props.fields,brand as unknown as Record<string,unknown>);
+      await recordEvent(db,{...eventBase,event:'brief_fields_edited',props:{edited:edited.length,total:Object.keys(read.props.fields).length,fields:[...edited]}});
+    }
     res.json(brand);
   });
   app.post("/api/brand/read", websiteReadLimit, async (req, res) => {
     const { url } = z.object({ url: z.url().max(2048) }).parse(req.body);
+    const eventBase = { workspaceId: req.user!.workspaceId, userId: req.user!.id };
+    await recordEvent(db, { ...eventBase, event: 'website_read_started' });
+    try {
     const pages = await scrape(url);
     const identity = importedIdentity(pages);
     if (!pages[0].description && pages.reduce((n, p) => n + p.text.length, 0) < 300)
@@ -490,7 +506,13 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       );
     const aiWritten = writingMode() === "live";
     const brief = aiWritten ? await writeBrief(db, req.user!.workspaceId, pages) : emptyBrand;
-    res.json(mergeImportedBrief(brief, identity, aiWritten));
+    const imported = mergeImportedBrief(brief, identity, aiWritten);
+    await recordEvent(db, { ...eventBase, event: 'website_read_succeeded', props: { fields: briefFingerprints(imported as unknown as Record<string, unknown>) } });
+    res.json(imported);
+    } catch (error) {
+      await recordEvent(db, { ...eventBase, event: 'website_read_failed', props: { reason: websiteFailureReason(error) } });
+      throw error;
+    }
   });
   app.post("/api/brand/import-logo", websiteReadLimit, async (req, res) => {
     const { website, logoUrl } = z.object({
@@ -587,6 +609,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       ],
     );
     });
+    const earlier=Number((await db.query<{n:string}>('SELECT count(*)::text AS n FROM campaigns WHERE workspace_id=$1 AND id<>$2',[w,cid])).rows[0].n);
+    if(earlier>0)await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'second_campaign_started',campaignId:cid,dedupeKey:'second_campaign_started'});
     res.status(201).json({ id: cid, concepts });
   });
   async function ownedCampaign(tx: Queryable, campaignId: string, workspaceId: string, lock = false) {
@@ -638,6 +662,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[workspaceId]);
       return saveDraft(tx,await ownedCampaign(tx,campaignId,workspaceId,true),workspaceId,complete);
     });
+    await recordEvent(db,{workspaceId,userId:req.user!.id,event:'angles_selected',campaignId,props:{count:input.selectedConceptIds.length}});
     res.json(saved);
   });
   app.post("/api/campaigns/:id/generate", async (req, res) => {
@@ -772,6 +797,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         cid,
       ]);
     });
+    await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'campaign_approved',campaignId:cid,dedupeKey:`campaign_approved:${cid}`});
     res.json({ ok: true });
   });
   app.post("/api/assets/:id/revise", async (req, res) => {
@@ -951,6 +977,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       if(review.fingerprint!==input.fingerprint)throw new AppError(409,'This creative changed. Review the latest version before approving.');
       await tx.query('UPDATE versions SET review_fingerprint=$2,reviewed_at=now() WHERE id=$1 AND workspace_id=$3',[input.versionId,review.fingerprint,w]);
     });
+    await recordEvent(db,{workspaceId:w,userId:req.user!.id,event:'asset_reviewed',assetId:aid,props:{versionId:input.versionId},dedupeKey:`review:${input.versionId}:${input.fingerprint.slice(0,16)}`});
     res.json({ok:true});
   });
   app.get("/api/media/:id", async (req, res) => {
@@ -961,7 +988,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       )
     ).rows[0];
     if (!v) throw new AppError(404, "This export is not ready.");
-    if(req.query.download==='true')await assertExportReviewed(db,req.user!.workspaceId,[id.parse(req.params.id)]);
+    if(req.query.download==='true'){
+      await assertExportReviewed(db,req.user!.workspaceId,[id.parse(req.params.id)]);
+      const owner=(await db.query<{asset_id:string;campaign_id:string}>('SELECT v.asset_id,a.campaign_id FROM versions v JOIN assets a ON a.id=v.asset_id WHERE v.id=$1',[id.parse(req.params.id)])).rows[0];
+      await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'download_completed',campaignId:owner?.campaign_id,assetId:owner?.asset_id,props:{scope:'asset',versionId:id.parse(req.params.id)},dedupeKey:`download:${id.parse(req.params.id)}`});
+    }
     const reference = req.query.preview === "true" ? v.preview_path : v.file_path;
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
@@ -991,6 +1022,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       if(current.caption!==entry.caption || (current.brand.destinationUrl??'')!==(row.manifest.destinationUrl??''))
         throw new AppError(409,'This download contains older copy. Prepare a new download after reviewing the changes.');
     }
+    await recordEvent(db,{workspaceId:req.user!.workspaceId,userId:req.user!.id,event:'download_completed',campaignId:row.campaign_id,props:{scope:'campaign',category:row.category},dedupeKey:`download:export:${row.id}`});
     res.set("Cache-Control","private, no-store").set("Referrer-Policy","no-referrer");
     const filename = `inkshot-${row.category}.zip`;
     const url = await signedMediaUrl(row.file_path,req.user!.workspaceId,'generated-media',filename);
@@ -1004,6 +1036,54 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     if(!(await db.query("SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",[cid,req.user!.workspaceId])).rows.length)
       throw new AppError(404,"Campaign not found.");
     res.redirect(303,`/studio/campaign/${cid}`);
+  });
+  // "Would you publish this?" asked after a download. The answer may be changed; the latest counts.
+  app.post("/api/assets/:id/publish-answer", async (req, res) => {
+    const assetId = id.parse(req.params.id), w = req.user!.workspaceId;
+    const input = z.object({
+      versionId: id,
+      answer: z.enum(["yes_as_is", "yes_with_edits", "no"]),
+      reason: z.enum(["wrong_product", "wrong_claim", "looks_ai_made", "text_issue", "other"]).optional(),
+    }).parse(req.body);
+    const owner = (await db.query<{ campaign_id: string }>(
+      "SELECT a.campaign_id FROM versions v JOIN assets a ON a.id=v.asset_id WHERE v.id=$1 AND a.id=$2 AND v.workspace_id=$3", [input.versionId, assetId, w])).rows[0];
+    if (!owner) throw new AppError(404, "Asset not found.");
+    await recordEvent(db, { workspaceId: w, userId: req.user!.id, event: "publish_answer", campaignId: owner.campaign_id, assetId,
+      props: { versionId: input.versionId, answer: input.answer, reason: input.answer === "no" ? input.reason ?? null : null },
+      dedupeKey: `publish:${input.versionId}`, replace: true });
+    res.json({ ok: true });
+  });
+  // Seven days after a download, ask how posting went. Answers are self-reported by the merchant.
+  app.get("/api/pilot/followup", async (req, res) => {
+    const w = req.user!.workspaceId;
+    const pending = (await db.query<{ campaign_id: string; name: string }>(
+      `SELECT d.campaign_id,c.name FROM (SELECT campaign_id,min(created_at) AS first_download FROM product_events
+          WHERE workspace_id=$1 AND event='download_completed' AND campaign_id IS NOT NULL GROUP BY campaign_id) d
+        JOIN campaigns c ON c.id=d.campaign_id AND c.workspace_id=$1
+        WHERE d.first_download<=now()-interval '7 days'
+          AND NOT EXISTS(SELECT 1 FROM product_events f WHERE f.workspace_id=$1 AND f.dedupe_key='followup:'||d.campaign_id)
+        ORDER BY d.first_download LIMIT 1`, [w])).rows[0];
+    if (!pending) { res.json({ pending: null }); return; }
+    const assets = (await db.query<{ id: string; title: string; kind: string }>(
+      "SELECT id,title,kind FROM assets WHERE campaign_id=$1 AND workspace_id=$2 ORDER BY id", [pending.campaign_id, w])).rows;
+    res.json({ pending: { campaignId: pending.campaign_id, campaignName: pending.name, assets } });
+  });
+  app.post("/api/pilot/followup", async (req, res) => {
+    const w = req.user!.workspaceId;
+    const count = z.number().int().min(0).max(10000000).optional();
+    const input = z.object({
+      campaignId: id, dismissed: z.boolean().default(false), posted: z.boolean().optional(), assetId: id.optional(),
+      platform: z.enum(["instagram", "facebook", "tiktok", "whatsapp", "other"]).optional(),
+      spend: z.number().min(0).max(10000000).optional(), results: z.string().trim().max(1000).optional(),
+      clicks: count, messages: count, orders: count,
+    }).parse(req.body);
+    await ownedCampaign(db, input.campaignId, w);
+    if (input.assetId && !(await db.query("SELECT id FROM assets WHERE id=$1 AND campaign_id=$2 AND workspace_id=$3", [input.assetId, input.campaignId, w])).rows.length)
+      throw new AppError(404, "Asset not found.");
+    const { campaignId, assetId, ...answers } = input;
+    await recordEvent(db, { workspaceId: w, userId: req.user!.id, event: "posted_followup", campaignId, assetId: assetId ?? null,
+      props: { ...answers, selfReported: true } as never, dedupeKey: `followup:${campaignId}` });
+    res.json({ ok: true });
   });
   app.use(express.static(path.resolve("dist")));
   app.get("/{*path}", (_req, res) =>
