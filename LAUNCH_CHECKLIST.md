@@ -16,6 +16,8 @@ Single source of truth. Owner decisions: `docs/OWNER_DECISIONS.md`. Keep `BILLIN
 | 6 | Hosted schema, uploads, review gates, deletion isolation, mobile and expiring/large downloads accepted; backup/restore and rollback rehearsed; production startup configuration resolved; separate cutover decision | Both |
 | 7 | Monthly cost reconciliation: compare `provider_spend` with the Higgsfield console CSV (manual, owner decision) | Owner |
 
+Cutover steps, rollback and the production preflight are in [docs/CUTOVER.md](docs/CUTOVER.md).
+
 ## Migrations added since `main` (apply in this order, each additive and safe in `public` and `inkshot_live`)
 
 1. `20261119143158_inkshot_runtime_access.sql` runtime roles and grants

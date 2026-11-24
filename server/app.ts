@@ -37,7 +37,7 @@ import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
 import {briefFingerprints,editedBriefFields,recordEvent,websiteFailureReason,trackedBriefFields} from './events.js';
 import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
-import {assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
+import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
 import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
   type Brand,
@@ -189,7 +189,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     next();
   });
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
+    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), generationPaused: process.env.GENERATION_PAUSED === 'true', demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
   app.get("/api/plan", (_req, res) => res.json(planConfig()));
   // Only server configuration controls the host; never echo request Host or Origin.
@@ -680,6 +680,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         cta: z.string().trim().min(1).max(55),
       })).length(9).optional(),
     }).parse(req.body);
+    assertGenerationNotPaused();
     if (config.mode === "live" && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !(Number(process.env.HF_DAILY_BUDGET_USD)>0)))
       throw new AppError(503,"Generation requires provider credentials and a configured spending limit.");
     await db.transaction(async (tx) => {
@@ -813,6 +814,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         caption: z.string().trim().max(2200).optional(),
       })
       .parse(req.body);
+    if (input.regenerate) assertGenerationNotPaused();
     const versionId = await db.transaction(async (tx) => {
       await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE",[w]);
       if(input.regenerate)await assertBillingSpendAllowed(tx,w);

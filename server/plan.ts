@@ -3,6 +3,13 @@ import {AppError} from './config.js';
 
 // Commercial rules live here, read from the environment with safe defaults.
 // The frontend never hard-codes them: it reads /api/plan and /api/studio.
+// Safe operator pause: new paid generation is refused with a clear message, while the app
+// stays up and in-flight work finishes. Unlike flipping the live billing or generation
+// modes (which a live-bound database refuses to start with), this can be toggled at any time.
+export function assertGenerationNotPaused(env: NodeJS.ProcessEnv = process.env) {
+  if (env.GENERATION_PAUSED === 'true') throw new AppError(503, 'New generation is paused for a short time. Your credits are untouched. Please try again soon.');
+}
+
 export type PlanConfig = {
   name: string;
   currency: string;          // lower-case ISO 4217, e.g. "usd" or "sgd"

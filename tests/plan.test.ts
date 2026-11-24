@@ -130,3 +130,10 @@ test("checkout accepts only a Stripe price matching the configured currency and 
   assert.deepEqual(await checkout(db, user, () => stripe("sgd", 4900)), { url: "https://checkout.example.test" });
   assert.equal(retrieved, "price_sgd");
 });
+
+test("GENERATION_PAUSED refuses new generation without touching credits", async () => {
+  const { assertGenerationNotPaused } = await import("../server/plan.js");
+  assert.doesNotThrow(() => assertGenerationNotPaused({}));
+  assert.doesNotThrow(() => assertGenerationNotPaused({ GENERATION_PAUSED: "false" }));
+  assert.throws(() => assertGenerationNotPaused({ GENERATION_PAUSED: "true" }), /paused/);
+});
