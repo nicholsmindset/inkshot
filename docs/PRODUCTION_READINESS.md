@@ -7,7 +7,7 @@ This is the release checklist for the audit remediation in draft PR #37. Impleme
 | Area | Change | Remaining acceptance |
 | --- | --- | --- |
 | Photo-backed image regeneration | API rejects unsupported scene changes before any debit; free text/caption editing remains available | Hosted merchant example |
-| Provider lifecycle | Bounded provider job lifetime, one-time refund, durable reconciliation flag, expiry-aware first frames and known-receipt recovery | Approved paid-provider trial and actual-charge reconciliation |
+| Provider lifecycle | Bounded provider job lifetime, one-time refund, durable reconciliation flag, expiry-aware first frames and known-receipt recovery | Approved paid-provider trial; manual monthly cost reconciliation |
 | Worker concurrency | Workspace-first writes, advisory claim coordination, eligibility rechecks and lease fencing | Concurrent hosted PostgreSQL stress/recovery rehearsal |
 | Worker duration | Invocation budget, cancellation for provider/download/render, FFmpeg termination, temporary cleanup | Hosted long-running video and worker restart |
 | Exports | Fair scheduling, oversized archive terminal diagnosis, current-copy review checks, private short-lived links | Hosted large/expired download and browser checks |
@@ -36,14 +36,9 @@ Add `charge.refunded` and `charge.dispute.created` to the existing intended Stri
 
 The currently implemented offer remains USD 39. The game plan's S$49 and eight regenerations are proposals. Approve pricing, credit economics and monthly regeneration rules using actual provider costs before implementing or advertising them as the launch offer.
 
-## Release evidence still required
+## Release gates
 
-1. Controlled mailbox: hosted signup, delivered confirmation, returning login, reset, expiry and logout. Continue through campaign planning, mock generation, review and private downloads.
-2. Hosted upload and account deletion isolation, worker restart/concurrency, large/expired downloads, desktop/mobile UI and security headers.
-3. Verified provider credentials, webhook signing, data-training exclusion setting, approved capped paid trial, actual charges and reconciliation process.
-4. Confirmed legal operator, working support mailbox, retention/refund policy and reviewed terms/privacy. Do not use an unowned domain email as a verified support address.
-5. Tested external alerts, backups, restore and rollback; resolve production startup settings separately.
-6. Explicit cutover decision after the evidence above. Keep payments off until the release is accepted.
+The single list of open release gates is in [LAUNCH_CHECKLIST.md](../LAUNCH_CHECKLIST.md#release-gates). Keep payments off until the release is accepted.
 
 The original pilot and competitor-research validation remain separate open work. The manual research board must distinguish observed ad patterns from measured performance; automated scraping is not part of this release.
 

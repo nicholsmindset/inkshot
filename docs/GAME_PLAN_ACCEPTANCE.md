@@ -20,7 +20,7 @@ Payments off, mock generation, branch-only code changes, and no production chang
 | P1-2 | Alerts and protected ops status | Implemented; delivery pending | Unauthorized rejection; forced failure received within five minutes; redaction verified |
 | P1-3 | Merchant-photo first frame; ten-second default; saved motion prompt; approval cost display | Implemented; provider acceptance pending | Mock payload assertions and approved capped real run showing photo fidelity, duration and recovery |
 | P1-4a | Signed raw webhooks; timestamp/replay checks; durable receipts; polling recovery | Implemented; hosted provider acceptance pending | Forgery, duplicate, missed callback and expiry recovery checks |
-| P1-4b | Actual-charge reconciliation and ops report | Blocked on billing evidence | Invoice/charge feed or approved manual process; do not treat usage estimates as actual charges |
+| P1-4b | Actual-charge reconciliation and ops report | Decided: manual monthly process | Compare `provider_spend` with the Higgsfield console CSV each month; do not treat usage estimates as actual charges |
 | P1-5 | Private expiring links; background ZIP; category downloads and caption files | Implemented in part; hosted acceptance pending | Confirm caption inclusion; cross-workspace denial; expiry; full-video ZIP; mobile and cancellation tests |
 | P1-6a | Privacy, terms, cancellation/refunds and AI notice | Draft implemented | Confirm operator, controlled support contact, retention and refund terms; check footer/signup links |
 | P1-6b | Idempotent account/data deletion | Implemented; disabled pending acceptance | Disposable hosted account cleanup across database, storage, Auth and provider; session and isolation checks |

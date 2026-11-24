@@ -1,5 +1,7 @@
 # Inkshot game-plan progress
 
+> **Historical log.** Implementation history only. The current release checklist is [LAUNCH_CHECKLIST.md](../LAUNCH_CHECKLIST.md); owner decisions are in [OWNER_DECISIONS.md](OWNER_DECISIONS.md).
+
 
 **21 November verification:** 149 tests passed, production build and TypeScript passed, diff checks passed. Sandbox safeguard columns and restricted runtime privileges verified; security advisor returned no findings. Preview deployment verification is recorded in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md). These are not paid-provider or production acceptance results.
 
@@ -25,14 +27,9 @@ The new additive `20261121063442_launch_safeguards.sql` migration adds billing h
 
 Focused regression tests have been added alongside the fixes. The final combined result is deliberately not asserted here until the integration run finishes. No production change, live charge, paid generation, real refund/dispute or approved policy decision is implied by code or fixture tests.
 
-### Release gates still open
+### Release gates
 
-1. Complete signup, delivered email confirmation, returning login, reset, session expiry and logout with a controlled mailbox on the intended hosted preview. Continue through campaign approval, mock generation and owned downloads.
-2. Verify provider signing configuration and exclusion from training; obtain actual invoice/charge evidence or approve an auditable manual reconciliation process. A capped real-provider trial requires separate approval.
-3. Approve SGD prices and a monthly video-regeneration cap, then implement/test them. Existing USD prices remain unchanged.
-4. Confirm operator identity, a working support/contact mailbox, policies, retention/refund terms and an audited payment-hold release procedure. Do not present a draft address as verified.
-5. Configure and test the alert destination and the two new Stripe webhook events in test mode. Preserve payment-off switches during rehearsal.
-6. Accept hosted schema, upload quotas/cleanup, review gates, deletion isolation, mobile behavior and expiring/large downloads. Rehearse restore and rollback, resolve production startup/configuration, and obtain a separate cutover decision before enabling live payments or generation.
+See [LAUNCH_CHECKLIST.md](../LAUNCH_CHECKLIST.md#release-gates).
 
 Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` and `ALLOW_LIVE_GENERATION=false` for the no-spend rehearsal. Phase 2 pilot and Phase 3 research validation remain open; remediation is not blanket completion of the original plan.
 

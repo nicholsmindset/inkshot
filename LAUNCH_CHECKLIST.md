@@ -2,6 +2,20 @@
 
 Updated 20 November 2026. This is the current release handoff; the October assessment in `PRODUCTION_AUDIT.md` is historical evidence, not a fresh production certification.
 
+## Release gates
+
+Single source of truth. Owner decisions: `docs/OWNER_DECISIONS.md`. Keep `BILLING_MODE=off`, `ENABLE_LIVE_CHECKOUT=false`, `GENERATION_MODE=mock` and `ALLOW_LIVE_GENERATION=false` until the cutover is accepted.
+
+| # | Gate | Owner |
+| --- | --- | --- |
+| 1 | Hosted journey with a controlled mailbox: signup, delivered confirmation, login, reset, logout, campaign approval, mock generation, owned downloads | Owner |
+| 2 | Higgsfield webhook secret/signing and "Exclude data from training" confirmed; capped paid trial (US$30 Higgsfield, US$10 writing) run and rated | Owner approves, engineering runs |
+| 3 | Pricing, regeneration cap and refund policy implemented from OWNER_DECISIONS (Stripe test then live prices created) | Engineering, then owner |
+| 4 | Operator identity, working support mailbox, reviewed terms/privacy, audited payment-hold release procedure | Owner |
+| 5 | Alert destination configured and a test alert received; `charge.refunded` and `charge.dispute.created` added to the existing Stripe endpoint and tested | Owner |
+| 6 | Hosted schema, uploads, review gates, deletion isolation, mobile and expiring/large downloads accepted; backup/restore and rollback rehearsed; production startup configuration resolved; separate cutover decision | Both |
+| 7 | Monthly cost reconciliation: compare `provider_spend` with the Higgsfield console CSV (manual, owner decision) | Owner |
+
 ## Release being prepared
 
 PR [#27](https://github.com/nicholsmindset/inkshot/pull/27) adds a sourced brand brief, six angles with three selected, nine editable prompts, saved drafts and exact-revision generation approval. It also improves the dashboard, library filters and revision feedback. Track remaining work in [#26](https://github.com/nicholsmindset/inkshot/issues/26).
@@ -107,8 +121,8 @@ Provider receipt recovery follows [Higgsfield's idempotency contract](https://do
 - The adapter appends `hf_webhook=<APP_ORIGIN>/api/webhooks/higgsfield` to generation submissions. The raw-body endpoint verifies the Standard Webhooks HMAC, accepts any valid `v1` signature during rotation, and rejects timestamps outside five minutes. Unsigned or malformed deliveries return 400; unavailable durable storage returns 503 so Higgsfield retries.
 - A unique `webhook_id` and raw-body hash make duplicate delivery safe. Same ID with changed bytes is rejected. Receipts contain only request ID, terminal status, optional expiry, hash and timestamps: no output URLs, prompts, provider error bodies or raw payloads.
 - Webhooks wake queued work only. Active job leases are not interrupted and done/failed jobs are not revived. Early receipts remain unmatched until the worker joins them to the saved provider receipt. The worker still retrieves authenticated provider status and copies media to existing private storage; webhook-supplied media URLs are never fetched directly. Missed callbacks still use existing cron polling.
-- `providerOperationsSummary()` returns counts, age of the latest callback, and `actualChargeReconciliationSupported:false` for protected operational reporting. Unknown request IDs cannot target arbitrary workspaces.
-- **Correction to the research plan:** Higgsfield documents `GET /models/usage` as estimated analytics that can lag or omit requests, not a billing record. The documented webhook envelope contains no actual cost. Therefore actual-cost recording, a daily invoice reconciliation job and the proposed 10% invoice discrepancy alert remain blocked on an authoritative invoice/charge feed. No usage estimate is relabeled as an actual charge, and the existing conservative spending reservations remain intact.
+- `providerOperationsSummary()` returns counts, age of the latest callback, and `actualChargeReconciliationSupported:false` (by design: reconciliation is the manual monthly process). Unknown request IDs cannot target arbitrary workspaces.
+- **Cost reconciliation (manual):** Provider spend is reconciled manually each month: compare the `provider_spend` table with the Higgsfield console CSV export (open.higgsfield.ai, Analytics) and record any difference (owner decision, `docs/OWNER_DECISIONS.md`). Higgsfield's `GET /models/usage` is estimated analytics, not an invoice, and webhooks carry no cost, so there is no automated actual-charge feed. No usage estimate is relabelled as an actual charge, and the conservative spending reservations remain intact.
 - Before live activation, use a capped, owner-approved acceptance run to check public callback reachability (Vercel preview protection may block delivery), delivery within ten seconds, private persistence before `expires_at`, and poll recovery with a deliberately missed callback. Mocked tests do not prove these hosted/provider conditions.
 
 Primary documentation checked 19 November 2026:
