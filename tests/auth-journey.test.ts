@@ -21,6 +21,9 @@ test("signup and returning login retain the workspace and sign-out clears access
   const address = server.address();
   assert(address && typeof address !== "string");
   const base = `http://127.0.0.1:${address.port}/api`;
+  const authConfig = await fetch(base + "/auth/config", { headers: { host: "untrusted.example", origin: "https://untrusted.example" } });
+  assert.equal(authConfig.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await authConfig.json(), { origin: null }, "Local auth never echoes request-controlled origins.");
   const post = (route: string, body: object, cookie = "") => fetch(base + route, {
     method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body),
   });

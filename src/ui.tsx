@@ -15,9 +15,10 @@ export function Button({
     <button
       {...props}
       disabled={props.disabled || busy}
+      aria-busy={busy || undefined}
       className={`button ${variant} ${className}`}
     >
-      {busy ? <LoaderCircle size={17} className="spin" /> : null}
+      {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : null}
       {children}
     </button>
   );

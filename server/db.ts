@@ -82,8 +82,11 @@ export async function databaseFromPool(
     close: () => pool.end(),
   };
   try {
-    await verifyDeploymentEnvironment(db, live, databaseUrl, supabaseUrl, shared);
-    await verifySchemaReadiness(db, shared);
+    await db.transaction(async tx => {
+      await tx.query("SET LOCAL statement_timeout = '10000ms'");
+      await verifyDeploymentEnvironment(tx, live, databaseUrl, supabaseUrl, shared);
+      await verifySchemaReadiness(tx, shared);
+    });
   } catch (error) {
     await pool.end();
     throw error;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Brand, Concept } from "../shared/types.js";
 export const briefFields = ["description", "audience", "voice", "offer", "proof", "pain", "trigger", "visualDirection"] as const;
 export const brandSchema = z.object({
+  briefPromptVersion: z.string().max(80).optional(),
   name: z.string().trim().min(1).max(100),
   website: z.string().max(2048).default(""),
   description: z.string().max(4000),
@@ -22,6 +23,10 @@ export const brandSchema = z.object({
     excerpt: z.string().trim().min(1).max(600),
   })).max(24).optional(),
   inferredFields: z.array(z.enum(briefFields)).max(8).optional(),
+  certifications: z.object({
+    muisHalal: z.enum(["not_certified", "attested"]),
+    certificateId: z.string().uuid().optional(),
+  }).refine(value => value.muisHalal !== "attested" || !!value.certificateId, { message: "Upload a certificate before attesting certification." }).optional(),
   photoId: z.string().uuid().optional(),
   logoId: z.string().uuid().optional(),
   logoUrl: z.url().max(2048).optional(),
@@ -58,6 +63,11 @@ export const demoBrand: Brand = {
   proof: ["Fictional sample brand"],
   sources: [],
 };
+export function previewOfferCopy(offer: string): string {
+  const text = offer.trim();
+  // Preview templates cannot reliably rewrite instructions into advertising copy.
+  return text.length <= 120 && !/\b(preview|test only|instructions?|ignore|prompt|do not|don.t|no discount|introduce)\b/i.test(text) ? text : "";
+}
 export function sampleConcepts(brand: Brand, offer: string): Concept[] {
   return [
     {
@@ -80,9 +90,9 @@ export function sampleConcepts(brand: Brand, offer: string): Concept[] {
     {
       id: "offer",
       title: "Something worth discovering",
-      hook: offer || "Find your next favourite.",
+      hook: previewOfferCopy(offer) || `Discover ${brand.name}.`.slice(0, 120),
       description:
-        "A clear invitation with your chosen offer. No invented discounts or promises.",
+        offer ? `Build a clear invitation around the approved offer: ${offer}. Keep instructions out of customer-facing copy.` : `Introduce ${brand.name} using the approved description. No invented discounts or promises.`,
       cta: "Explore the collection",
     },
     {
@@ -107,4 +117,18 @@ export function sampleConcepts(brand: Brand, offer: string): Concept[] {
       cta: "Discover more",
     },
   ];
+}
+
+// Extraction owns identity and observed visual metadata. AI owns the grounded
+// summary and its provenance; an imported SEO description must not replace it.
+export function mergeImportedBrief(brief: Brand, identity: { name: string; website: string; description: string; color?: string; logoUrl?: string; sources: Brand["sources"] }, aiWritten: boolean): Brand {
+  return {
+    ...brief,
+    name: identity.name,
+    website: identity.website,
+    description: aiWritten && brief.description.trim() ? brief.description : identity.description,
+    color: identity.color || emptyBrand.color,
+    logoUrl: identity.logoUrl,
+    sources: aiWritten && brief.sources.length ? brief.sources : identity.sources,
+  };
 }

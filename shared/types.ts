@@ -1,4 +1,5 @@
 export type Brand = {
+  briefPromptVersion?: string;
   name: string;
   website: string;
   description: string;
@@ -13,6 +14,7 @@ export type Brand = {
   visualDirection?: string;
   evidence?: { field: string; sourceUrl: string; excerpt: string }[];
   inferredFields?: string[];
+  certifications?: { muisHalal: "not_certified" | "attested"; certificateId?: string };
   photoId?: string;
   logoUrl?: string;
   logoId?: string;
@@ -41,6 +43,7 @@ export type AssetDraft = {
   caption?: string;
 };
 export type CampaignDraft = {
+  videoDurationSeconds?: number;
   revision: number;
   selectedConceptIds: string[];
   assets: AssetDraft[];
@@ -66,6 +69,10 @@ export type Version = {
   status: string;
   prompt: string;
   motion_prompt?: string | null;
+  video_duration_seconds?: number;
+  first_frame_source?: "merchant_photo" | "generated" | "sample" | null;
+  reviewFingerprint?: string;
+  reviewed?: boolean;
   headline: string;
   cta: string;
   note: string;
@@ -94,6 +101,8 @@ export type Ledger = {
   created_at: string;
 };
 export type Studio = {
+  exportReviewRequired?: boolean;
+  videoDurationSeconds?: number;
   user: User;
   brand: Brand;
   campaigns: Campaign[];
@@ -101,9 +110,11 @@ export type Studio = {
   balance: number;
   ledger: Ledger[];
   mode: "mock" | "live";
+  writingMode?: "mock" | "live";
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
   checkoutReleased: boolean;
+  accountDeletionEnabled?: boolean;
   billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };

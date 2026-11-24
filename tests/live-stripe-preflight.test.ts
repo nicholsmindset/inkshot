@@ -7,7 +7,8 @@ const destination = {
   url: origin + "/api/webhooks/stripe", status: "enabled", livemode: true,
   api_version: "2026-08-26.dahlia", enabled_events: ["checkout.session.completed",
     "checkout.session.async_payment_succeeded", "invoice.paid", "invoice.payment_failed",
-    "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"],
+    "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted",
+    "charge.refunded", "charge.dispute.created"],
 } as const;
 const endpoint = { ...destination, enabled_events: [...destination.enabled_events] };
 

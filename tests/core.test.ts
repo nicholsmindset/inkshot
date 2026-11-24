@@ -255,7 +255,8 @@ test("legacy three-concept drafts preserve approved CTAs and workspace photo", a
     name: "Photo campaign", goal: "Sales", offer: "Book now",
   }, cookie)).json();
   concepts.splice(3);
-  await db.query("UPDATE campaigns SET concepts=$2 WHERE id=$1", [id, JSON.stringify(concepts)]);
+  // Legacy campaigns predate saved prompt/duration drafts.
+  await db.query("UPDATE campaigns SET concepts=$2,draft=NULL WHERE id=$1", [id, JSON.stringify(concepts)]);
   const photoId = randomUUID(), foreignId = randomUUID();
   const file = path.resolve("public/examples/candle.png");
   await db.query("INSERT INTO uploads(id,workspace_id,file_path) VALUES($1,$2,$3),($4,$5,$3)", [

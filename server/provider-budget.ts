@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Database, Queryable } from "./db.js";
 import { AppError } from "./config.js";
 import * as hf from "./higgsfield.js";
+import { assertBillingSpendAllowed } from './billing.js';
 
 type Reservation = { input_hash: string; provider_request_id: string | null; current_budget_day: boolean };
 type Provider = Pick<typeof hf, "estimate" | "submit">;
@@ -36,7 +37,7 @@ async function submitAndRecord(db: Database, model: string, input: unknown, key:
 }
 
 export async function submitBudgeted(
-  db: Database, model: string, input: unknown, key: string, provider: Provider = hf,
+  db: Database, model: string, input: unknown, key: string, provider: Provider = hf, workspaceId?: string,
 ): Promise<{ request_id: string }> {
   const digest = createHash("sha256").update(JSON.stringify({ model, input })).digest("hex");
   const existing = await findReservation(db, key);
@@ -49,6 +50,10 @@ export async function submitBudgeted(
     throw new AppError(503, "A valid generation spending limit is required.");
 
   const competing = await db.transaction(async tx => {
+    if (workspaceId) {
+      await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [workspaceId]);
+      await assertBillingSpendAllowed(tx, workspaceId);
+    }
     await tx.query("LOCK TABLE provider_spend IN EXCLUSIVE MODE");
     const reservation = await findReservation(tx, key);
     if (reservation) return reservation;

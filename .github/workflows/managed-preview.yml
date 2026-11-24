@@ -2,6 +2,12 @@ name: Disposable managed preview
 on:
   pull_request:
     paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'shared/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'vercel.json'
       - 'server/**'
       - 'api/**'
       - 'supabase/**'
