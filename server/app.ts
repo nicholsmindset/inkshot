@@ -35,10 +35,10 @@ import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
+import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
+import {assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
 import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
-  KIT_CREDITS,
-  VERSION_CREDITS,
   type Brand,
   type Campaign,
   type CampaignDraft,
@@ -128,6 +128,7 @@ async function saveUpload(db: Database, workspaceId: string, buffer: Buffer, isL
 }
 
 export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
+  planConfig(); // fail at startup, not on a customer request, if commercial settings are inconsistent
   const app = express();
   let storageSource: string[] = [];
   if (process.env.STORAGE_PROVIDER === 'supabase' && process.env.SUPABASE_URL) {
@@ -187,8 +188,9 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     next();
   });
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
+    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
+  app.get("/api/plan", (_req, res) => res.json(planConfig()));
   // Only server configuration controls the host; never echo request Host or Origin.
   app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() && (config.production || process.env.VERCEL === "1") ? config.origin : null }));
   const authLimit = rateLimit({
@@ -244,8 +246,12 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         email: authEmail,
         password: z.string().min(12).max(128),
         website: onboardingWebsite.optional(),
+        inviteCode: z.string().trim().max(64).optional(),
       })
       .parse(req.body);
+    // Claim a single-use code before creating the account; release it if signup fails.
+    const invite = pilotInviteOnly() ? await redeemInvite(db, input.inviteCode, input.email) : null;
+    try {
     if (managedAuthEnabled()) {
       const {data,error} = await authClient(req,res).auth.signUp({email:input.email,password:input.password,options:{data:{name:input.name},emailRedirectTo:`${config.origin}/api/auth/callback`}});
       if (error) throw new AppError(400,'Unable to create your account. Check your details or try signing in.');
@@ -271,6 +277,16 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const { userId } = await createUser(db, input, emptyBrand);
     await session(db, userId, res);
     res.status(201).json({ ok: true });
+    } catch (error) {
+      if (invite) await releaseInvite(db, invite);
+      throw error;
+    }
+  });
+  app.post("/api/waitlist", authLimit, async (req, res) => {
+    const input = z.object({ email: authEmail, businessUrl: z.string().trim().min(3).max(300) }).parse(req.body);
+    await joinWaitlist(db, input.email, input.businessUrl);
+    // The same receipt whether or not the address was already on the list.
+    res.status(202).json({ ok: true });
   });
   app.post("/api/auth/resend-confirmation", authLimit, resendLimit, async (req, res) => {
     const { email } = z.object({ email: authEmail }).parse(req.body);
@@ -442,6 +458,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       checkoutReleased: checkoutReleased(),
       accountDeletionEnabled: deletionEnabled(),
       exportReviewRequired: exportReviewRequired(),
+      plan: planConfig(),
+      videoRegen: await videoRegenUsage(db, w),
       billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',
     });
@@ -700,7 +718,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       await changeCredits(
         tx,
         w,
-        -KIT_CREDITS,
+        -planConfig().kitCredits,
         "generation",
         `${c.name} · nine-asset kit`,
         `kit:${cid}`,
@@ -716,7 +734,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
                 ? "4:5"
                 : ["1:1", "4:5", "1.91:1"][index];
           const cost =
-            VERSION_CREDITS[kind] + (kind === "post" && index === 2 ? 1 : 0);
+            planConfig().versionCredits[kind] + (kind === "post" && index === 2 ? 1 : 0);
           const draft = overrides.get(`${concept.id}:${kind}`);
           const cta = draft?.cta ?? concept.cta;
           const headline = draft?.headline ?? concept.hook;
@@ -810,7 +828,8 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         );
       if(input.caption!==undefined || (a.kind==='post' && !campaign.draft))
         await tx.query('UPDATE assets SET caption=$2 WHERE id=$1',[aid,input.caption ?? socialCaption(input.headline,input.cta,campaign.brand)]);
-      const cost = input.regenerate ? VERSION_CREDITS[a.kind] : 0;
+      if (input.regenerate && a.kind === 'video') await assertVideoRegenAllowed(tx, w);
+      const cost = input.regenerate ? planConfig().versionCredits[a.kind] : 0;
       const vid = randomUUID();
       const n = (
         await tx.query<{ n: number }>(

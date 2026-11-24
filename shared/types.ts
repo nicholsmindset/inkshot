@@ -101,6 +101,8 @@ export type Ledger = {
   created_at: string;
 };
 export type Studio = {
+  plan?: PlanInfo;
+  videoRegen?: VideoRegenUsage;
   exportReviewRequired?: boolean;
   videoDurationSeconds?: number;
   user: User;
@@ -118,12 +120,13 @@ export type Studio = {
   billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };
-export const KIT_CREDITS = 100;
-export const PLAN = {
-  name: "Studio",
-  price: 39,
-  currency: "USD",
-  kits: 3,
-  credits: 300,
+export type PlanInfo = {
+  name: string;
+  currency: string;
+  priceAmount: number;
+  credits: number;
+  kitCredits: number;
+  versionCredits: { video: number; image: number; post: number };
+  videoRegenMonthlyCap: number;
 };
-export const VERSION_CREDITS = { video: 26, image: 5, post: 2 } as const;
+export type VideoRegenUsage = { used: number; cap: number; resetsAt: string };

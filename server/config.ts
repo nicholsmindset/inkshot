@@ -61,7 +61,7 @@ export function assertHostedConfiguration() {
   const liveGeneration = config.mode === "live";
   if (liveBilling !== liveGeneration)
     throw new HostedConfigurationError("LIVE_MODE_MISMATCH", "Live billing and generation must be enabled together.");
-  if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !process.env.STRIPE_STUDIO_PRICE_ID || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
+  if (liveBilling && (process.env.ENABLE_BILLING_SANDBOX === "true" || !/^[sr]k_live_/.test(process.env.STRIPE_API_KEY || "") || !(process.env.PLAN_PRICE_ID || process.env.STRIPE_STUDIO_PRICE_ID) || !process.env.STRIPE_WEBHOOK_SECRET || !config.origin.startsWith("https://")))
     throw new HostedConfigurationError("LIVE_BILLING_REQUIRED", "Live billing requires live Stripe settings and an HTTPS app origin.");
   if (liveGeneration && (!config.liveAllowed || !config.hfKey || !config.hfSecret || !Number.isFinite(Number(process.env.HF_DAILY_BUDGET_USD)) || Number(process.env.HF_DAILY_BUDGET_USD) <= 0 || (!config.claudeKey && !config.openrouterKey)))
     throw new HostedConfigurationError("LIVE_PROVIDER_REQUIRED", "Live generation requires provider access, writing access and a spending limit.");

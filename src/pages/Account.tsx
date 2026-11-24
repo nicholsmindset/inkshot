@@ -11,6 +11,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { useStudio } from "../context";
+import { formatPrice } from "../plan";
 import { Highlight, Button, Empty, Notice } from "../ui";
 export function Billing() {
   const { studio } = useStudio();
@@ -22,11 +23,14 @@ export function Billing() {
     catch(e){setError((e as Error).message);setBusy(false);}
   }
   if (!studio) return null;
+  const plan = studio.plan;
+  if (!plan) return null;
+  const regen = studio.videoRegen;
   const canSubscribe = ["none", "canceled", "incomplete_expired"].includes(studio.billingStatus);
   const live = studio.billingMode === "live";
   const checkoutHeld = live && canSubscribe && !studio.checkoutReleased;
   let billingLabel = live ? "Manage subscription" : "Manage test subscription";
-  if (canSubscribe) billingLabel = live ? "Subscribe for US$39/month" : "Test subscription checkout";
+  if (canSubscribe) billingLabel = live ? `Subscribe for ${formatPrice(plan)}/month` : "Test subscription checkout";
   return (
     <>
       <div className="page-heading">
@@ -49,12 +53,13 @@ export function Billing() {
             <span className="pill">{studio.billingMode === 'live' ? 'Monthly plan' : 'Planned launch plan'}</span>
           </div>
           <div className="price">
-            $39 <small>USD / month</small>
+            {formatPrice(plan)} <small>{plan.currency.toUpperCase()} / month</small>
           </div>
           <p>One small business. Three complete campaigns.</p>
           <ul>
             {[
-              "Each monthly payment tops your balance up to 300 credits",
+              `Each monthly payment tops your balance up to ${plan.credits} credits. Unused credits do not roll over.`,
+              `Up to ${plan.videoRegenMonthlyCap} video regenerations each month`,
               "Text and layout edits included",
               "Version history and downloads",
               "Extra generation uses credits shown before approval",
@@ -79,25 +84,29 @@ export function Billing() {
           </h2>
           <p>{studio.billingMode === 'live' ? 'credits available' : 'preview credits available'}</p>
           <div className="credit-track">
-            <i style={{ width: `${Math.min(100, studio.balance / 3)}%` }} />
+            <i style={{ width: `${Math.min(100, (studio.balance / plan.credits) * 100)}%` }} />
           </div>
           <div className="credit-explainer">
             <div>
               <span>Complete kit</span>
-              <strong>100 credits</strong>
+              <strong>{plan.kitCredits} credits</strong>
             </div>
             <div>
               <span>Video regeneration</span>
-              <strong>26 credits</strong>
+              <strong>{plan.versionCredits.video} credits</strong>
             </div>
             <div>
               <span>Image regeneration</span>
-              <strong>5 credits</strong>
+              <strong>{plan.versionCredits.image} credits</strong>
             </div>
             <div>
               <span>Post regeneration</span>
-              <strong>2 credits</strong>
+              <strong>{plan.versionCredits.post} credits</strong>
             </div>
+            {regen && <div>
+              <span>Video regenerations this month</span>
+              <strong>{Math.max(0, regen.cap - regen.used)} of {regen.cap} left · resets {new Date(regen.resetsAt).toLocaleDateString('en-GB',{day:'numeric',month:'long',timeZone:'UTC'})}</strong>
+            </div>}
             <div>
               <span>Text edit</span>
               <strong>Included</strong>

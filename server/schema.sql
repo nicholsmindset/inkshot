@@ -114,3 +114,6 @@ CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON billing
 
 DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON campaign_exports;
 CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON campaign_exports FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+
+CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,code_hash text NOT NULL UNIQUE,label text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),expires_at timestamptz,used_at timestamptz,used_email text);
+CREATE TABLE IF NOT EXISTS waitlist(id text PRIMARY KEY,email text NOT NULL UNIQUE,business_url text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());

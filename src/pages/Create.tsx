@@ -672,7 +672,7 @@ export function NewCampaign() {
           </div>
           <div className="kit-price">
             <span>A complete kit</span>
-            <strong>100 credits</strong>
+            <strong>{studio.plan?.kitCredits ?? "…"} credits</strong>
           </div>
           <p>{studio.balance} credits available in your workspace</p>
           <small>{studio.mode === 'live' ? `Video generations target ${studio.videoDurationSeconds ?? 10} seconds. We return credits for assets that fail.` : `Preview mode makes sample assets. New live videos target ${studio.videoDurationSeconds ?? 10} seconds after provider validation.`}</small>

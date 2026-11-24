@@ -12,8 +12,10 @@ import { WorkflowDemo } from "./WorkflowDemo";
 import { CampaignExample } from "./CampaignExample";
 import { api } from "../api";
 import { useStudio } from "../context";
+import { formatPrice, usePlan } from "../plan";
 export function Landing() {
   const { refresh, studio } = useStudio();
+  const plan = usePlan(studio?.plan);
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -116,7 +118,7 @@ export function Landing() {
           <span className="home-eyebrow">START WITH THE BRIEF</span>
           <h2>See the direction.<br /><em>Then make the campaign.</em></h2>
           <p>Import your site and review your brand brief for free.
-            Each nine-asset kit uses 100 credits when you approve it.</p>
+            Each nine-asset kit uses {plan?.kitCredits ?? "…"} credits when you approve it.</p>
           <div className="free-brief-note"><Check size={20} /><div><strong>Your brand brief is free.</strong><p>Create an account, bring your website and review the details before subscribing.</p></div></div>
         </div>
         <div className="pricing-card">
@@ -125,15 +127,17 @@ export function Landing() {
   
           </div>
           <div className="price">
-            $39 <small>USD / month</small>
+            {plan ? formatPrice(plan) : "…"} <small>{plan?.currency.toUpperCase()} / month</small>
           </div>
-          <p>Enough credits for three complete kits.</p>
+          <p>Enough credits for {plan ? Math.floor(plan.credits / plan.kitCredits) : "several"} complete kits.</p>
           <ul>
             {[
-              "Each monthly payment tops your balance up to 300 credits",
+              `Each monthly payment tops your balance up to ${plan?.credits ?? "…"} credits. Unused credits do not roll over.`,
               "3 videos, 3 images and 3 posts per kit",
               "Headline edits included",
+              `Up to ${plan?.videoRegenMonthlyCap ?? "…"} video regenerations each month`,
               "Version history and finished downloads",
+              "Credits for assets that fail are returned automatically",
               "Extra generation uses credits shown before approval",
             ].map((t) => (
               <li key={t}>
@@ -157,7 +161,7 @@ export function Landing() {
           <details><summary>Do you need access to my website account?</summary><p>No. Inkshot reads public pages from the URL you provide. You can edit the brief and upload your own photos.</p></details>
           <details><summary>Can I change the words before making ads?</summary><p>Yes. Review your brand brief and campaign ideas before generation. Headline edits to finished assets do not use generation credits.</p></details>
           <details><summary>What happens if an asset fails?</summary><p>Successful assets remain available. Credits for an asset that could not be completed are returned to your workspace.</p></details>
-          <details><summary>How are generation credits used?</summary><p>One nine-asset kit uses 100 credits. The Studio plan includes 300 monthly credits. We show the credit cost before you approve generation.</p></details>
+          <details><summary>How are generation credits used?</summary><p>One nine-asset kit uses {plan?.kitCredits ?? "…"} credits. The Studio plan includes {plan?.credits ?? "…"} monthly credits with no rollover. We show the credit cost before you approve generation.</p></details>
         </div>
       </section>
       <section className="home-closing"><span className="home-eyebrow">YOUR NEXT CAMPAIGN STARTS HERE</span><h2>Something worth selling.<br /><em>Now give it something worth seeing.</em></h2><a href="#hero-website" className="button">Build my free brief <ArrowUpRight size={17} /></a><p>Start with your website. Keep control of the creative.</p></section>
@@ -179,7 +183,11 @@ export function Auth({ signup = false }: { signup?: boolean }) {
   const [confirmationHelp, setConfirmationHelp] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState("");
   const [resendSeconds, setResendSeconds] = useState(0);
+  const [inviteOnly, setInviteOnly] = useState(false);
   const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (signup) void api<{ inviteOnly?: boolean }>("/health").then(h => setInviteOnly(!!h.inviteOnly)).catch(() => {});
+  }, [signup]);
   const requestedWebsite = searchParams.get("website");
   const websiteQuery = requestedWebsite ? `?website=${encodeURIComponent(requestedWebsite)}` : "";
   const studioDestination = signup || requestedWebsite ? `/studio/brand${websiteQuery}` : "/studio";
@@ -333,12 +341,18 @@ export function Auth({ signup = false }: { signup?: boolean }) {
                 required
               />
             </Field>
+            {signup && inviteOnly ? (
+              <Field label="Invite code" hint="Inkshot is invite-only during the pilot.">
+                <input name="inviteCode" disabled={busy} autoComplete="off" required maxLength={64} defaultValue={searchParams.get("invite") ?? ""} />
+              </Field>
+            ) : null}
             {error ? <Notice>{error}</Notice> : null}
             <Button className="full" busy={busy}>
               {signup ? "Create my studio" : "Open my studio"}
               <ArrowRight size={16} />
             </Button>
           </form>}
+          {signup && inviteOnly && !confirmationEmail && <Waitlist />}
           {!signup && <p className="auth-switch"><Link to="/forgot-password">Forgot your password?</Link></p>}
           {!signup && !confirmationHelp && !confirmationEmail && <p className="auth-switch"><button type="button" className="auth-text-button" disabled={busy} onClick={() => { setConfirmationHelp(true); setError(""); }}>Need a confirmation email?</button></p>}
           <p className="auth-switch">
@@ -361,5 +375,30 @@ export function Auth({ signup = false }: { signup?: boolean }) {
         <CampaignExample />
       </aside>
     </div>
+  );
+}
+
+function Waitlist() {
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function join(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try { await api("/waitlist", Object.fromEntries(new FormData(e.currentTarget))); setDone(true); }
+    catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  }
+  if (done) return <p role="status">Thanks. You are on the waitlist, and we will email you when a place opens.</p>;
+  return (
+    <details className="auth-waitlist">
+      <summary>No invite code? Join the waitlist</summary>
+      <form onSubmit={join}>
+        <Field label="Email address"><input name="email" type="email" autoComplete="email" maxLength={254} required disabled={busy} /></Field>
+        <Field label="Business website or Instagram"><input name="businessUrl" maxLength={300} required disabled={busy} /></Field>
+        {error ? <Notice>{error}</Notice> : null}
+        <Button className="full" variant="secondary" busy={busy}>Join the waitlist</Button>
+      </form>
+    </details>
   );
 }

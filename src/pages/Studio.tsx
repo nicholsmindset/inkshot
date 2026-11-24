@@ -21,7 +21,6 @@ import { Button, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
 import type { Asset, Version, Campaign, CampaignDraft, AssetDraft } from "../../shared/types";
 import { isCampaignDestination } from "../../shared/destination";
-import { VERSION_CREDITS } from "../../shared/types";
 import { startVisiblePolling } from "../visible-polling";
 const icons = { video: Film, image: Image, post: MessageSquare };
 function CampaignProgress({ step }: { step: number }) {
@@ -850,7 +849,8 @@ function EditorContents({ asset }: { asset: Asset }) {
     setNote("");
     setError("");
   }
-  const generationCost = VERSION_CREDITS[asset.kind];
+  const generationCost = studio?.plan?.versionCredits[asset.kind] ?? Infinity;
+  const regenLeft = asset.kind === "video" && studio?.videoRegen ? studio.videoRegen.cap - studio.videoRegen.used : Infinity;
   const canAffordGeneration = (studio?.balance ?? 0) >= generationCost;
   const validCopy = !!headline.trim() && !!cta.trim();
   const unsavedCopy = headline !== v.headline || cta !== v.cta || caption !== asset.caption;
@@ -989,12 +989,13 @@ function EditorContents({ asset }: { asset: Asset }) {
           <Button
             variant="secondary full"
             busy={operation === "generate"}
-            disabled={busy || pending || photoBackedImage || !validCopy || !canAffordGeneration}
+            disabled={busy || pending || photoBackedImage || !validCopy || !canAffordGeneration || regenLeft <= 0}
             onClick={() => void revise(true)}
           >
             {v.status === "failed" ? "Generate a new attempt" : v.mock ? "Generate sample version" : "Generate a new creative"} <span>{generationCost} credits</span>
           </Button>
           {!photoBackedImage && <p className="asset-credit-balance">{studio?.balance ?? 0} credits available{!canAffordGeneration ? ` · This generation needs ${generationCost - (studio?.balance ?? 0)} more credits.` : ""}</p>}
+          {regenLeft <= 0 && studio?.videoRegen && <p className="asset-credit-balance" role="status">You've used all {studio.videoRegen.cap} video regenerations this month. They reset on {new Date(studio.videoRegen.resetsAt).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'})}.</p>}
           {!photoBackedImage && !canAffordGeneration && <Link className="text-link" to="/studio/billing">View billing <ArrowUpRight size={14} /></Link>}
           <details className="asset-prompt-details"><summary>View generation instructions</summary><h4>{asset.kind === "video" ? "First-frame prompt" : "Visual prompt"}</h4><p>{v.prompt}</p>{v.motion_prompt && <><h4>Motion prompt</h4><p>{v.motion_prompt}</p></>}</details>
           {error ? <Notice>{error}</Notice> : null}
