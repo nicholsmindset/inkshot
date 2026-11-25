@@ -6,7 +6,7 @@ export const eventNames=[
   'signup_completed','email_verified','website_read_started','website_read_succeeded','website_read_failed',
   'brief_saved','brief_fields_edited','angles_selected','campaign_approved','generation_completed','generation_failed',
   'asset_reviewed','download_completed','second_campaign_started','checkout_started','checkout_completed',
-  'publish_answer','posted_followup',
+  'publish_answer','posted_followup','copy_generated',
 ] as const;
 export type EventName=(typeof eventNames)[number];
 

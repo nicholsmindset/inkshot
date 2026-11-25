@@ -130,6 +130,14 @@ async function run(label, viewport) {
     await page.getByRole("button", { name: /Make my kit/ }).click();
     await page.getByText(/Your kit is ready/).waitFor({ timeout: 90000 });
   });
+  await step("platform-copy", async () => {
+    await page.getByRole("tab", { name: /TikTok/ }).click();
+    await page.getByRole("button", { name: /Write TikTok copy/ }).click();
+    await page.getByText(/Sample copy: shows the layout and limits/).waitFor();
+    expect(await page.locator(".platform-variant").count() === 6, "TikTok copy should show 2 versions for each of the 3 angles");
+    expect(await page.getByText(/AI disclosure/).first().isVisible(), "AI disclosure reminders missing");
+    expect(await page.locator(".platform-field small").first().isVisible(), "character counts missing");
+  });
   await step("review-and-download", async () => {
     await page.locator("a:has-text('Ready to use'), button:has-text('Ready to use')").first().click();
     await page.getByRole("button", { name: /Approve this version for download/ }).waitFor();

@@ -120,3 +120,5 @@ CREATE TABLE IF NOT EXISTS waitlist(id text PRIMARY KEY,email text NOT NULL UNIQ
 
 CREATE TABLE IF NOT EXISTS product_events(id text PRIMARY KEY,workspace_id text NOT NULL,user_id text,event text NOT NULL,campaign_id text,asset_id text,props jsonb NOT NULL DEFAULT '{}',dedupe_key text,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,dedupe_key));
 CREATE INDEX IF NOT EXISTS product_events_event_time ON product_events(event,created_at);
+
+CREATE TABLE IF NOT EXISTS campaign_copy(id text PRIMARY KEY,workspace_id text NOT NULL REFERENCES workspaces(id),campaign_id text NOT NULL REFERENCES campaigns(id),platform text NOT NULL,run integer NOT NULL,status text NOT NULL DEFAULT 'running' CHECK(status IN('running','ready','failed')),result jsonb,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(campaign_id,platform,run));

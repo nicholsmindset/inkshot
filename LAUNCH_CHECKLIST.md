@@ -28,12 +28,13 @@ Cutover steps, rollback and the production preflight are in [docs/CUTOVER.md](do
 6. `20261121063442_launch_safeguards.sql` billing holds, upload sizes, review metadata
 7. `20261124090000_pilot_access.sql` invites and waitlist (server-only)
 8. `20261124100000_product_events.sql` pilot measurement events (server-only)
+9. `20261125090000_campaign_copy.sql` platform copy runs (server-only; apply after 6, which installs the deletion trigger function)
 
-Migrations 7 and 8 are not covered by the startup schema guard: apply them before deploying, or signup with `PILOT_INVITE_ONLY=true` and event recording will fail (events fail quietly and log a warning).
+Migrations 7 to 9 are not covered by the startup schema guard: apply them before deploying, or signup with `PILOT_INVITE_ONLY=true` and event recording will fail (events fail quietly and log a warning).
 
 ## Pilot settings (names only)
 
-`PLAN_CURRENCY`, `PLAN_PRICE_AMOUNT` (minor units), `PLAN_CREDITS`, `KIT_CREDITS`, `CREDIT_COST_VIDEO`, `CREDIT_COST_IMAGE`, `CREDIT_COST_POST`, `VIDEO_REGEN_MONTHLY_CAP` (default 8), `PILOT_INVITE_ONLY`. The Stripe price is `STRIPE_STUDIO_PRICE_ID` (alias `PLAN_PRICE_ID`) and must match the currency and amount exactly. Create invites with `npm run invite -- --count 5 --label "cohort 1"`; read results with `npx tsx scripts/pilot-report.ts`.
+`PLAN_CURRENCY`, `PLAN_PRICE_AMOUNT` (minor units), `PLAN_CREDITS`, `KIT_CREDITS`, `CREDIT_COST_VIDEO`, `CREDIT_COST_IMAGE`, `CREDIT_COST_POST`, `VIDEO_REGEN_MONTHLY_CAP` (default 8), `PILOT_INVITE_ONLY`, `COPY_PLATFORMS` (default facebook,instagram,tiktok), `COPY_MAX_RUNS_PER_PLATFORM` (default 3), `SUPPORT_EMAIL`. The Stripe price is `STRIPE_STUDIO_PRICE_ID` (alias `PLAN_PRICE_ID`) and must match the currency and amount exactly. Create invites with `npm run invite -- --count 5 --label "cohort 1"`; read results with `npx tsx scripts/pilot-report.ts`.
 
 ## Release being prepared
 

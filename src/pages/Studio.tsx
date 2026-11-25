@@ -17,6 +17,7 @@ import {
   Play,
 } from "lucide-react";
 import { PostingFollowup, PublishQuestion } from "./PilotFeedback";
+import { PlatformCopy } from "./PlatformCopy";
 import { useStudio } from "../context";
 import { Button, Empty, Status, Modal, Field, Notice } from "../ui";
 import { api, media } from "../api";
@@ -682,6 +683,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           ))}
         </>
       )}
+      {campaign.concepts.length > 0 && <PlatformCopy campaignId={id} campaign={campaign} />}
       <AssetEditor
         asset={studio.assets.find((a) => a.id === selected) || null}
         onClose={() => setSelected(null)}

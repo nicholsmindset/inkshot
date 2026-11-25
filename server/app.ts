@@ -31,7 +31,10 @@ import {
   tokenHash,
 } from "./auth.js";
 import { brandSchema, demoBrand, emptyBrand, mergeImportedBrief } from "./brand.js";
-import { writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
+import type { Concept } from "../shared/types.js";
+import { ask as askWriter, writeBrief, writeConcepts, writeAssetPrompts } from "./claude.js";
+import { failRun, finishRun, generatePlatformCopy, latestCopy, maxRunsPerPlatform, reserveRun } from "./copy/pipeline.js";
+import { enabledPlatforms, platformSpecs, SPECS_REVERIFY_BY, SPECS_VERSION, type PlatformId } from "./copy/specs.js";
 import { rasterizeSiteLogo } from "./site-logo.js";
 import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
@@ -1038,6 +1041,40 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     if(!(await db.query("SELECT id FROM campaigns WHERE id=$1 AND workspace_id=$2",[cid,req.user!.workspaceId])).rows.length)
       throw new AppError(404,"Campaign not found.");
     res.redirect(303,`/studio/campaign/${cid}`);
+  });
+  // Platform copy: Facebook, Instagram, TikTok (and others when enabled). Written from the campaign's
+  // three chosen angles; validated in code (limits, banned claims, the claims guard) before it is shown.
+  app.get("/api/campaigns/:id/copy", async (req, res) => {
+    const campaignId = id.parse(req.params.id), w = req.user!.workspaceId;
+    await ownedCampaign(db, campaignId, w);
+    const saved = await latestCopy(db, w, campaignId);
+    res.json({
+      specsVersion: SPECS_VERSION, reverifyBy: SPECS_REVERIFY_BY, rewritesAllowed: maxRunsPerPlatform(),
+      platforms: enabledPlatforms().map(platform => ({ id: platform, label: platformSpecs[platform].label, runs: saved.runs[platform] ?? 0, limits: platformSpecs[platform].fields })),
+      results: saved.results,
+    });
+  });
+  app.post("/api/campaigns/:id/copy", async (req, res) => {
+    const campaignId = id.parse(req.params.id), w = req.user!.workspaceId;
+    const input = z.object({ platform: z.string().refine((p): p is PlatformId => enabledPlatforms().includes(p as PlatformId), "Choose an available platform."),
+      singlishLevel: z.number().int().min(0).max(2).default(0) }).parse(req.body);
+    assertGenerationNotPaused();
+    const campaign = await ownedCampaign(db, campaignId, w);
+    await requireOwnedCertificate(db, w, campaign.brand, true);
+    const concepts = currentDraft(campaign).selectedConceptIds.map(cid => campaign.concepts.find(c => c.id === cid)).filter((c): c is Concept => !!c);
+    const run = await reserveRun(db, w, campaignId, input.platform as PlatformId);
+    try {
+      const result = await generatePlatformCopy({
+        platform: input.platform as PlatformId, brand: campaign.brand, concepts, goal: campaign.goal, offer: campaign.offer,
+        campaignMock: campaign.mock, singlishLevel: input.singlishLevel, ask: (system, payload, maxTokens) => askWriter(db, w, system, payload, maxTokens),
+      });
+      await finishRun(db, run.id, result);
+      await recordEvent(db, { workspaceId: w, userId: req.user!.id, event: "copy_generated", campaignId, props: { platform: input.platform, run: run.run, sample: result.sample, repaired: result.repaired, needsReview: result.needsReview } });
+      res.json({ ...result, run: run.run });
+    } catch (error) {
+      await failRun(db, run.id).catch(() => {});
+      throw error;
+    }
   });
   // "Would you publish this?" asked after a download. The answer may be changed; the latest counts.
   app.post("/api/assets/:id/publish-answer", async (req, res) => {

@@ -82,6 +82,7 @@ test('new export and provider-event records are included without crossing worksp
  flags(t);const {pg,db,user}=await fixture(t);
  await pg.exec(`INSERT INTO campaigns(id,workspace_id,name,goal,concepts,brand,mock) VALUES('c-own','own','Own','Goal','[]','{}',true),('c-other','other','Other','Goal','[]','{}',true);
  INSERT INTO campaign_exports(id,workspace_id,campaign_id,category,fingerprint,manifest,state) VALUES('export-own','own','c-own','all','one','[]','queued'),('export-other','other','c-other','all','two','[]','ready');
+ INSERT INTO campaign_copy(id,workspace_id,campaign_id,platform,run,status) VALUES('copy-own','own','c-own','tiktok',1,'ready'),('copy-other','other','c-other','tiktok',1,'ready');
  INSERT INTO provider_events(webhook_id,request_id,status,body_hash) VALUES('evt-own','provider-own','completed','own'),('evt-other','provider-other','completed','other');`);
  await assert.rejects(requestDeletion(db,user),/downloads/);
  await pg.exec("UPDATE campaign_exports SET state='ready'");
@@ -92,6 +93,7 @@ test('new export and provider-event records are included without crossing worksp
  await pg.exec("UPDATE account_deletions SET available_at=now(),provider_ids='[\"provider-own\"]'");
  for(let i=0;i<4;i++)await runDeletionOnce(db,noop);
  assert.deepEqual((await db.query('SELECT id FROM campaign_exports')).rows,[{id:'export-other'}]);
+ assert.deepEqual((await db.query('SELECT id FROM campaign_copy')).rows,[{id:'copy-other'}],'platform copy is erased with its campaign, without touching another workspace');
  assert.deepEqual((await db.query('SELECT request_id FROM provider_events')).rows,[{request_id:'provider-other'}]);
 });
 

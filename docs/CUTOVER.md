@@ -24,7 +24,7 @@ Use the project's **direct** admin connection string as `ADMIN_DATABASE_URL` (sh
 for f in supabase/migrations/*.sql; do echo "== $f"; psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || break; done
 ```
 
-Expect `COMMIT` per file and no `ERROR`. Order is the filename order: foundation, managed_services, capped_allowance, provider_receipts, deployment_environment, writing_limits, live_media_buckets, campaign_planning, shared_rate_limits, inkshot_runtime_access, photo_first_video, campaign_exports, provider_events, account_deletion, launch_safeguards, **pilot_access, product_events**. (The last two are not covered by the startup guard; the preflight in section I checks them.)
+Expect `COMMIT` per file and no `ERROR`. Order is the filename order: foundation, managed_services, capped_allowance, provider_receipts, deployment_environment, writing_limits, live_media_buckets, campaign_planning, shared_rate_limits, inkshot_runtime_access, photo_first_video, campaign_exports, provider_events, account_deletion, launch_safeguards, **pilot_access, product_events, campaign_copy**. (The last three are not covered by the startup guard; the preflight in section I checks all three.)
 
 Bind the project to live (only on an empty project):
 

@@ -64,8 +64,8 @@ export async function runPreflight(env: NodeJS.ProcessEnv, origin: string, optio
     try {
       await verifySchemaReadiness(db, env.INKSHOT_SHARED_PROJECT_LIVE === "true");
       const tables = (await db.query<{ table_name: string }>(
-        "SELECT table_name FROM information_schema.tables WHERE table_name IN ('invites','waitlist','product_events') AND table_schema=current_schema()")).rows.map(r => r.table_name);
-      const missing = ["invites", "waitlist", "product_events"].filter(t => !tables.includes(t));
+        "SELECT table_name FROM information_schema.tables WHERE table_name IN ('invites','waitlist','product_events','campaign_copy') AND table_schema=current_schema()")).rows.map(r => r.table_name);
+      const missing = ["invites", "waitlist", "product_events", "campaign_copy"].filter(t => !tables.includes(t));
       if (missing.length) return fail("Database schema and environment marker", `pilot migrations not applied: ${missing.join(", ")}`);
       const marker = (await db.query<{ mode: string }>("SELECT mode FROM inkshot_environment WHERE singleton")).rows[0]?.mode;
       if (live && marker !== "live") return fail("Database schema and environment marker", `marker is "${marker}", expected "live"`);

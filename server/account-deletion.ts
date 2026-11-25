@@ -88,6 +88,8 @@ export async function runDeletionOnce(db: Database, adapters: DeletionAdapters):
         await tx.query('DELETE FROM provider_events WHERE request_id=ANY($1::text[])',[task.provider_ids]);
       if((await tx.query<{present:boolean}>("SELECT to_regclass('campaign_exports') IS NOT NULL AS present")).rows[0].present)
         await tx.query('DELETE FROM campaign_exports WHERE workspace_id=$1',[task.workspace_id]);
+      if((await tx.query<{present:boolean}>("SELECT to_regclass('campaign_copy') IS NOT NULL AS present")).rows[0].present)
+        await tx.query('DELETE FROM campaign_copy WHERE workspace_id=$1',[task.workspace_id]);
       // Keep spend totals for the daily budget while removing provider IDs and version linkage.
       await tx.query("UPDATE provider_spend p SET request_key=$2||md5(p.request_key),input_hash='deleted',provider_request_id=NULL FROM versions v WHERE split_part(p.request_key,':',1)=v.id AND v.workspace_id=$1",[task.workspace_id,`deleted:${task.id}:`]);
       await tx.query("DELETE FROM writing_daily_usage WHERE scope=$1",[`workspace:${task.workspace_id}`]);
