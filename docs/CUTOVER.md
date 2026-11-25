@@ -130,7 +130,16 @@ Keep `ENABLE_LIVE_CHECKOUT=false` until step 8. You need an invite code (`npm ru
 3. Confirm; you land in the studio. Reusing the same invite code is refused.
 4. Paste one website URL and read it; check the brief for invented facts.
 5. Select angles and approve a campaign (the cost shown matches the config).
-6. Generation. **Gap:** the product only generates whole nine-asset kits (3 videos, 3 images, 3 posts), so a true "one live image only" test does not exist yet. To keep real spend near that, set `HF_DAILY_BUDGET_USD` to roughly one image's estimated cost for this step: budget checks refuse the videos and refund their credits automatically (this behaviour is covered by tests but not yet proven against the live provider). Restore the real cap afterwards. Alternatively accept one full kit within the US$30 cap from the quality trial.
+6. Live provider check, one image only. A real campaign always makes a nine-asset kit, so use the smoke script instead (it is a dry run until you add `--yes`, refuses any quote above the cap, and uses a throwaway ledger):
+
+```bash
+ALLOW_LIVE_GENERATION=true HF_API_KEY_ID=... HF_API_KEY_SECRET=... npx tsx scripts/smoke-live-image.ts --max-usd 1
+# expect: DRY-RUN: Would spend about US$<quote>. Re-run with --yes to submit one image.
+ALLOW_LIVE_GENERATION=true HF_API_KEY_ID=... HF_API_KEY_SECRET=... npx tsx scripts/smoke-live-image.ts --max-usd 1 --yes
+# expect: COMPLETED: Image ready in <n>s (host ...).
+```
+
+   This proves the key, the quote endpoint, submission and status polling. It does not prove webhooks, storage or the full kit. Run one full kit within the US$30 cap during the quality trial for that.
 7. Review the asset, download it, answer "Would you publish this?".
 8. Set `ENABLE_LIVE_CHECKOUT=true`, redeploy, subscribe with your own card, confirm credits arrive, then refund the payment in Stripe. Expect a **spending hold** to appear (Usage & billing says generation is paused for review) and check the `charge.refunded` event delivered. Release the hold using the procedure agreed in LAUNCH_CHECKLIST gate 4.
 9. Run `npx tsx scripts/pilot-report.ts` and see your own events.
