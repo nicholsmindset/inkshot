@@ -28,7 +28,7 @@ export function assertApprovedClaims(text: string | undefined, brand?: Brand, ca
   const clean = normalize(text || "");
   if (!clean) return;
   if (certification.test(clean) && !(brand?.certifications?.muisHalal === 'attested' && brand.certifications.certificateId))
-    throw new AppError(400, 'Certification wording needs your MUIS certification attestation and an uploaded certificate.');
+    throw new AppError(400, 'Your text mentions halal or MUIS certification. If you are MUIS-certified, confirm it under Your brand and upload your certificate. If not, remove that wording from your brief, offer or captions.');
   const facts = normalize([brand?.name, brand?.description, brand?.offer, ...(brand?.proof || []), campaignOffer].filter(Boolean).join('\n'));
   const approvedValues = new Set(facts.match(valueClaims) || []);
   for (const value of clean.match(valueClaims) || []) {

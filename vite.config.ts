@@ -7,5 +7,6 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": "http://127.0.0.1:3001" },
   },
-  build: { outDir: "dist" },
+  // Never inline assets: the production CSP (font-src 'self') blocks data: fonts, which silently fell back to system fonts.
+  build: { outDir: "dist", assetsInlineLimit: 0 },
 });

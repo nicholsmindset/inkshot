@@ -116,7 +116,7 @@ small {
 .hand {
   font-family: var(--hand);
   font-size: 24px;
-  color: #787267;
+  color: #6d675d;
 }
 .eyebrow {
   display: flex;
@@ -125,7 +125,7 @@ small {
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 500;
-  color: #837d71;
+  color: #6c675d;
   line-height: 1.6;
 }
 .wordmark {
@@ -1161,7 +1161,7 @@ main {
 }
 .status.ready {
   background: #e9f0e6;
-  color: #4b7655;
+  color: #487252;
 }
 .status.failed,
 .status.partial {
@@ -1448,7 +1448,7 @@ main {
   gap: 10px;
   font-size: 11px;
   background: #f1eddf;
-  color: #88794f;
+  color: #746843;
   border: 1px solid #e7dfc8;
   padding: 12px 16px;
   border-radius: 5px;
@@ -1533,7 +1533,7 @@ main {
   gap: 10px;
   align-items: flex-start;
   font-size: 11px;
-  color: #776e5e;
+  color: #6f6758;
   line-height: 1.7;
   max-width: 490px;
 }
@@ -1604,7 +1604,7 @@ main {
   justify-content: center;
   gap: clamp(22px, 6vw, 90px);
   margin-bottom: 28px;
-  color: #8c857a;
+  color: #756f66;
   font-size: 12px;
 }
 .journey-steps span { padding-top: 12px; border-top: 1px solid #c8c0b3; min-width: 110px; text-align: center; }
@@ -1654,7 +1654,7 @@ main {
   display: block;
   margin-top: 10px;
   font-size: 10px;
-  color: #8e805f;
+  color: #73674c;
 }
 .brand-form {
   background: #fffdf8;
@@ -1692,7 +1692,7 @@ main {
   border-radius: 4px;
   padding: 6px 8px;
   font-size: 10px;
-  color: #887b61;
+  color: #736852;
 }
 .color-field {
   display: flex;
@@ -1707,7 +1707,7 @@ main {
 }
 .color-field code {
   font-size: 11px;
-  color: #827965;
+  color: #7a715e;
 }
 .color-field small {
   font-size: 10px;
@@ -1760,7 +1760,7 @@ main {
 }
 .upload-empty p {
   font-size: 10px;
-  color: #8c8069;
+  color: #7c715d;
 }
 .photo-upload > small {
   display: block;
@@ -1775,7 +1775,7 @@ main {
 .margin-note {
   margin-top: 27px;
   padding: 9px 15px;
-  color: #8e8069;
+  color: #7a6e5a;
 }
 .margin-note .hand {
   display: block;
@@ -1945,7 +1945,7 @@ main {
 }
 .kit-summary > small {
   font-size: 9px;
-  color: #9a8b6e;
+  color: #716651;
   display: block;
   line-height: 1.8;
   margin-top: 20px;
@@ -2187,7 +2187,7 @@ main {
   gap: 15px;
   font-size: 10px;
   margin: 13px 0;
-  color: #8a7d62;
+  color: #726751;
 }
 .credit-explainer strong {
   font-weight: 500;
@@ -2214,7 +2214,7 @@ table {
 th {
   font-size: 10px;
   font-weight: 500;
-  color: #8c806a;
+  color: #726856;
   background: #f2eee2;
   padding: 13px 19px;
 }

@@ -48,6 +48,7 @@ function BrandForm({ initial }: { initial: Brand }) {
   const dirty = JSON.stringify(brand) !== JSON.stringify(savedBrand);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
   const [readPreview, setReadPreview] = useState<Brand | null>(null);
   const [url, setUrl] = useState(searchParams.get("website") || recovery?.brand.website || initial.website);
   const set = (key: keyof Brand, value: unknown) =>
@@ -80,6 +81,7 @@ function BrandForm({ initial }: { initial: Brand }) {
     if ((dirty || brand.description.trim()) && !window.confirm("Replace the brief fields with a new website reading? Your photo, logo and certificate will be kept. Choose Cancel to keep your current wording.")) return;
     setBusy("read");
     setError("");
+    setReadError("");
     setReadPreview(null);
     try {
       let address = requestedUrl.trim();
@@ -99,7 +101,8 @@ function BrandForm({ initial }: { initial: Brand }) {
           : "Your brand brief is ready to review.",
       );
     } catch (e) {
-      setError((e as Error).message);
+      // Reading a site can fail (blocked, no text, bad address). Always show a way forward.
+      setReadError(`${(e as Error).message} You can still continue: type your details below, or paste your About text or menu items into “Facts we can use”.`);
     } finally {
       setBusy("");
     }
@@ -225,6 +228,7 @@ function BrandForm({ initial }: { initial: Brand }) {
                 Read my site
               </Button>
             </div>
+            {readError ? <Notice>{readError}</Notice> : null}
             {busy === "read" ? <p className="read-progress" role="status"><span className="read-spinner" /> Reading public pages and preparing your editable brief…</p> : null}
             {!busy && readPreview ? <p className="read-progress read-complete"><Check size={16} /> Site read. Check every fact and offer before saving.</p> : null}
             {(studio?.writingMode ?? studio?.mode) === "mock" ? (

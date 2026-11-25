@@ -1,3 +1,6 @@
+// Set once from /api/health so error messages can name the support address.
+let supportEmail = "";
+export const setSupportEmail = (value: string | null | undefined) => { supportEmail = value ?? ""; };
 export async function api<T = unknown>(
   url: string,
   body?: unknown,
@@ -28,8 +31,9 @@ export async function api<T = unknown>(
   }
   if (!response.ok) {
     let message = typeof data?.error === "string" ? data.error : "Something did not finish. Please try again.";
-    if (data?.code === "SERVICE_UNAVAILABLE" && typeof data.reference === "string" && /^[a-f0-9-]{36}$/i.test(data.reference)) {
+    if (typeof data?.reference === "string" && /^[a-f0-9-]{8,36}$/i.test(data.reference)) {
       message += ` Reference ${data.reference}`;
+      if (supportEmail) message += `. If it keeps happening, email ${supportEmail} and quote this reference.`;
     }
     throw Object.assign(new Error(message), { status: response.status });
   }

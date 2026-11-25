@@ -20,10 +20,11 @@ import {
   X,
   Feather,
   ArrowUpRight,
+  CircleHelp,
 } from "lucide-react";
 import { StudioProvider, useStudio } from "./context";
 import { BrandMark, Button, Notice } from "./ui";
-import { api } from "./api";
+import { api, setSupportEmail } from "./api";
 import { brandDraftKey, clearBrandDraft } from "./brand-draft";
 import { PasswordRecovery } from "./pages/PasswordRecovery";
 import { AuthOriginGate } from "./components/AuthOriginGate";
@@ -31,6 +32,7 @@ import { Landing, Auth } from "./pages/Public";
 import { Dashboard, Library, CampaignDetail } from "./pages/Studio";
 import { BrandPage, NewCampaign } from "./pages/Create";
 import { TrustPage, TrustLinks } from "./pages/Trust";
+import { Help } from "./pages/Help";
 import { Billing, SettingsPage } from "./pages/Account";
 function Shell() {
   const { studio, loading, error, refresh, clearSession } = useStudio();
@@ -151,6 +153,10 @@ function Shell() {
             <Settings />
             Settings
           </NavLink>
+          <NavLink to="/help">
+            <CircleHelp />
+            Help
+          </NavLink>
         </nav>
         <div className="sidebar-bottom">
           <div className="credit-card">
@@ -221,10 +227,12 @@ function Shell() {
   );
 }
 export default function App() {
+  useEffect(() => { void api<{ supportEmail?: string | null }>("/health").then(h => setSupportEmail(h.supportEmail)).catch(() => {}); }, []);
   return (
     <StudioProvider>
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/help" element={<Help />} />
         <Route path="/privacy" element={<TrustPage kind="privacy" />} />
         <Route path="/terms" element={<TrustPage kind="terms" />} />
         <Route path="/ai-notice" element={<TrustPage kind="ai" />} />

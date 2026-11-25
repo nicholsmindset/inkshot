@@ -184,3 +184,8 @@
 .pilot-followup form{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 .pilot-followup-actions{display:flex;gap:8px;grid-column:1/-1}
 .auth-waitlist{margin-top:16px}
+
+/* Visually hidden file inputs stay inside their label, so they never widen the page,
+   and the label shows the focus ring when the hidden input is focused. */
+label.button { position: relative; }
+label.button:focus-within { outline: 3px solid #53765e; outline-offset: 3px; }

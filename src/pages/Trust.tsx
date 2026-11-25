@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { BrandMark } from '../ui';
 import './trust.css';
 
-export function TrustLinks(){return <nav className="trust-links" aria-label="Policies"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms & refunds</Link><Link to="/ai-notice">AI content</Link></nav>;}
+export function TrustLinks(){return <nav className="trust-links" aria-label="Policies"><Link to="/privacy">Privacy</Link><Link to="/terms">Terms & refunds</Link><Link to="/ai-notice">AI content</Link><Link to="/help">Help</Link></nav>;}
 const copy={
   privacy:{title:'Your work, your privacy.',sections:[
     ['What Inkshot stores','Your account name and email, brand information, approved website excerpts, uploaded photos and logos, campaign instructions, generated files and credit activity are used to provide your studio. Sign-in cookies keep your session secure.'],

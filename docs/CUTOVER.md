@@ -57,7 +57,7 @@ psql "$ADMIN_DATABASE_URL" -c "SELECT rolsuper, rolcreaterole, rolbypassrls FROM
 ## E. Auth, email and support domain (OWNER)
 
 1. Auth > URL configuration: Site URL = `https://<production origin>`; redirect allow-list: `<origin>/api/auth/callback` and `<origin>/api/auth/recovery-callback`. Nothing else.
-2. Auth > Emails > Confirm signup: paste `supabase/templates/confirmation.html` (keeps the link and adds `{{ .Token }}`).
+2. Auth > Emails: paste `supabase/templates/confirmation.html` into **Confirm signup** (keeps the link and adds `{{ .Token }}`) and `supabase/templates/recovery.html` into **Reset password**. Stripe receipts are sent by Stripe: in the Stripe dashboard set the public business name and support email/URL under Settings > Business > Public details, and turn on successful-payment receipts under Settings > Customer emails.
 3. Auth > SMTP: set your support-domain sender (SPF, DKIM and DMARC records published). Send yourself a signup and a password reset; both must arrive and render.
 4. Auth > Providers > Email: "Confirm email" ON.
 
@@ -85,6 +85,7 @@ Create (or reuse) a **separate** Vercel project for production; Preview and Prod
 | `WRITING_DAILY_REQUEST_LIMIT`, `WRITING_WORKSPACE_DAILY_REQUEST_LIMIT` | config | your caps |
 | `OPS_ALERTS_ENABLED`, `OPS_ALERT_WEBHOOK_URL`, `OPS_ALERT_WEBHOOK_SECRET` | config / **secret** | `true`, HTTPS receiver |
 | `PILOT_INVITE_ONLY` | config | `true` |
+| `SUPPORT_EMAIL` | public config | the monitored support mailbox; shown in error messages and Help |
 | `ENABLE_EXPORT_REVIEW`, `ENABLE_ACCOUNT_DELETION` | config | live always reviews; leave deletion `false` until hosted deletion acceptance |
 | `INKSHOT_SHARED_PROJECT_LIVE` | config | `false` |
 

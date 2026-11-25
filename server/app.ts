@@ -189,7 +189,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     next();
   });
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), generationPaused: process.env.GENERATION_PAUSED === 'true', demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
+    res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), supportEmail: process.env.SUPPORT_EMAIL?.trim() || null, generationPaused: process.env.GENERATION_PAUSED === 'true', demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
   app.get("/api/plan", (_req, res) => res.json(planConfig()));
   // Only server configuration controls the host; never echo request Host or Origin.
@@ -1102,9 +1102,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         return res
           .status(400)
           .json({
-            error: error.issues
-              .map((i) => `${i.path.join(".")}: ${i.message}`)
-              .join("; "),
+            error: "Please check " + [...new Set(error.issues.map((i) => String(i.path.at(-1) ?? "your details")))].join(", ") + " and try again.",
           });
       if (error instanceof AppError)
         return res.status(error.status).json({ error: error.message });
@@ -1112,14 +1110,18 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
         return res
           .status(400)
           .json({ error: "Choose one photo smaller than 10 MB." });
+      // Unexpected failures get a short reference the merchant can quote to support.
+      const reference = randomUUID().slice(0, 8);
       console.error(
         "Request failed:",
         error instanceof Error ? error.name : "Unknown error",
+        `reference=${reference}`,
       );
       res
         .status(500)
         .json({
           error: "Something did not finish. Your saved work is still here.",
+          reference,
         });
     },
   );
