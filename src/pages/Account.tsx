@@ -1,5 +1,5 @@
 import { AccountDeletion } from "./AccountDeletion";
-import {useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {api} from "../api";
 import {
   Check,
@@ -8,8 +8,10 @@ import {
   ShieldCheck,
   KeyRound,
   ExternalLink,
+  FolderOpen,
 } from "lucide-react";
 import { useStudio } from "../context";
+import { formatPrice } from "../plan";
 import { Highlight, Button, Empty, Notice } from "../ui";
 export function Billing() {
   const { studio } = useStudio();
@@ -21,11 +23,14 @@ export function Billing() {
     catch(e){setError((e as Error).message);setBusy(false);}
   }
   if (!studio) return null;
+  const plan = studio.plan;
+  if (!plan) return null;
+  const regen = studio.videoRegen;
   const canSubscribe = ["none", "canceled", "incomplete_expired"].includes(studio.billingStatus);
   const live = studio.billingMode === "live";
   const checkoutHeld = live && canSubscribe && !studio.checkoutReleased;
   let billingLabel = live ? "Manage subscription" : "Manage test subscription";
-  if (canSubscribe) billingLabel = live ? "Subscribe for US$39/month" : "Test subscription checkout";
+  if (canSubscribe) billingLabel = live ? `Subscribe for ${formatPrice(plan)}/month` : "Test subscription checkout";
   return (
     <>
       <div className="page-heading">
@@ -48,12 +53,14 @@ export function Billing() {
             <span className="pill">{studio.billingMode === 'live' ? 'Monthly plan' : 'Planned launch plan'}</span>
           </div>
           <div className="price">
-            $39 <small>USD / month</small>
+            {formatPrice(plan)} <small>{plan.currency.toUpperCase()} / month</small>
           </div>
+          {plan.localCurrencyUnavailable ? <small className="muted">Billed in {plan.currency.toUpperCase()} for now. Billing in your local currency is not available yet.</small> : null}
           <p>One small business. Three complete campaigns.</p>
           <ul>
             {[
-              "Each monthly payment tops your balance up to 300 credits",
+              `Each monthly payment tops your balance up to ${plan.credits} credits. Unused credits do not roll over.`,
+              `Up to ${plan.videoRegenMonthlyCap} video regenerations each month`,
               "Text and layout edits included",
               "Version history and downloads",
               "Extra generation uses credits shown before approval",
@@ -66,9 +73,9 @@ export function Billing() {
           </ul>
           {error ? <Notice>{error}</Notice> : null}
           <Button className="full" disabled={!studio.billingEnabled || checkoutHeld} busy={busy} onClick={()=>openBilling(canSubscribe ? 'checkout' : 'portal')}>
-            {checkoutHeld ? 'Subscriptions open soon' : studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
+            {studio.billingMode === 'off' ? 'Payments are off during preview' : checkoutHeld ? 'Subscriptions open soon' : studio.billingEnabled ? billingLabel : 'Checkout is not configured yet'}
           </Button>
-          <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : 'Stripe sandbox only. No real payment is collected.'}</small>
+          <small>{studio.billingMode === 'live' ? 'Renews monthly. Cancel in the billing portal to end your subscription at the end of the billing period.' : studio.billingMode === 'sandbox' ? 'Stripe sandbox only. No real payment is collected.' : 'No payment is collected. The plan shown is for the planned launch.'}</small>
         </section>
         <section className="balance-panel">
           <Feather size={25} />
@@ -78,25 +85,29 @@ export function Billing() {
           </h2>
           <p>{studio.billingMode === 'live' ? 'credits available' : 'preview credits available'}</p>
           <div className="credit-track">
-            <i style={{ width: `${Math.min(100, studio.balance / 3)}%` }} />
+            <i style={{ width: `${Math.min(100, (studio.balance / plan.credits) * 100)}%` }} />
           </div>
           <div className="credit-explainer">
             <div>
               <span>Complete kit</span>
-              <strong>100 credits</strong>
+              <strong>{plan.kitCredits} credits</strong>
             </div>
             <div>
               <span>Video regeneration</span>
-              <strong>26 credits</strong>
+              <strong>{plan.versionCredits.video} credits</strong>
             </div>
             <div>
               <span>Image regeneration</span>
-              <strong>5 credits</strong>
+              <strong>{plan.versionCredits.image} credits</strong>
             </div>
             <div>
               <span>Post regeneration</span>
-              <strong>2 credits</strong>
+              <strong>{plan.versionCredits.post} credits</strong>
             </div>
+            {regen && <div>
+              <span>Video regenerations this month</span>
+              <strong>{Math.max(0, regen.cap - regen.used)} of {regen.cap} left · resets {new Date(regen.resetsAt).toLocaleDateString('en-GB',{day:'numeric',month:'long',timeZone:'UTC'})}</strong>
+            </div>}
             <div>
               <span>Text edit</span>
               <strong>Included</strong>
@@ -171,6 +182,7 @@ export function SettingsPage() {
       </div>
       <div className="settings-stack">
         <AccountDeletion enabled={Boolean(studio.accountDeletionEnabled)} />
+        <UploadStorage key={`${studio.user.id}:${studio.user.workspaceId}`} />
         <section className="settings-card">
           <h2>
             <ShieldCheck size={20} />
@@ -233,7 +245,7 @@ export function SettingsPage() {
             {studio.mode === 'live' ? 'About your studio' : 'About this preview'}
           </h2>
           <p>
-            {studio.mode === 'live' ? 'Your brand, campaigns and exports are saved in your private workspace.' : 'Your brand, campaigns and exports are saved in your private workspace. Sample video exports use a still image for five seconds; they are not AI-generated motion.'}
+            {studio.mode === 'live' ? 'Your brand, campaigns and exports are saved in your private workspace.' : 'Your brand, campaigns and exports are saved in your private workspace. Sample videos are still-image clips using the duration shown in your campaign. They are not AI-generated motion.'}
           </p>
           {studio.mode !== 'live' ? <p>Live generation and payments remain in launch testing.</p> : null}
           <a
@@ -249,4 +261,66 @@ export function SettingsPage() {
       </div>
     </>
   );
+}
+
+type StoredUpload = { id: string; sizeBytes: number | null; createdAt: string; inUse: boolean };
+function UploadStorage() {
+  const [uploads, setUploads] = useState<StoredUpload[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const epoch = useRef(0);
+  async function refreshUploads() {
+    const current = ++epoch.current;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api<{ uploads: StoredUpload[] }>("/uploads");
+      if (epoch.current === current) setUploads(result.uploads);
+    } catch (e) {
+      if (epoch.current === current) setError((e as Error).message);
+    } finally {
+      if (epoch.current === current) setLoading(false);
+    }
+  }
+  useEffect(() => {
+    void refreshUploads();
+    return () => { epoch.current++; };
+  }, []);
+  async function removeUpload(upload: StoredUpload) {
+    if (upload.inUse || deleting || !window.confirm("Permanently delete this unused upload? It cannot be restored. If it is selected in an unsaved brief, you will need to upload it again.")) return;
+    setDeleting(upload.id);
+    setError("");
+    setMessage("");
+    try {
+      await api(`/uploads/${encodeURIComponent(upload.id)}`, undefined, "DELETE");
+      setUploads(current => current?.filter(item => item.id !== upload.id) ?? null);
+      setMessage("Unused upload deleted.");
+      await refreshUploads();
+    } catch (e) { setError((e as Error).message); }
+    finally { setDeleting(""); }
+  }
+  const knownBytes = uploads?.reduce((sum, upload) => sum + (upload.sizeBytes ?? 0), 0) ?? 0;
+  const unknownSizes = uploads?.some(upload => upload.sizeBytes === null);
+  const size = (bytes: number | null) => bytes === null ? "Size not recorded" : `${(bytes / 1048576).toFixed(1)} MiB`;
+  return <section className="settings-card upload-storage" aria-labelledby="upload-storage-heading">
+    <h2 id="upload-storage-heading"><FolderOpen size={20} /> Your uploaded files</h2>
+    <p>Each workspace can keep up to 100 uploads and 250 MiB of uploaded files. Remove unused files to make room. Files used by a saved brand or campaign are protected from deletion.</p>
+    {uploads && <p><strong>{uploads.length} of 100 files · {unknownSizes ? "at least " : ""}{size(knownBytes)} of 250 MiB</strong></p>}
+    <Button type="button" variant="secondary" busy={loading} disabled={!!deleting} onClick={() => void refreshUploads()}>Refresh files</Button>
+    {error && <Notice>{error}</Notice>}
+    {message && <p role="status">{message}</p>}
+    {loading && uploads === null && <p role="status">Loading your uploads…</p>}
+    {uploads?.length === 0 && <p>No uploaded files yet.</p>}
+    {!!uploads?.length && <div className="table-wrap"><table>
+      <thead><tr><th scope="col">Upload</th><th scope="col">Size</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+      <tbody>{uploads.map(upload => <tr key={upload.id}>
+        <td><a href={`/api/uploads/${encodeURIComponent(upload.id)}`} target="_blank" rel="noopener noreferrer">View file <span className="sr-only">{upload.id.slice(-8)} (opens in a new tab)</span></a><small>{new Date(upload.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</small></td>
+        <td>{size(upload.sizeBytes)}</td>
+        <td>{upload.inUse ? "In use or processing" : "Unused"}</td>
+        <td>{upload.inUse ? <span>Protected</span> : <Button type="button" variant="small secondary" busy={deleting === upload.id} disabled={!!deleting || loading} onClick={() => void removeUpload(upload)}>Delete<span className="sr-only"> unused file {upload.id.slice(-8)}</span></Button>}</td>
+      </tr>)}</tbody>
+    </table></div>}
+  </section>;
 }

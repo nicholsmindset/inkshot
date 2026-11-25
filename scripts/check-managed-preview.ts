@@ -99,7 +99,14 @@ try {
   assert(results.assets.every((asset: { versions: { status: string }[] }) => asset.versions[0].status === "ready"));
   const media = (await db.query<{ file_path: string }>("SELECT file_path FROM versions WHERE workspace_id=$1", [identity.user.workspaceId])).rows;
   assert(media.every(v => v.file_path.startsWith("supabase://generated-media/")));
-  const download = `/campaigns/${id}/download`;
+  const queued = await post(`/campaigns/${id}/exports`, {category:"all"});
+  assert.equal(queued.status,202);
+  const archive = await queued.json();
+  assert(await runWorkerOnce(db));
+  const status = await get(`/exports/${archive.id}`);
+  assert.equal(status.status,200);
+  assert.equal((await status.json()).state,"ready");
+  const download = `/exports/${archive.id}/download`;
   assert.equal((await fetch(base + download)).status, 401);
   assert.equal((await fetch(base + download, { headers: { cookie: other } })).status, 404);
   const response = await get(download);

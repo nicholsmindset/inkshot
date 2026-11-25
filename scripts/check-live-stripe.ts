@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import Stripe from "stripe";
+import { planConfig, stripePriceIds } from "../server/plan.js";
 
 const apiVersion = "2026-08-26.dahlia";
-const accountId = "acct_1RKb5BDjNCv7xF61";
-const productId = "prod_VcriAoyQSsH5QA";
-const priceId = "price_1UbbydDjNCv7xF61FEzeGu5I";
-const portalId = "bpc_1Ubc4cDjNCv7xF61XYQJpfqA";
+const accountId = process.env.STRIPE_ACCOUNT_ID || "acct_1RKb5BDjNCv7xF61";
+const priceId = process.env.STRIPE_STUDIO_PRICE_ID || process.env.PLAN_PRICE_ID || stripePriceIds().get(planConfig().currency) || "";
+const portalId = process.env.STRIPE_PORTAL_CONFIGURATION_ID || "bpc_1Ubc4cDjNCv7xF61XYQJpfqA";
 const events = [
   "checkout.session.completed", "checkout.session.async_payment_succeeded",
   "invoice.paid", "invoice.payment_failed", "customer.subscription.created",
   "customer.subscription.updated", "customer.subscription.deleted",
+  "charge.refunded", "charge.dispute.created",
 ];
 
 export function productionOrigin(value: string) {
@@ -37,15 +38,27 @@ async function main() {
   const key = process.env.STRIPE_API_KEY ?? "";
   assert(/^[sr]k_live_/.test(key), "Supply a live Stripe API key through STRIPE_API_KEY.");
   const stripe = new Stripe(key, { apiVersion, timeout: 15000, maxNetworkRetries: 1 });
-  const [account, product, price, portal] = await Promise.all([
-    stripe.accounts.retrieveCurrent(), stripe.products.retrieve(productId),
-    stripe.prices.retrieve(priceId), stripe.billingPortal.configurations.retrieve(portalId),
+  const plan = planConfig();
+  assert(priceId, "Set STRIPE_PRICE_IDS (or STRIPE_STUDIO_PRICE_ID) to the live price for the primary currency.");
+  const [account, price, portal] = await Promise.all([
+    stripe.accounts.retrieveCurrent(), stripe.prices.retrieve(priceId),
+    stripe.billingPortal.configurations.retrieve(portalId),
   ]);
+  const product = await stripe.products.retrieve(typeof price.product === "string" ? price.product : price.product.id);
   assert(account.id === accountId && account.charges_enabled, "Expected the charge-enabled ONN GROUP LLP account.");
-  assert(product.active && product.livemode && product.default_price === priceId, "Unexpected live Inkshot product configuration.");
-  assert(price.active && price.livemode && price.product === productId && price.currency === "usd" &&
-    price.unit_amount === 3900 && price.recurring?.interval === "month" && price.recurring.interval_count === 1,
-    "Expected the live Inkshot USD 39 monthly price.");
+  assert(product.active && product.livemode, "Unexpected live Inkshot product configuration.");
+  // The price must match the configured plan exactly (PLAN_CURRENCY / PLAN_PRICE_AMOUNT).
+  assert(price.active && price.livemode && price.currency === plan.currency &&
+    price.unit_amount === plan.priceAmount && price.recurring?.interval === "month" && price.recurring.interval_count === 1,
+    `Expected an active live monthly ${plan.currency.toUpperCase()} ${plan.priceAmount / 100} price.`);
+  // Every other currency we sell in must also have a matching live price.
+  for (const [currency, id] of stripePriceIds()) {
+    if (id === priceId) continue;
+    const other = await stripe.prices.retrieve(id);
+    const want = plan.prices.find(p => p.currency === currency);
+    assert(want && other.active && other.livemode && other.currency === currency && other.unit_amount === want.amount && other.recurring?.interval === "month",
+      `Expected an active live monthly ${currency.toUpperCase()} price matching PLAN_PRICES.`);
+  }
   assert(portal.active && portal.livemode && portal.metadata?.application === "inkshot" &&
     portal.features.subscription_cancel.enabled && portal.features.subscription_cancel.mode === "at_period_end" &&
     portal.features.payment_method_update.enabled && portal.features.invoice_history.enabled,

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { ReactNode, ButtonHTMLAttributes } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, LoaderCircle, ArrowUpRight, Check } from "lucide-react";
@@ -15,9 +16,10 @@ export function Button({
     <button
       {...props}
       disabled={props.disabled || busy}
+      aria-busy={busy || undefined}
       className={`button ${variant} ${className}`}
     >
-      {busy ? <LoaderCircle size={17} className="spin" /> : null}
+      {busy ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : null}
       {children}
     </button>
   );
@@ -69,6 +71,9 @@ export function Modal({
   description?: string;
   children: ReactNode;
 }) {
+  // The dialog is controlled and has no trigger element, so remember what opened it and give focus back.
+  const opener = useRef<HTMLElement | null>(null);
+  if (open && !opener.current && typeof document !== "undefined") opener.current = document.activeElement as HTMLElement | null;
   return (
     <Dialog.Root
       open={open}
@@ -78,7 +83,7 @@ export function Modal({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="modal">
+        <Dialog.Content className="modal" onCloseAutoFocus={(event) => { event.preventDefault(); const target = opener.current; opener.current = null; if (target && document.contains(target)) target.focus(); }}>
           <div className="modal-heading">
             <Dialog.Title>{title}</Dialog.Title>
             <Dialog.Close className="icon-button" aria-label="Close">

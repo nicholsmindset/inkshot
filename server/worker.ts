@@ -1,4 +1,5 @@
 import { reportOpsAlert } from './ops.js';
+import { recordEvent } from './events.js';
 import { wakeProviderJobs } from './provider-webhooks.js';
 import {runExportOnce} from './campaign-exports.js';
 import {runDeletionOnce} from './account-deletion.js';
@@ -6,9 +7,10 @@ import {deletionAdapters} from './deletion-adapters.js';
 import { assertApprovedClaims, assertVisualClaims, requireOwnedCertificate } from "./claims.js";
 import type { Brand } from "../shared/types.js";
 import {submitBudgeted} from './provider-budget.js';
-import {persistMedia,materializeMedia,cloudStorageEnabled,signedMediaUrl} from './storage.js';
+import {persistMedia,materializeMedia,cloudStorageEnabled,signedProviderInputUrl,PROVIDER_INPUT_TTL_SECONDS} from './storage.js';
 import path from "node:path";
-import type { Database } from "./db.js";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import type { Database, Queryable } from "./db.js";
 import { config, AppError } from "./config.js";
 import { changeCredits } from "./credits.js";
 import { renderMedia, downloadOutput } from "./render.js";
@@ -18,6 +20,8 @@ type Job = {
   version_id: string;
   workspace_id: string;
   attempts: number;
+  created_at: string | Date;
+  locked_until: string | Date;
   checkpoint: Record<string, unknown>;
 };
 type Work = {
@@ -39,8 +43,30 @@ type Work = {
   asset_id: string;
   campaign_id: string;
 };
-async function handle(db:Database,job: Job) {
+export const MAX_PROVIDER_JOB_AGE_MS = 30 * 60_000;
+const MIN_CREATIVE_BUDGET_MS = 30_000;
+const lastTurnWasExport = new WeakSet<Database>();
+class LostLease extends Error {}
+async function assertLease(tx: Queryable, job: Job) {
+  await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [job.workspace_id]);
+  const current = await tx.query("SELECT id FROM jobs WHERE id=$1 AND state='processing' AND locked_until=$2 AND locked_until>now() FOR UPDATE", [job.id, job.locked_until]);
+  if (!current.rows.length) throw new LostLease();
+}
+async function handle(db:Database,job: Job, deadline: number) {
     let work: Work | undefined;
+    let temporaryDirectory: string | undefined;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('Worker invocation budget reached')), Math.max(1, Math.min(180_000, deadline - Date.now())));
+    const signal = controller.signal;
+    const writeVersion = (sql: string, params: unknown[]) => db.transaction(async tx => {
+      signal.throwIfAborted();
+      await assertLease(tx, job);
+      return tx.query(sql, params);
+    });
+    const provider = {
+      estimate: (model: string, input: unknown) => hf.estimate(model, input, signal),
+      submit: (model: string, input: unknown, key: string) => hf.submit(model, input, key, signal),
+    };
     try {
       work = (
         await db.query<Work>(
@@ -49,6 +75,16 @@ async function handle(db:Database,job: Job) {
         )
       ).rows[0];
       if (!work) throw new Error("Asset not found");
+      if (!work.mock && !work.source_path && Date.now() - new Date(job.created_at).getTime() >= MAX_PROVIDER_JOB_AGE_MS) {
+        if (job.checkpoint.imageId || job.checkpoint.videoId) job.checkpoint.reconciliationRequired = true;
+        job.checkpoint.failureCode = 'provider_deadline_exceeded';
+        throw new TerminalFailure('Generation took too long. Credits returned. Support can reconcile the provider request.');
+      }
+      if (cloudStorageEnabled()) {
+        await mkdir(path.join(config.dataDir, 'jobs'), { recursive: true });
+        temporaryDirectory = await mkdtemp(path.join(config.dataDir, 'jobs', `${job.id}-`));
+      }
+      signal.throwIfAborted();
       try {
         await requireOwnedCertificate(db, job.workspace_id, work.brand, true);
         for (const copy of [work.headline, work.cta, work.caption, work.brand.name]) assertApprovedClaims(copy, work.brand, work.campaign_offer);
@@ -57,18 +93,18 @@ async function handle(db:Database,job: Job) {
         if (!(error instanceof AppError)) throw error;
         throw new TerminalFailure("The creative contains an unapproved claim. Update the approved brief before trying again. Credits returned.");
       }
-      await db.query(
+      await writeVersion(
         "UPDATE versions SET status='making',error=NULL WHERE id=$1",
         [work.id],
       );
-      let source = work.source_path ? await materializeMedia(work.source_path, job.workspace_id, "generated-media") : null;
+      let source = work.source_path ? await materializeMedia(work.source_path, job.workspace_id, "generated-media", signal, temporaryDirectory) : null;
       async function merchantFile(id: string) {
         const row = (await db.query<{file_path: string}>(
           "SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2",
           [id, job.workspace_id],
         )).rows[0];
         if (!row) throw new TerminalFailure("The approved brand file is unavailable. Credits returned.");
-        return materializeMedia(row.file_path, job.workspace_id, "brand-uploads");
+        return materializeMedia(row.file_path, job.workspace_id, "brand-uploads", signal, temporaryDirectory);
       }
       if (!source && work.brand.photoId && (work.mock || work.kind !== "video")) {
         source = await merchantFile(work.brand.photoId);
@@ -77,40 +113,58 @@ async function handle(db:Database,job: Job) {
       if (!source && !work.mock) {
         const checkpoint = job.checkpoint;
         const save = async () => {
-          await db.query("UPDATE jobs SET checkpoint=$2 WHERE id=$1", [
-            job.id,
-            JSON.stringify(checkpoint),
-          ]);
+          signal.throwIfAborted();
+          await db.transaction(async tx => {
+            await assertLease(tx, job);
+            await tx.query("UPDATE jobs SET checkpoint=$2 WHERE id=$1", [job.id, JSON.stringify(checkpoint)]);
+          });
         };
         let imageUrl = typeof checkpoint.firstFrameUrl === 'string' ? checkpoint.firstFrameUrl : undefined;
+        if (!checkpoint.videoId && !checkpoint.imageId && work.kind === 'video' && work.brand.photoId) {
+          const reservation = (await db.query<{provider_request_id: string | null}>(
+            'SELECT provider_request_id FROM provider_spend WHERE request_key=$1', [`${work.id}:video`],
+          )).rows[0];
+          if (reservation?.provider_request_id) {
+            checkpoint.videoId = reservation.provider_request_id;
+            await save();
+          } else if (reservation && (!imageUrl || typeof checkpoint.firstFrameExpiresAt !== 'number' || checkpoint.firstFrameExpiresAt <= Date.now() + 30_000)) {
+            checkpoint.reconciliationRequired = true;
+            checkpoint.failureCode = 'expired_ambiguous_first_frame';
+            throw new TerminalFailure('The photo link expired while generation was interrupted. Credits returned. Support must reconcile the earlier request.');
+          } else if (!reservation && (!imageUrl || typeof checkpoint.firstFrameExpiresAt !== 'number' || checkpoint.firstFrameExpiresAt <= Date.now() + 30_000)) {
+            // No reservation means no paid intent exists: refreshing is safe.
+            imageUrl = undefined;
+          }
+        }
         if (!imageUrl && !checkpoint.videoId && !checkpoint.imageId && work.kind === 'video' && work.brand.photoId) {
           const uploaded = (await db.query<{file_path: string}>(
             'SELECT file_path FROM uploads WHERE id=$1 AND workspace_id=$2',
             [work.brand.photoId, job.workspace_id],
           )).rows[0];
           if (!uploaded) throw new TerminalFailure('The approved brand file is unavailable. Credits returned.');
-          const signed = await signedMediaUrl(uploaded.file_path, job.workspace_id, 'brand-uploads');
+          const signed = await signedProviderInputUrl(uploaded.file_path, job.workspace_id, signal);
           if (!signed) throw new TerminalFailure('Private photo storage is required for live video. Credits returned.');
           imageUrl = signed;
           // Persist before submission: retries must reuse the exact budgeted input.
           checkpoint.firstFrameUrl = imageUrl;
+          checkpoint.firstFrameExpiresAt = Date.now() + PROVIDER_INPUT_TTL_SECONDS * 1000;
           await save();
-          await db.query("UPDATE versions SET first_frame_source='merchant_photo' WHERE id=$1", [work.id]);
+          await writeVersion("UPDATE versions SET first_frame_source='merchant_photo' WHERE id=$1", [work.id]);
         }
         if (!imageUrl && !checkpoint.videoId) {
-          await db.query("UPDATE versions SET first_frame_source='generated' WHERE id=$1", [work.id]);
+          await writeVersion("UPDATE versions SET first_frame_source='generated' WHERE id=$1", [work.id]);
           if (!checkpoint.imageId) {
             const result = await submitBudgeted(db, hf.MODELS.image, {
               prompt: work.prompt, resolution: '1080p',
               aspect_ratio: work.kind === 'video' ? '9:16' : work.format === '1:1' ? '1:1' : work.format === '1.91:1' ? '16:9' : '3:4',
-            }, `${work.id}:image`);
+            }, `${work.id}:image`, provider, job.workspace_id);
             checkpoint.imageId = result.request_id;
             await save();
           }
-          const image = await hf.status(String(checkpoint.imageId));
+          const image = await hf.status(String(checkpoint.imageId), signal);
           if (['failed', 'nsfw', 'canceled'].includes(image.status))
             throw new TerminalFailure('The image could not be generated. Credits returned.');
-          if (image.status !== 'completed') return await requeue(db, job.id);
+          if (image.status !== 'completed') return await requeue(db, job);
           if (!image.images?.[0]?.url) throw new TerminalFailure('The provider returned no image.');
           imageUrl = image.images[0].url;
           checkpoint.firstFrameUrl = imageUrl;
@@ -118,7 +172,7 @@ async function handle(db:Database,job: Job) {
         }
         if (work.kind === "video") {
           if (!work.first_frame_source)
-            await db.query('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, checkpoint.imageId || !work.brand.photoId ? 'generated' : 'merchant_photo']);
+            await writeVersion('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, checkpoint.imageId || !work.brand.photoId ? 'generated' : 'merchant_photo']);
           if (!checkpoint.videoId) {
             const result = await submitBudgeted(
             db,
@@ -129,28 +183,28 @@ async function handle(db:Database,job: Job) {
                 duration: work.video_duration_seconds,
                 sound: "off",
               },
-              `${work.id}:video`,
+              `${work.id}:video`, provider, job.workspace_id,
             );
             checkpoint.videoId = result.request_id;
             await save();
           }
-          const video = await hf.status(String(checkpoint.videoId));
+          const video = await hf.status(String(checkpoint.videoId), signal);
           if (["failed", "nsfw", "canceled"].includes(video.status))
             throw new TerminalFailure(
               "The video could not be generated. Credits returned.",
             );
-          if (video.status !== "completed") return await requeue(db, job.id);
+          if (video.status !== "completed") return await requeue(db, job);
           if (!video.video?.url)
             throw new TerminalFailure("The provider returned no video.");
-          source = await downloadOutput(video.video.url, work.id, true);
-        } else if (imageUrl) source = await downloadOutput(imageUrl, work.id);
+          source = await downloadOutput(video.video.url, work.id, true, { signal, outputDirectory: temporaryDirectory });
+        } else if (imageUrl) source = await downloadOutput(imageUrl, work.id, false, { signal, outputDirectory: temporaryDirectory });
       }
       if (!source) throw new Error("No source media");
       if (work.mock && !work.source_path)
-        await db.query('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, work.brand.photoId ? 'merchant_photo' : 'sample']);
-      await db.query(
+        await writeVersion('UPDATE versions SET first_frame_source=$2 WHERE id=$1', [work.id, work.brand.photoId ? 'merchant_photo' : 'sample']);
+      await writeVersion(
         "UPDATE versions SET status='rendering',source_path=$2 WHERE id=$1",
-        [work.id, await persistMedia(source,job.workspace_id,'generated-media')],
+        [work.id, await persistMedia(source,job.workspace_id,'generated-media', signal)],
       );
       const files = await renderMedia({
         id: work.id,
@@ -166,10 +220,13 @@ async function handle(db:Database,job: Job) {
         videoDurationSeconds: work.video_duration_seconds,
         claimsBrand: work.brand,
         campaignOffer: work.campaign_offer,
+        outputDirectory: temporaryDirectory, signal,
       });
-      const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media');
-      const savedPreview = files.preview_path===files.file_path ? savedFile : await persistMedia(files.preview_path,job.workspace_id,'generated-media');
+      const savedFile = await persistMedia(files.file_path,job.workspace_id,'generated-media', signal);
+      const savedPreview = files.preview_path===files.file_path ? savedFile : await persistMedia(files.preview_path,job.workspace_id,'generated-media', signal);
       await db.transaction(async (tx) => {
+        await assertLease(tx, job);
+        signal.throwIfAborted();
         await tx.query(
           "UPDATE versions SET status='ready',file_path=$2,preview_path=$3 WHERE id=$1",
           [work!.id, savedFile, savedPreview],
@@ -183,18 +240,30 @@ async function handle(db:Database,job: Job) {
           [work!.asset_id, work!.id],
         );
       });
+      await recordEvent(db, { workspaceId: job.workspace_id, event: 'generation_completed', campaignId: work.campaign_id, assetId: work.asset_id,
+        props: { kind: work.kind, mock: work.mock, credits: work.credit_cost }, dedupeKey: `generation:${work.id}` });
     } catch (e) {
+      if (e instanceof LostLease) return;
+      const owns = await db.query("SELECT id FROM jobs WHERE id=$1 AND state='processing' AND locked_until=$2", [job.id, job.locked_until]);
+      if (!owns.rows.length) return;
       reportOpsAlert("inkshot_worker_failed");
       const terminal = e instanceof TerminalFailure;
       const exhausted = job.attempts >= 6;
       if (!terminal && !exhausted) {
-        await db.query(
-          "UPDATE jobs SET state='queued',locked_until=NULL,available_at=now()+interval '15 seconds' WHERE id=$1",
-          [job.id],
-        );
+        await db.transaction(async tx => {
+          await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [job.workspace_id]);
+          await tx.query(
+            "UPDATE jobs SET state='queued',locked_until=NULL,available_at=now()+interval '15 seconds' WHERE id=$1 AND state='processing' AND locked_until=$2",
+            [job.id, job.locked_until],
+          );
+        });
         return;
       }
       await db.transaction(async (tx) => {
+        await assertLease(tx, job);
+        const reservation = (await tx.query("SELECT request_key FROM provider_spend WHERE request_key IN ($1,$2) LIMIT 1", [`${job.version_id}:image`, `${job.version_id}:video`])).rows.length > 0;
+        if (reservation) job.checkpoint.reconciliationRequired = true;
+        await tx.query('UPDATE jobs SET checkpoint=$2 WHERE id=$1', [job.id, JSON.stringify(job.checkpoint)]);
         await tx.query(
           "UPDATE versions SET status='failed',error=$2 WHERE id=$1",
           [
@@ -218,30 +287,51 @@ async function handle(db:Database,job: Job) {
             `refund:${job.version_id}`,
           );
       });
+      await recordEvent(db, { workspaceId: job.workspace_id, event: 'generation_failed', campaignId: work?.campaign_id, assetId: work?.asset_id,
+        props: { kind: work?.kind ?? null, mock: work?.mock ?? null, reason: typeof job.checkpoint.failureCode === 'string' ? job.checkpoint.failureCode : terminal ? 'terminal' : 'retries_exhausted' }, dedupeKey: `generation:${job.version_id}` });
     } finally {
-      if (work)
-        await db.query(
+      clearTimeout(timer);
+      controller.abort();
+      if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
+      if (work) {
+        const campaignId = work.campaign_id;
+        await db.transaction(async tx => {
+          await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [job.workspace_id]);
+          await tx.query(
           `UPDATE campaigns SET status=CASE WHEN EXISTS(SELECT 1 FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND v.status IN ('queued','making','rendering')) THEN 'generating' WHEN EXISTS(SELECT 1 FROM assets a JOIN versions v ON v.id=a.current_version_id WHERE a.campaign_id=$1 AND v.status='failed') THEN 'partial' ELSE 'ready' END WHERE id=$1 AND status <> 'draft'`,
-          [work.campaign_id],
-        );
+          [campaignId],
+          );
+        });
+      }
     }
   }
 
 export async function runWorkerOnce(db:Database, deadline = Infinity):Promise<boolean> {
- await wakeProviderJobs(db);
+ if (deadline - Date.now() < MIN_CREATIVE_BUDGET_MS) return false;
+ try { await wakeProviderJobs(db); } catch { /* a failed wake must never stop this turn from claiming work */ }
  if(process.env.DATABASE_URL && !cloudStorageEnabled())
   throw new Error('A managed database requires private cloud media storage.');
+ // Alternate overdue archives with creative turns rather than waiting for an empty queue.
+ if (!lastTurnWasExport.has(db) && deadline - Date.now() >= 160_000 &&
+     (await db.query("SELECT id FROM campaign_exports WHERE state='queued' AND available_at<=now() AND created_at<now()-interval '1 minute' LIMIT 1")).rows.length &&
+     await runExportOnce(db)) { lastTurnWasExport.add(db); return true; }
  const job=await db.transaction(async tx=>{
-  await tx.query('LOCK TABLE jobs IN EXCLUSIVE MODE');
+  // Follow the same parent-before-child lock order as generation and deletion.
+  // Serialize only claims, without blocking all INSERT/UPDATE statements on jobs.
+  const candidate=(await tx.query<Job>("SELECT * FROM jobs WHERE (state='queued' AND available_at<=now()) OR (state='processing' AND locked_until<now()) ORDER BY created_at,id LIMIT 1")).rows[0];
+  if(!candidate)return undefined;
+  await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [candidate.workspace_id]);
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext('inkshot-worker-claim'))");
   const active=Number((await tx.query<{n:string}>("SELECT count(*)::text AS n FROM jobs WHERE state='processing' AND locked_until>now()")).rows[0].n);
   if(active>=config.concurrency)return undefined;
-  const row=(await tx.query<Job>("SELECT * FROM jobs WHERE (state='queued' AND available_at<=now()) OR (state='processing' AND locked_until<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
-  if(row){await tx.query("UPDATE jobs SET state='processing',locked_until=now()+interval '5 minutes',attempts=attempts+1 WHERE id=$1",[row.id]);row.attempts++;}
+  const row=(await tx.query<Job>("SELECT * FROM jobs WHERE id=$1 AND ((state='queued' AND available_at<=now()) OR (state='processing' AND locked_until<now())) FOR UPDATE SKIP LOCKED", [candidate.id])).rows[0];
+  if(row)return (await tx.query<Job>("UPDATE jobs SET state='processing',locked_until=date_trunc('milliseconds',now()+interval '5 minutes'),attempts=attempts+1 WHERE id=$1 RETURNING *",[row.id])).rows[0];
   return row;
  });
  // Leave enough invocation time for the archive deadline and final state write.
  if(!job)return deadline-Date.now() >= 160_000 ? runExportOnce(db) : false;
- await handle(db,job);return true;
+ lastTurnWasExport.delete(db);
+ await handle(db,job,deadline);return true;
 }
 export function startWorker(db:Database){
  let stopped=false,active=0,deleting=false;
@@ -253,10 +343,13 @@ export function startWorker(db:Database){
  },1000);
  return ()=>{stopped=true;clearInterval(timer);};
 }
-async function requeue(db: Database, id: string) {
-  await db.query(
-    "UPDATE jobs SET state='queued',locked_until=NULL,available_at=now()+interval '5 seconds',attempts=greatest(0,attempts-1) WHERE id=$1",
-    [id],
+async function requeue(db: Database, job: Job) {
+  await db.transaction(async tx => {
+  await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [job.workspace_id]);
+  await tx.query(
+    "UPDATE jobs SET state='queued',locked_until=NULL,available_at=now()+interval '5 seconds',attempts=greatest(0,attempts-1) WHERE id=$1 AND state='processing' AND locked_until=$2",
+    [job.id, job.locked_until],
   );
+  });
 }
 class TerminalFailure extends Error {}

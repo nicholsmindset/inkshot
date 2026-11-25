@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS provider_spend(request_key text PRIMARY KEY,input_has
 ALTER TABLE provider_spend ADD COLUMN IF NOT EXISTS provider_request_id text;
 
 ALTER TABLE public.billing_accounts ADD COLUMN IF NOT EXISTS last_allowance_invoice_created bigint NOT NULL DEFAULT 0;
+ALTER TABLE billing_accounts ADD COLUMN IF NOT EXISTS spend_blocked boolean NOT NULL DEFAULT false;
+ALTER TABLE billing_accounts ADD COLUMN IF NOT EXISTS spend_block_reason text;
+ALTER TABLE uploads ADD COLUMN IF NOT EXISTS size_bytes bigint NOT NULL DEFAULT 10485760 CHECK(size_bytes>=0);
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS review_fingerprint text;
+ALTER TABLE versions ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
 
 CREATE TABLE IF NOT EXISTS writing_daily_usage (
   usage_day date NOT NULL,
@@ -109,3 +114,11 @@ CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON billing
 
 DROP TRIGGER IF EXISTS reject_deleted_workspace_write ON campaign_exports;
 CREATE TRIGGER reject_deleted_workspace_write BEFORE INSERT OR UPDATE ON campaign_exports FOR EACH ROW EXECUTE FUNCTION reject_deleted_workspace_write();
+
+CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,code_hash text NOT NULL UNIQUE,label text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),expires_at timestamptz,used_at timestamptz,used_email text);
+CREATE TABLE IF NOT EXISTS waitlist(id text PRIMARY KEY,email text NOT NULL UNIQUE,business_url text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS product_events(id text PRIMARY KEY,workspace_id text NOT NULL,user_id text,event text NOT NULL,campaign_id text,asset_id text,props jsonb NOT NULL DEFAULT '{}',dedupe_key text,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(workspace_id,dedupe_key));
+CREATE INDEX IF NOT EXISTS product_events_event_time ON product_events(event,created_at);
+
+CREATE TABLE IF NOT EXISTS campaign_copy(id text PRIMARY KEY,workspace_id text NOT NULL REFERENCES workspaces(id),campaign_id text NOT NULL REFERENCES campaigns(id),platform text NOT NULL,run integer NOT NULL,status text NOT NULL DEFAULT 'running' CHECK(status IN('running','ready','failed')),result jsonb,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(campaign_id,platform,run));

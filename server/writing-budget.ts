@@ -1,3 +1,4 @@
+import {assertBillingSpendAllowed} from "./billing.js";
 import { AppError, writingLimits } from "./config.js";
 import type { Database } from "./db.js";
 
@@ -6,6 +7,8 @@ import type { Database } from "./db.js";
 export async function reserveWritingRequest(db: Database, workspaceId: string) {
   const limits = writingLimits();
   await db.transaction(async tx => {
+    await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE",[workspaceId]);
+    await assertBillingSpendAllowed(tx,workspaceId);
     for (const [scope, limit] of [["global", limits.global], ["workspace:" + workspaceId, limits.workspace]] as const) {
       const result = await tx.query(
         `INSERT INTO writing_daily_usage (usage_day, scope, requests)

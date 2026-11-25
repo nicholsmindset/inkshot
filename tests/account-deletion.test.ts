@@ -82,6 +82,10 @@ test('new export and provider-event records are included without crossing worksp
  flags(t);const {pg,db,user}=await fixture(t);
  await pg.exec(`INSERT INTO campaigns(id,workspace_id,name,goal,concepts,brand,mock) VALUES('c-own','own','Own','Goal','[]','{}',true),('c-other','other','Other','Goal','[]','{}',true);
  INSERT INTO campaign_exports(id,workspace_id,campaign_id,category,fingerprint,manifest,state) VALUES('export-own','own','c-own','all','one','[]','queued'),('export-other','other','c-other','all','two','[]','ready');
+ INSERT INTO campaign_copy(id,workspace_id,campaign_id,platform,run,status) VALUES('copy-own','own','c-own','tiktok',1,'ready'),('copy-other','other','c-other','tiktok',1,'ready');
+ INSERT INTO product_events(id,workspace_id,event,props) VALUES('pe-own','own','posted_followup','{"results":"six messages"}'),('pe-other','other','signup_completed','{}');
+ INSERT INTO invites(id,code_hash,used_email,used_at) VALUES('i-own','h1','Owner@Example.invalid',now()),('i-other','h2','other@example.invalid',now());
+ INSERT INTO waitlist(id,email,business_url) VALUES('w-own','owner@example.invalid','https://own.example'),('w-other','someone@example.invalid','https://x.example');
  INSERT INTO provider_events(webhook_id,request_id,status,body_hash) VALUES('evt-own','provider-own','completed','own'),('evt-other','provider-other','completed','other');`);
  await assert.rejects(requestDeletion(db,user),/downloads/);
  await pg.exec("UPDATE campaign_exports SET state='ready'");
@@ -92,6 +96,10 @@ test('new export and provider-event records are included without crossing worksp
  await pg.exec("UPDATE account_deletions SET available_at=now(),provider_ids='[\"provider-own\"]'");
  for(let i=0;i<4;i++)await runDeletionOnce(db,noop);
  assert.deepEqual((await db.query('SELECT id FROM campaign_exports')).rows,[{id:'export-other'}]);
+ assert.deepEqual((await db.query('SELECT id FROM campaign_copy')).rows,[{id:'copy-other'}],'platform copy is erased with its campaign, without touching another workspace');
+ assert.deepEqual((await db.query('SELECT id FROM product_events')).rows,[{id:'pe-other'}],'measurement events and follow-up text are erased');
+ assert.deepEqual((await db.query('SELECT id,used_email FROM invites ORDER BY id')).rows,[{id:'i-other',used_email:'other@example.invalid'},{id:'i-own',used_email:null}],'the owner email is removed from the redeemed invite');
+ assert.deepEqual((await db.query('SELECT id FROM waitlist')).rows,[{id:'w-other'}],'the owner waitlist entry is erased');
  assert.deepEqual((await db.query('SELECT request_id FROM provider_events')).rows,[{request_id:'provider-other'}]);
 });
 
@@ -133,4 +141,22 @@ test('legacy checkout reconciliation permits terminal sessions only with no acti
  await assert.rejects(requestDeletion(db,user,async()=>{throw new Error('private key or Stripe outage');}),/could not be verified/);
  await assert.rejects(requestDeletion(db,user,async()=>({checkoutStatus:null,subscriptionStatuses:[]})),/needs reconciliation/);
  assert.equal((await db.query('SELECT id FROM account_deletions')).rows.length,0);
+});
+
+
+test('deletion adapter failures emit only a redacted retry event when alerts are enabled',async t=>{
+ flags(t);const {pg,db,user}=await fixture(t);
+ const previous=process.env.OPS_ALERTS_ENABLED; process.env.OPS_ALERTS_ENABLED='true';
+ t.after(()=>{if(previous===undefined)delete process.env.OPS_ALERTS_ENABLED;else process.env.OPS_ALERTS_ENABLED=previous;});
+ const logs:string[]=[];t.mock.method(console,'error',(value:string)=>logs.push(value));
+ await requestDeletion(db,user);await pg.exec("UPDATE account_deletions SET available_at=now(),provider_ids='[\"private-provider-id\"]'");
+ await runDeletionOnce(db,{...noop,deleteProviderRequest:async()=>{throw new Error('private-credential');}});
+ assert.equal(logs.length,1);
+ const event=JSON.parse(logs[0]);assert.equal(event.event,'inkshot_deletion_failed');assert.equal(event.count,1);
+ assert.deepEqual(Object.keys(event).sort(),['alert','count','event','reference']);
+ assert.match(event.reference,/^[0-9a-f-]{36}$/);
+ assert(!logs[0].includes('private-'));assert(!logs[0].includes(user.email));
+ process.env.OPS_ALERTS_ENABLED='false';await pg.exec('UPDATE account_deletions SET available_at=now()');
+ await runDeletionOnce(db,{...noop,deleteProviderRequest:async()=>{throw new Error('private-credential');}});
+ assert.equal(logs.length,1);
 });

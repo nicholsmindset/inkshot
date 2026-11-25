@@ -39,26 +39,31 @@ export function lines(text: string, max = 24) {
   if (row) rows.push(row);
   return rows;
 }
-export async function ffmpeg(args: string[]) {
+export async function ffmpeg(args: string[], signal?: AbortSignal) {
+  signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const child = spawn(process.env.FFMPEG_PATH || (process.env.VERCEL ? staticFfmpeg! : config.ffmpeg), args, {
       stdio: ["ignore", "ignore", "pipe"],
     });
+    const abort = () => child.kill("SIGKILL");
+    signal?.addEventListener("abort", abort, { once: true });
     let error = "";
     child.stderr.on("data", (d) => {
       error = (error + d.toString()).slice(-1000);
     });
     const timeout = setTimeout(() => {
+      // Wait for close before callers remove the job directory.
       child.kill("SIGKILL");
-      reject(new Error("Export took too long."));
     }, 120000);
     child.on("error", () => {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
       reject(new Error("Video export requires FFmpeg."));
     });
     child.on("close", (code) => {
       clearTimeout(timeout);
-      code === 0
+      signal?.removeEventListener("abort", abort);
+      code === 0 && !signal?.aborted
         ? resolve()
         : reject(new Error("Video export failed. Please retry the export."));
     });
@@ -78,9 +83,12 @@ export async function renderMedia(input: {
   videoDurationSeconds?: number;
   claimsBrand?: Brand;
   campaignOffer?: string;
+  outputDirectory?: string;
+  signal?: AbortSignal;
 }) {
+  input.signal?.throwIfAborted();
   for (const copy of [input.headline, input.cta, input.brandName]) assertApprovedClaims(copy, input.claimsBrand, input.campaignOffer);
-  const dir = path.join(config.dataDir, "media");
+  const dir = input.outputDirectory || path.join(config.dataDir, "media");
   await mkdir(dir, { recursive: true });
   const width = 1080,
     height =
@@ -148,8 +156,8 @@ export async function renderMedia(input: {
       "-movflags",
       "+faststart",
       output,
-    ]);
-    await ffmpeg(["-y", "-i", output, "-frames:v", "1", preview]);
+    ], input.signal);
+    await ffmpeg(["-y", "-i", output, "-frames:v", "1", preview], input.signal);
   } else {
     await sharp(input.source)
       .resize(width, height, { fit: "cover", position: "centre" })
@@ -176,20 +184,29 @@ export async function renderMedia(input: {
         "-movflags",
         "+faststart",
         output,
-      ]);
+      ], input.signal);
   }
+  input.signal?.throwIfAborted();
   return {
     file_path: input.kind === "video" ? output : preview,
     preview_path: preview,
   };
 }
-export async function downloadOutput(url: string, id: string, video = false) {
+export async function downloadOutput(url: string, id: string, video = false, options: { signal?: AbortSignal; outputDirectory?: string; timeoutMs?: number } = {}) {
+  // Absolute deadline covers DNS, continuous transfers and disk writes.
+  const signal = AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 90_000), ...(options.signal ? [options.signal] : [])]);
+  signal.throwIfAborted();
   const parsed = new URL(url);
   if (parsed.protocol !== "https:")
     throw new Error("Provider returned an invalid media URL.");
   const { lookup } = await import("node:dns/promises");
   const { isPublicIp } = await import("./scrape.js");
-  const addresses = await lookup(parsed.hostname, { all: true });
+  const addresses = await new Promise<{address:string;family:number}[]>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener('abort', abort, { once: true });
+    lookup(parsed.hostname, { all: true }).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+  signal.throwIfAborted();
   if (addresses.some((a) => !isPublicIp(a.address)))
     throw new Error("Invalid media address");
   if(parsed.username || parsed.password || (parsed.port && parsed.port!=='443') || !addresses.length) throw new Error('Invalid media URL');
@@ -198,7 +215,7 @@ export async function downloadOutput(url: string, id: string, video = false) {
   const bytes=await new Promise<Buffer>((resolve,reject)=>{
     const request=https.get(parsed,{
       lookup:((_host:unknown,options:{all?:boolean},cb:Function)=>options.all?cb(null,[selected]):cb(null,selected.address,selected.family)) as never,
-      timeout:90000,
+      timeout:90000, signal,
     },response=>{
       if(response.statusCode!==200){response.resume();reject(new Error('Could not download generated media'));return;}
       const chunks:Buffer[]=[];let length=0;
@@ -207,9 +224,9 @@ export async function downloadOutput(url: string, id: string, video = false) {
     });
     request.on('timeout',()=>request.destroy(new Error('Download timed out')));request.on('error',reject);
   });
-  const dir = path.join(config.dataDir, "media");
+  const dir = options.outputDirectory || path.join(config.dataDir, "media");
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `${id}-source.${video ? "mp4" : "jpg"}`);
-  await writeFile(file, bytes);
+  await writeFile(file, bytes, { signal });
   return file;
 }

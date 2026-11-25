@@ -8,6 +8,8 @@ export function isPublicIp(address: string) {
     let ip = ipaddr.parse(address);
     if (ip.kind() === "ipv6" && (ip as ipaddr.IPv6).isIPv4MappedAddress())
       ip = (ip as ipaddr.IPv6).toIPv4Address();
+    // ::/96 (IPv4-compatible) addresses are never public; parse() reports some of them as unicast.
+    if (ip.kind() === "ipv6" && (ip as ipaddr.IPv6).parts.slice(0, 6).every(part => part === 0)) return false;
     return ip.range() === "unicast";
   } catch {
     return false;
@@ -26,7 +28,9 @@ async function fetchPublicResource(input: string, policy: ResourcePolicy, redire
     (url.port && url.port !== "443")
   )
     throw new AppError(400, "Use a public HTTPS website address.");
-  const addresses = await lookup(url.hostname, { all: true });
+  let addresses: import("node:dns").LookupAddress[];
+  try { addresses = await lookup(url.hostname, { all: true }); }
+  catch { throw new AppError(400, "We could not find that website. Check the address, or add your details manually."); }
   if (!addresses.length || addresses.some((a) => !isPublicIp(a.address)))
     throw new AppError(400, "Only public websites can be read.");
   const selected = addresses[0];

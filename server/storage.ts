@@ -1,5 +1,5 @@
 import {createClient} from '@supabase/supabase-js';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {config,AppError} from './config.js';
 export const cloudStorageEnabled=()=>process.env.STORAGE_PROVIDER==='supabase';
@@ -14,6 +14,7 @@ function client(signal?: AbortSignal){
 }
 const PREFIX='supabase://';
 export const SIGNED_MEDIA_TTL_SECONDS = 600;
+export const PROVIDER_INPUT_TTL_SECONDS = 3600;
 type MediaBucket = 'brand-uploads' | 'generated-media';
 
 function bucketName(bucket: MediaBucket) {
@@ -27,20 +28,46 @@ function bucketName(bucket: MediaBucket) {
 
 export async function persistMedia(file:string,workspaceId:string,kind:MediaBucket,signal?:AbortSignal){
  if(!cloudStorageEnabled())return file;
- const bucket=bucketName(kind);
- const key=`${workspaceId}/${path.basename(file)}`;
+ const reference=uploadMediaReference(file,workspaceId,kind);
+ const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
  const ext=path.extname(file);
  const {error}=await client(signal).storage.from(bucket).upload(key,await readFile(file,{signal}),{contentType:ext==='.zip'?'application/zip':ext==='.mp4'?'video/mp4':ext==='.png'?'image/png':'image/jpeg',upsert:true});
  if(error)throw new AppError(503,'Media could not be saved. Please retry.');
- return `${PREFIX}${bucket}/${key}`;
+ return reference;
 }
-export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket,signal?:AbortSignal){
+
+// Reserve this reference and its quota row before the external write. If the
+// process stops after storage succeeds, the object still has a durable owner.
+export function uploadMediaReference(file:string,workspaceId:string,kind:MediaBucket){
+ if(!cloudStorageEnabled())return file;
+ const reference=`${PREFIX}${bucketName(kind)}/${workspaceId}/${path.basename(file)}`;
+ privateMediaKey(reference,workspaceId,kind);
+ return reference;
+}
+
+// For rollback of an upload whose database insert failed. A caller must retain
+// the newly-created reference; never accept an arbitrary customer-supplied path.
+export async function removePrivateMedia(reference:string,workspaceId:string,kind:MediaBucket){
+ if(reference.startsWith(PREFIX)) {
+  const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
+  const {error}=await client().storage.from(bucket).remove([key]);
+  if(error)throw new AppError(503,'The unfinished upload could not be removed.');
+  return;
+ }
+ if(cloudStorageEnabled())throw new Error('Expected private cloud media');
+ const resolved=path.resolve(reference),root=path.resolve(config.dataDir);
+ if(!resolved.startsWith(root+path.sep))throw new AppError(404,'Media does not exist in this workspace.');
+ await rm(resolved,{force:true});
+}
+export async function materializeMedia(reference:string, workspaceId:string, kind:MediaBucket,signal?:AbortSignal,temporaryDirectory?:string){
  if(!reference.startsWith(PREFIX)) {
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return reference;
  }
  const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
- const target=path.join(config.dataDir,'cache',bucket,key);
+ const target=temporaryDirectory
+  ? path.join(temporaryDirectory,bucket,key)
+  : path.join(config.dataDir,'cache',bucket,key);
  await mkdir(path.dirname(target),{recursive:true});
  const {data,error}=await client(signal).storage.from(bucket).download(key);
  if(error||!data)throw new AppError(503,'Your media could not be downloaded. Please retry.');
@@ -60,13 +87,27 @@ function privateMediaKey(reference:string,workspaceId:string,kind:MediaBucket){
 
 // Short-lived capability URL, created only after callers verify record ownership.
 // Reference validation also refuses another workspace, bucket or environment.
-export async function signedMediaUrl(reference:string,workspaceId:string,kind:MediaBucket,download?:string){
+export async function signedMediaUrl(reference:string,workspaceId:string,kind:MediaBucket,download?:string,signal?:AbortSignal){
  if(!reference.startsWith(PREFIX)) {
   if(cloudStorageEnabled())throw new Error('Expected private cloud media');
   return null;
  }
  const {bucket,key}=privateMediaKey(reference,workspaceId,kind);
- const {data,error}=await client().storage.from(bucket).createSignedUrl(key,SIGNED_MEDIA_TTL_SECONDS,download?{download}:undefined);
+ const {data,error}=await client(signal).storage.from(bucket).createSignedUrl(key,SIGNED_MEDIA_TTL_SECONDS,download?{download}:undefined);
  if(error||!data?.signedUrl)throw new AppError(503,'Your download link could not be created. Please retry.');
+ return data.signedUrl;
+}
+
+// Provider input access is distinct from a customer download. A one-hour
+// capability covers the bounded generation lifecycle without making uploads
+// public. Never use it for download links or return it in client JSON.
+export async function signedProviderInputUrl(reference:string,workspaceId:string,signal?:AbortSignal){
+ if(!reference.startsWith(PREFIX)) {
+  if(cloudStorageEnabled())throw new Error('Expected private cloud media');
+  return null;
+ }
+ const {bucket,key}=privateMediaKey(reference,workspaceId,'brand-uploads');
+ const {data,error}=await client(signal).storage.from(bucket).createSignedUrl(key,PROVIDER_INPUT_TTL_SECONDS);
+ if(error||!data?.signedUrl)throw new AppError(503,'Your product photo could not be prepared. Please retry.');
  return data.signedUrl;
 }

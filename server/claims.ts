@@ -2,11 +2,13 @@ import type { Brand } from '../shared/types.js';
 import type { Queryable } from './db.js';
 import { AppError } from './config.js';
 
-const normalize = (text: string) => text.normalize('NFKC').replace(/[\u200b-\u200f\ufeff]/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
-const certification = /\b(?:halal|muis)\b|حلال|清真/iu;
+// NFKD plus removal of Latin combining accents (other scripts keep theirs) and invisible format characters (soft hyphen, joiners, bidi controls) so spacing and accent tricks do not hide a claim.
+const normalize = (text: string) => text.normalize('NFKD').replace(/[\u0300-\u036f\p{Cf}]/gu, '').replace(/\s+/g, ' ').toLowerCase().trim();
+// 'halal' is matched without word boundaries so hashtags such as #halalfoodsg are caught too.
+const certification = /halal|\bmuis\b|حلال|清真|ஹலால்|穆斯林|回教/iu;
 const certificationMark = /\b(?:certification|certified|halal|muis)\s+(?:logo|mark|seal|badge|symbol)\b/iu;
 const valueClaims = /(?:(?:s\$|us\$|sgd|usd|\$|£|€)\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|sgd\b|usd\b))/giu;
-const promise = /\b(?:guarantee(?:d|s)?|money[- ]back|risk[- ]free|half[- ]price|buy one get one|free (?:shipping|delivery)|\d+\s*(?:star|stars)|testimonial|customers? (?:say|said)|rated \d|best[- ]selling|number one|#1)\b/iu;
+const promise = /\b(?:guarantee(?:d|s)?|money[- ]back|risk[- ]free|half[- ]price|buy one get one|free (?:shipping|delivery)|\d+\s*(?:star|stars)|testimonial|customers? (?:say|said)|rated \d|best[- ]selling|number one)\b|(?:^|[^\w])#1\b/iu;
 
 export async function requireOwnedCertificate(db: Queryable, workspaceId: string, brand: Brand, requireCurrent = false) {
   const id = brand.certifications?.certificateId;
@@ -28,7 +30,7 @@ export function assertApprovedClaims(text: string | undefined, brand?: Brand, ca
   const clean = normalize(text || "");
   if (!clean) return;
   if (certification.test(clean) && !(brand?.certifications?.muisHalal === 'attested' && brand.certifications.certificateId))
-    throw new AppError(400, 'Certification wording needs your MUIS certification attestation and an uploaded certificate.');
+    throw new AppError(400, 'Your text mentions halal or MUIS certification. If you are MUIS-certified, confirm it under Your brand and upload your certificate. If not, remove that wording from your brief, offer or captions.');
   const facts = normalize([brand?.name, brand?.description, brand?.offer, ...(brand?.proof || []), campaignOffer].filter(Boolean).join('\n'));
   const approvedValues = new Set(facts.match(valueClaims) || []);
   for (const value of clean.match(valueClaims) || []) {

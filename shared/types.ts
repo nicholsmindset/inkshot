@@ -1,4 +1,8 @@
+export const MARKETS = { SG: "Singapore", US: "United States", CA: "Canada", AU: "Australia" } as const;
+export type Market = keyof typeof MARKETS;
 export type Brand = {
+  market?: Market;
+  briefPromptVersion?: string;
   name: string;
   website: string;
   description: string;
@@ -70,6 +74,8 @@ export type Version = {
   motion_prompt?: string | null;
   video_duration_seconds?: number;
   first_frame_source?: "merchant_photo" | "generated" | "sample" | null;
+  reviewFingerprint?: string;
+  reviewed?: boolean;
   headline: string;
   cta: string;
   note: string;
@@ -98,6 +104,9 @@ export type Ledger = {
   created_at: string;
 };
 export type Studio = {
+  plan?: PlanInfo;
+  videoRegen?: VideoRegenUsage;
+  exportReviewRequired?: boolean;
   videoDurationSeconds?: number;
   user: User;
   brand: Brand;
@@ -106,6 +115,7 @@ export type Studio = {
   balance: number;
   ledger: Ledger[];
   mode: "mock" | "live";
+  writingMode?: "mock" | "live";
   providers: { higgsfield: boolean; claude: boolean };
   billingEnabled: boolean;
   checkoutReleased: boolean;
@@ -113,12 +123,15 @@ export type Studio = {
   billingMode: "off" | "sandbox" | "live";
   billingStatus: string;
 };
-export const KIT_CREDITS = 100;
-export const PLAN = {
-  name: "Studio",
-  price: 39,
-  currency: "USD",
-  kits: 3,
-  credits: 300,
+export type PlanInfo = {
+  name: string;
+  currency: string;
+  priceAmount: number;
+  prices?: { currency: string; amount: number }[];
+  localCurrencyUnavailable?: boolean;
+  credits: number;
+  kitCredits: number;
+  versionCredits: { video: number; image: number; post: number };
+  videoRegenMonthlyCap: number;
 };
-export const VERSION_CREDITS = { video: 26, image: 5, post: 2 } as const;
+export type VideoRegenUsage = { used: number; cap: number; resetsAt: string };

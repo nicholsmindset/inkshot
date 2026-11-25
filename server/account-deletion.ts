@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Database, Queryable } from './db.js';
 import type { User } from '../shared/types.js';
 import { AppError } from './config.js';
+import { reportOpsAlert } from './ops.js';
 import { reconcileBillingForDeletion, type DeletionBillingReader } from './billing.js';
 
 export const deletionEnabled = () => process.env.ENABLE_ACCOUNT_DELETION === 'true' && process.env.INKSHOT_SHARED_PROJECT_LIVE !== 'true';
@@ -87,16 +88,27 @@ export async function runDeletionOnce(db: Database, adapters: DeletionAdapters):
         await tx.query('DELETE FROM provider_events WHERE request_id=ANY($1::text[])',[task.provider_ids]);
       if((await tx.query<{present:boolean}>("SELECT to_regclass('campaign_exports') IS NOT NULL AS present")).rows[0].present)
         await tx.query('DELETE FROM campaign_exports WHERE workspace_id=$1',[task.workspace_id]);
+      if((await tx.query<{present:boolean}>("SELECT to_regclass('campaign_copy') IS NOT NULL AS present")).rows[0].present)
+        await tx.query('DELETE FROM campaign_copy WHERE workspace_id=$1',[task.workspace_id]);
       // Keep spend totals for the daily budget while removing provider IDs and version linkage.
       await tx.query("UPDATE provider_spend p SET request_key=$2||md5(p.request_key),input_hash='deleted',provider_request_id=NULL FROM versions v WHERE split_part(p.request_key,':',1)=v.id AND v.workspace_id=$1",[task.workspace_id,`deleted:${task.id}:`]);
       await tx.query("DELETE FROM writing_daily_usage WHERE scope=$1",[`workspace:${task.workspace_id}`]);
       for(const table of ['jobs','versions','assets','campaigns','uploads','ledger','billing_accounts'])
         await tx.query(`DELETE FROM ${table} WHERE workspace_id=$1`,[task.workspace_id]);
+      // Pilot records that carry personal data: measurement events (including follow-up free text),
+      // the email a redeemed invite was used with, and any waitlist entry for the owner's address.
+      const emails=(await tx.query<{email:string}>('SELECT lower(email) AS email FROM users WHERE workspace_id=$1',[task.workspace_id])).rows.map(r=>r.email);
+      const exists=async(table:string)=>(await tx.query<{present:boolean}>('SELECT to_regclass($1) IS NOT NULL AS present',[table])).rows[0].present;
+      if(await exists('product_events'))await tx.query('DELETE FROM product_events WHERE workspace_id=$1',[task.workspace_id]);
+      if(emails.length&&await exists('invites'))await tx.query('UPDATE invites SET used_email=NULL WHERE lower(used_email)=ANY($1::text[])',[emails]);
+      if(emails.length&&await exists('waitlist'))await tx.query('DELETE FROM waitlist WHERE lower(email)=ANY($1::text[])',[emails]);
       await tx.query('DELETE FROM users WHERE workspace_id=$1',[task.workspace_id]);
       await tx.query('DELETE FROM workspaces WHERE id=$1',[task.workspace_id]);
       await tx.query("UPDATE account_deletions SET state='complete',user_id=NULL,provider_ids='[]',provider_deleted='[]',locked_until=NULL,error_code=NULL,completed_at=now() WHERE id=$1",[task.id]);
     });
   }catch{
+    // Only an aggregate event is allowed; never log the task or adapter error.
+    reportOpsAlert('inkshot_deletion_failed', { count: 1 });
     // Never report completion while a provider, storage or identity call is uncertain.
     await db.query("UPDATE account_deletions SET locked_until=NULL,error_code=$2,available_at=now()+interval '5 minutes' WHERE id=$1",[task.id,`DELETION_${stage.toUpperCase()}_RETRY`]);
   }

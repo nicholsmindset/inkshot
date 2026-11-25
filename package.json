@@ -10,8 +10,9 @@
     "dev": "concurrently -k -n api,web \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts",
-    "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "GENERATION_MODE=mock BILLING_MODE=off tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "invite": "tsx scripts/create-invite.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

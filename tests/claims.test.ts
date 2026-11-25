@@ -42,7 +42,7 @@ test('price, discount, quotation and guarantee claims need the approved wording'
 test('website/model output never attests certification and final renderer blocks unapproved copy', async () => {
   assert.deepEqual(groundBrief(attested, []).certifications, { muisHalal: 'not_certified' });
   await assert.rejects(renderMedia({ id: randomUUID(), source: '/does-not-exist', kind: 'image', format: '4:5',
-    headline: 'MUIS certified', cta: 'Buy', brandName: 'Bakery', mock: true, claimsBrand: demoBrand }), /Certification wording/);
+    headline: 'MUIS certified', cta: 'Buy', brandName: 'Bakery', mock: true, claimsBrand: demoBrand }), /mentions halal or MUIS certification/);
 });
 
 test('direct API requests cannot use another workspace certificate or bypass draft/revision claims checks', async t => {

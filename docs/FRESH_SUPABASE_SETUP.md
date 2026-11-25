@@ -29,14 +29,18 @@ Verified 19 November 2026 against project `zdvniqffhiycyxxzchmi`, name `inkshot`
 
 The local Supabase CLI was terminated by the execution environment before it could create a migration file. The hosted migration runner generated `20261119143158`; the matching SQL is saved under that returned version in the repository. Do not blindly replay the historical filenames with CLI push: first reconcile migration history against the mapping above, read-only, and confirm the intended target project.
 
-## Remaining before the app can use this project
+## Preview setup completed — 20 November 2026
 
-1. Restore access to Vercel's existing Inkshot project. The connected tool returns `404: Project not found` for `inkshot` in `nicholsmindset-gmailcoms-projects`; no project was recreated or substituted.
-2. Provision a strong password and enable login for `inkshot_app` through the dashboard/secure secret workflow. Put the resulting pooler connection in the intended preview's `DATABASE_URL`. Never use the database owner connection as the app runtime or commit/share credentials in chat.
-3. Configure `SUPABASE_URL=https://zdvniqffhiycyxxzchmi.supabase.co`, the matching publishable/server keys, `AUTH_PROVIDER=supabase`, `STORAGE_PROVIDER=supabase`, `INKSHOT_SHARED_PROJECT_LIVE=false`, `GENERATION_MODE=mock`, `ALLOW_LIVE_GENERATION=false`, and `BILLING_MODE=sandbox`. Leave checkout disabled until deliberately tested.
-4. Set the exact HTTPS `APP_ORIGIN`, allow that origin's `/api/auth/callback` and `/api/auth/recovery-callback` in Auth, enable confirmation, and apply `supabase/templates/confirmation.html`. Verify sender ownership, real delivery and recovery behaviour.
-5. Deploy a preview of the reviewed branch and complete the hosted account/export checks in `LAUNCH_CHECKLIST.md`. New accounts will start fresh; old credentials and old workspaces have not been transferred.
-6. Plan live activation separately. `scripts/bind-live-project.sql` refuses a populated project, so do not run acceptance fixtures in a database that must subsequently be bound as fresh live without first deciding how test identities/data will be handled. Prefer disposable acceptance environments and preserve a clean live target; never delete user records to bypass this guard without explicit approval.
+Vercel access is restored. `inkshot_app` now has a generated login credential, no superuser or RLS-bypass privileges, and an encrypted branch-specific Preview connection. Matching Supabase keys, exact preview origin and storage/auth providers are configured. `BILLING_MODE=off`, `GENERATION_MODE=mock`, and paid generation/checkout remain disabled.
+
+The four subsequent Phase 1 migrations (photo-first video, exports, provider events and account deletion) were applied. New tables have RLS enabled and runtime grants. Hosted preview deployment `dpl_EzL7W6NpotnLtEoeKiypa22DfsM4` passed startup and health checks.
+
+## Remaining acceptance
+
+1. Verify the exact preview callback and recovery URLs in Auth, confirmation settings and `supabase/templates/confirmation.html`. Prove delivery using a controlled test mailbox.
+2. Complete hosted signup, confirmation, returning login, recovery, session and export isolation checks. New accounts start fresh with zero credits; grant only explicit disposable sandbox test credits for mock campaign acceptance. Old users and workspaces were not transferred.
+3. Verify the newly configured Preview worker secret after redeployment. Keep deletion and provider callbacks disabled until their acceptance checks pass.
+4. Plan live activation separately. `scripts/bind-live-project.sql` refuses a populated project. Preserve a clean live target; do not delete test/user data to bypass this guard without approval.
 
 ## Validation
 
