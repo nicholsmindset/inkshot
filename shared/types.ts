@@ -1,4 +1,7 @@
+export const MARKETS = { SG: "Singapore", US: "United States", CA: "Canada", AU: "Australia" } as const;
+export type Market = keyof typeof MARKETS;
 export type Brand = {
+  market?: Market;
   briefPromptVersion?: string;
   name: string;
   website: string;

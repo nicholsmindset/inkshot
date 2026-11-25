@@ -13,7 +13,7 @@ export type Variant = {
   video_script?: unknown; self_scores?: Record<string, number>;
   ai_disclosure_required: boolean; needs_human_review: boolean; compliance_notes: string[];
 };
-export type Context = { brand: Brand; offer: string; endDate?: string | null; conceptIds: string[]; variantsPerConcept?: number };
+export type Context = { market?: "SG" | "US" | "CA" | "AU"; brand: Brand; offer: string; endDate?: string | null; conceptIds: string[]; variantsPerConcept?: number };
 
 const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 const cjk = /[⺀-鿿가-힯＀-￯぀-ヿ]/u;
@@ -39,6 +39,7 @@ const banned: [string, RegExp, string, "error" | "warn"][] = [
   ["competitor", /\b(?:unlike|better than|worse than)\s+(?:other|our competitors|them)\b/iu, "Do not disparage competitors.", "error"],
   ["muslim_friendly", /\b(?:muslim|halal)[- ]friendly\b/iu, "Do not imply certification with 'Muslim-friendly' or 'halal-friendly'.", "error"],
 ];
+const healthClaims = /\b(?:treats?|prevents?|reverses?|detox(?:es|ify)?|boosts? (?:immunity|metabolism)|anti[- ]?inflammatory|lowers? (?:cholesterol|blood pressure)|fights? (?:disease|cancer))\b/iu;
 const urgency = /\b(?:limited[- ]time|limited period|ends? (?:soon|today|tonight|tomorrow)|last chance|hurry|while stocks? last|only \d+ left|today only)\b/iu;
 const freeWord = /\bfree\b/iu;
 const freeConditions = /\b(?:with|when|over|above|min(?:imum)?|spend|orders? of|if you|for orders|terms|t&cs?|conditions?|while|from)\b/iu;
@@ -90,6 +91,11 @@ export function validateVariant(platform: PlatformId, variant: Variant, context:
     for (const [rule, pattern, message, severity] of banned) if (pattern.test(text)) add(field, rule, message, severity);
     if (urgency.test(text) && !context.endDate) add(field, "urgency", "Urgency needs a real end date in the brief.");
     for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) if (freeWord.test(sentence) && !freeConditions.test(sentence)) add(field, "free", "State the conditions of a 'free' offer in the same sentence.", "warn");
+    if (context.market && context.market !== "SG") {
+      if (healthClaims.test(text)) add(field, "health_claim", "No disease, treatment or health-outcome claims.");
+      if (/\btax(?:es)?[- ]?(?:included|inclusive|incl\.?)\b|\ball[- ]in\b/iu.test(text) && (context.market === "US" || context.market === "CA")) add(field, "tax_wording", "Do not imply tax is included; tax is added at checkout.", "warn");
+      if (/\bmade in (?:the )?(?:usa|u\.s\.a\.?|america|australia|canada)\b|\b(?:american|australian|canadian)[- ]made\b/iu.test(text) && !/made in|american-made|australian made|canadian/i.test(`${context.brand.description} ${context.brand.proof.join(" ")}`)) add(field, "origin_claim", "Origin claims such as 'Made in USA' need support in the brief.");
+    }
     try { assertApprovedClaims(text, context.brand, context.offer); }
     catch (error) { add(field, "claims", error instanceof AppError ? error.message : "Claim is not supported by the approved brief."); }
   }

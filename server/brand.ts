@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Brand, Concept } from "../shared/types.js";
 export const briefFields = ["description", "audience", "voice", "offer", "proof", "pain", "trigger", "visualDirection"] as const;
 export const brandSchema = z.object({
+  market: z.enum(["SG", "US", "CA", "AU"]).optional(),
   briefPromptVersion: z.string().max(80).optional(),
   name: z.string().trim().min(1).max(100),
   website: z.string().max(2048).default(""),

@@ -170,3 +170,24 @@ test("campaign_copy migration is additive, idempotent, in both namespaces, serve
   assert.deepEqual(tables, ["inkshot_live", "public"]);
   assert.equal((await db.query("SELECT 1 FROM information_schema.role_table_grants WHERE grantee IN ('anon','authenticated','service_role') AND table_name='campaign_copy'")).rows.length, 0);
 });
+
+test("market rules change the prompt, brief, defaults and validator for US, Canada and Australia", async () => {
+  const { buildBrandBrief } = await import("../server/copy/brief.js");
+  const { marketOf } = await import("../server/copy/markets.js");
+  const us: Brand = { ...brand, market: "US" };
+  assert.match(platformSystemPrompt("facebook", "US"), /United States[\s\S]*FTC[\s\S]*sales tax/);
+  assert.match(platformSystemPrompt("facebook", "SG"), /Singapore[\s\S]*GST[\s\S]*WhatsApp/);
+  assert.doesNotMatch(platformSystemPrompt("facebook", "US"), /MUIS for halal/);
+  const sgBrief = buildBrandBrief({ ...brand, market: "SG" }, { goal: "Enquiries", offer: "" }, 2) as { offer: { currency: string; tax_inclusive: boolean | null }; brand_voice: { singlish_level: number }; campaign: { cta_channel: string } };
+  const usBrief = buildBrandBrief(us, { goal: "Enquiries", offer: "" }, 2) as typeof sgBrief;
+  assert.deepEqual([sgBrief.offer.currency, sgBrief.offer.tax_inclusive, sgBrief.brand_voice.singlish_level, sgBrief.campaign.cta_channel], ["SGD", true, 2, "whatsapp"]);
+  assert.deepEqual([usBrief.offer.currency, usBrief.offer.tax_inclusive, usBrief.brand_voice.singlish_level, usBrief.campaign.cta_channel], ["USD", null, 0, "message"], "Singlish and WhatsApp are Singapore-only");
+  assert.equal(marketOf({}), "SG", "existing workspaces stay Singapore");
+  assert.equal(sampleCopy("facebook", brand, concepts, "Enquiries").variants[0].fields.cta_button, "WHATSAPP_MESSAGE");
+  assert.equal(sampleCopy("facebook", us, concepts, "Enquiries").variants[0].fields.cta_button, "SEND_MESSAGE");
+  const usContext: Context = { ...context, market: "US", brand: us };
+  assert(validateVariant("facebook", variant({ primary_text: "Our smoothie prevents colds", cta_button: "SHOP_NOW" }), usContext).some(v => v.rule === "health_claim"));
+  assert(validateVariant("facebook", variant({ primary_text: "Prices are all-in, tax included", cta_button: "SHOP_NOW" }), usContext).some(v => v.rule === "tax_wording"));
+  assert(validateVariant("facebook", variant({ primary_text: "Proudly Made in USA", cta_button: "SHOP_NOW" }), usContext).some(v => v.rule === "origin_claim"));
+  assert(!validateVariant("facebook", variant({ primary_text: "Our smoothie prevents colds", cta_button: "SHOP_NOW" }), context).some(v => v.rule === "health_claim"), "market rules apply only outside the Singapore default context");
+});

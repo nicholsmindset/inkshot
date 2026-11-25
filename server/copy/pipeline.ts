@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import type { Brand, Concept } from "../../shared/types.js";
 import { AppError, writingMode } from "../config.js";
 import type { Database, Queryable } from "../db.js";
+import { marketOf, marketRules } from "./markets.js";
 import { buildAngles, buildBrandBrief, funnelStageFor } from "./brief.js";
+import { marketBlock } from "./markets.js";
 import { COPY_PROMPT_VERSION, limitsBlock, platformSystemPrompt, REPAIR_PROMPT } from "./prompts.js";
 import { enabledPlatforms, limitFor, platformSpecs, SPECS_VERSION, type PlatformId } from "./specs.js";
 import { countChars, errorsOf, validateSet, validateVariant, type Context, type Variant, type Violation } from "./validate.js";
@@ -58,8 +60,9 @@ function trim(text: string, max: number) {
 export function sampleCopy(platform: PlatformId, brand: Brand, concepts: Concept[], goal: string): z.infer<typeof resultSchema> {
   const spec = platformSpecs[platform];
   const stage = funnelStageFor(goal);
-  const cta = ("ctaButtons" in spec && spec.ctaButtons)
-    ? ((spec.ctaButtons as readonly string[]).includes(goal === "Enquiries" ? "WHATSAPP_MESSAGE" : "SHOP_NOW") ? (goal === "Enquiries" ? "WHATSAPP_MESSAGE" : "SHOP_NOW") : spec.ctaButtons[0]) : undefined;
+  const wanted = marketRules[marketOf(brand)].defaultCtas[{ Sales: "sales", Bookings: "bookings", Enquiries: "messages", Awareness: "awareness" }[goal] ?? "awareness"];
+  const buttons = spec.ctaButtons as readonly string[] | undefined;
+  const cta = buttons ? (buttons.includes(wanted) ? wanted : buttons[0]) : undefined;
   const variants = concepts.flatMap((concept, i) => ([
     { text: concept.hook, hook: "bold_claim" }, { text: `${concept.title}: ${concept.cta}`, hook: "curiosity" },
   ]).map((option, j) => {
@@ -100,7 +103,8 @@ export async function generatePlatformCopy(input: {
   const { platform, brand, concepts, goal, offer, ask } = input;
   if (!enabledPlatforms().includes(platform)) throw new AppError(400, "That platform is not available yet.");
   if (concepts.length !== 3) throw new AppError(409, "Choose your three angles first.");
-  const context: Context = { brand, offer, endDate: null, conceptIds: concepts.map(c => c.id), variantsPerConcept: 2 };
+  const market = marketOf(brand);
+  const context: Context = { market, brand, offer, endDate: null, conceptIds: concepts.map(c => c.id), variantsPerConcept: 2 };
   const check = (variants: Variant[]) => [...variants.flatMap(v => validateVariant(platform, v, context)), ...validateSet(platform, variants, context)];
 
   if ((input.mode ?? writingMode()) !== "live") {
@@ -108,7 +112,7 @@ export async function generatePlatformCopy(input: {
     return finalise(platform, parsed, check(parsed.variants as Variant[]), false, true, input.campaignMock);
   }
   const payload = {
-    platform, brand_brief: buildBrandBrief(brand, { goal, offer, mock: input.campaignMock }, input.singlishLevel ?? 0),
+    platform, market, brand_brief: buildBrandBrief(brand, { goal, offer, mock: input.campaignMock }, input.singlishLevel ?? 0),
     angles: buildAngles(concepts), placements: platformSpecs[platform].placements,
   };
   const parse = (raw: unknown) => {
@@ -116,12 +120,12 @@ export async function generatePlatformCopy(input: {
     if (!result.success) throw new AppError(502, "The copy needs another attempt. Please try again.");
     return result.data;
   };
-  let parsed = parse(await ask(platformSystemPrompt(platform), payload, 7000));
+  let parsed = parse(await ask(platformSystemPrompt(platform, market), payload, 7000));
   let violations = check(parsed.variants as Variant[]);
   let repaired = false;
   if (errorsOf(violations).length) {
     // One repair pass with the exact violations, then report whatever remains for human review.
-    parsed = parse(await ask(`${REPAIR_PROMPT}\n\n${limitsBlock(platform)}`,
+    parsed = parse(await ask(`${REPAIR_PROMPT}\n\n${marketBlock(market)}\n\n${limitsBlock(platform)}`,
       { ...payload, candidate: parsed, violations: errorsOf(violations) }, 7000));
     violations = check(parsed.variants as Variant[]);
     repaired = true;

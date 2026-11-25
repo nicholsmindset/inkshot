@@ -11,7 +11,7 @@ import {
 import { useStudio } from "../context";
 import { api } from "../api";
 import { Button, Field, Highlight, Notice } from "../ui";
-import type { Brand } from "../../shared/types";
+import { MARKETS, type Brand } from "../../shared/types";
 import { BriefReadiness } from "../components/BriefReadiness";
 import { brandDraftKey, readBrandDraft, writeBrandDraft, clearBrandDraft } from "../brand-draft";
 function sameSiteLogo(value: string | undefined, website: string) {
@@ -360,6 +360,12 @@ function BrandForm({ initial }: { initial: Brand }) {
             </Field>
             {brand.logoId && <div><img src={"/api/uploads/" + brand.logoId} width={90} alt="Logo for exports" />
               <button type="button" onClick={() => set("logoId", undefined)}>Remove logo</button></div>}
+            <Field label="Where are your customers?" hint="Sets the currency, ad rules and wording used for your copy.">
+              <select value={brand.market ?? ""} onChange={(e) => set("market", e.target.value || undefined)}>
+                <option value="">Singapore (default)</option>
+                {Object.entries(MARKETS).filter(([code]) => code !== "SG").map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+              </select>
+            </Field>
             <Field label="Brand colour">
               <div className="color-field">
                 <input
