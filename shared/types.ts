@@ -127,6 +127,7 @@ export type PlanInfo = {
   name: string;
   currency: string;
   priceAmount: number;
+  prices?: { currency: string; amount: number }[];
   credits: number;
   kitCredits: number;
   versionCredits: { video: number; image: number; post: number };

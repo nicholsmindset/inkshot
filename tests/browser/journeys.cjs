@@ -152,8 +152,8 @@ async function run(label, viewport) {
   });
   await step("billing", async () => {
     await go("/studio/billing");
-    const plan = await (await page.request.get(origin + "/api/plan")).json();
-    const price = new Intl.NumberFormat("en-SG", { style: "currency", currency: plan.currency.toUpperCase(), minimumFractionDigits: Number.isInteger(plan.priceAmount / 100) ? 0 : 2 }).format(plan.priceAmount / 100);
+    const plan = (await (await page.request.get(origin + "/api/studio")).json()).plan; // the workspace's own currency
+    const price = new Intl.NumberFormat({ usd: "en-US", cad: "en-CA", aud: "en-AU", sgd: "en-SG" }[plan.currency] || "en-US", { style: "currency", currency: plan.currency.toUpperCase(), minimumFractionDigits: Number.isInteger(plan.priceAmount / 100) ? 0 : 2 }).format(plan.priceAmount / 100);
     expect(await page.getByText(price).first().isVisible(), `billing page does not show the configured price ${price}`);
     expect(await page.getByText(/do not roll over/).first().isVisible(), "billing page should state there is no rollover");
   });

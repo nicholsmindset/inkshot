@@ -40,7 +40,8 @@ import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
 import {briefFingerprints,editedBriefFields,recordEvent,websiteFailureReason,trackedBriefFields} from './events.js';
 import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
-import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,videoRegenUsage} from './plan.js';
+import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,planForMarket,videoRegenUsage} from './plan.js';
+import {marketOf} from './copy/markets.js';
 import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
   type Brand,
@@ -466,7 +467,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
       checkoutReleased: checkoutReleased(),
       accountDeletionEnabled: deletionEnabled(),
       exportReviewRequired: exportReviewRequired(),
-      plan: planConfig(),
+      plan: planForMarket(marketOf(ws.rows[0].brand)),
       videoRegen: await videoRegenUsage(db, w),
       billingMode: billingMode(),
       billingStatus:(await db.query<{status:string}>('SELECT status FROM billing_accounts WHERE workspace_id=$1',[w])).rows[0]?.status||'none',

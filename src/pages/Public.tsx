@@ -129,6 +129,7 @@ export function Landing() {
           <div className="price">
             {plan ? formatPrice(plan) : "…"} <small>{plan?.currency.toUpperCase()} / month</small>
           </div>
+          {plan?.prices && plan.prices.length > 1 ? <small className="muted">Also billed in {plan.prices.slice(1).map(p => p.currency.toUpperCase()).join(", ")} for customers there.</small> : null}
           <p>Enough credits for {plan ? Math.floor(plan.credits / plan.kitCredits) : "several"} complete kits.</p>
           <ul>
             {[

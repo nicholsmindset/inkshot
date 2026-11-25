@@ -78,7 +78,8 @@ Create (or reuse) a **separate** Vercel project for production; Preview and Prod
 | `ENABLE_LIVE_CHECKOUT` | config | `false` until section J step 8 |
 | `STRIPE_API_KEY` (restricted live key), `STRIPE_WEBHOOK_SECRET` | **server-only secrets** | from Stripe |
 | `STRIPE_STUDIO_PRICE_ID`, `STRIPE_PORTAL_CONFIGURATION_ID` | config | live IDs (section G) |
-| `PLAN_CURRENCY`, `PLAN_PRICE_AMOUNT`, `PLAN_CREDITS`, `VIDEO_REGEN_MONTHLY_CAP` | config | from OWNER_DECISIONS (`sgd`, minor units) |
+| `PLAN_PRICES`, `PLAN_CURRENCY`, `STRIPE_PRICE_IDS` | config | e.g. `PLAN_PRICES=usd:7900,sgd:10900,cad:10900,aud:11900`, `PLAN_CURRENCY=usd`, `STRIPE_PRICE_IDS=usd:price_...,sgd:price_...` (amounts in minor units; a market without a Stripe price ID is billed in the primary currency) |
+| `PLAN_CREDITS`, `VIDEO_REGEN_MONTHLY_CAP`, `DEFAULT_MARKET` | config | from OWNER_DECISIONS; `DEFAULT_MARKET` is the market for workspaces that have not chosen one (`SG` today) |
 | `HF_API_KEY_ID`, `HF_API_KEY_SECRET`, `HF_WEBHOOK_SECRET` | **server-only secrets** | Higgsfield |
 | `HF_WEBHOOKS_ENABLED`, `HF_DAILY_BUDGET_USD` | config | `true`, your daily cap |
 | `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` | **server-only secret** | writing provider |

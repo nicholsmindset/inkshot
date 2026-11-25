@@ -9,7 +9,7 @@ import { planConfig } from "../server/plan.js";
 
 test("plan configuration reads the environment, rejects inconsistent totals and keeps safe defaults", () => {
   const defaults = planConfig({});
-  assert.deepEqual(defaults, { name: "Studio", currency: "usd", priceAmount: 3900, credits: 300, kitCredits: 100,
+  assert.deepEqual(defaults, { name: "Studio", currency: "usd", priceAmount: 3900, prices: [{ currency: "usd", amount: 3900 }], credits: 300, kitCredits: 100,
     versionCredits: { video: 26, image: 5, post: 2 }, videoRegenMonthlyCap: 8 });
   const sgd = planConfig({ PLAN_CURRENCY: "SGD", PLAN_PRICE_AMOUNT: "4900", VIDEO_REGEN_MONTHLY_CAP: "5" });
   assert.equal(sgd.currency, "sgd"); assert.equal(sgd.priceAmount, 4900); assert.equal(sgd.videoRegenMonthlyCap, 5);
@@ -136,4 +136,48 @@ test("GENERATION_PAUSED refuses new generation without touching credits", async 
   assert.doesNotThrow(() => assertGenerationNotPaused({}));
   assert.doesNotThrow(() => assertGenerationNotPaused({ GENERATION_PAUSED: "false" }));
   assert.throws(() => assertGenerationNotPaused({ GENERATION_PAUSED: "true" }), /paused/);
+});
+
+test("multi-currency plan: parsing, market currencies, per-currency Stripe prices and safe fallback", async () => {
+  const { planConfig, resolveBilling, stripePriceIds, planForMarket, configuredCurrencies } = await import("../server/plan.js");
+  const env = { PLAN_PRICES: "usd:7900,sgd:10900,cad:10900,aud:11900", PLAN_CURRENCY: "usd", STRIPE_PRICE_IDS: "usd:price_usd,sgd:price_sgd,aud:price_aud" };
+  const plan = planConfig(env);
+  assert.deepEqual([plan.currency, plan.priceAmount], ["usd", 7900]);
+  assert.deepEqual(plan.prices.map(p => p.currency), ["usd", "sgd", "cad", "aud"]);
+  assert.deepEqual(configuredCurrencies(env), ["usd", "sgd", "cad", "aud"]);
+  assert.deepEqual(resolveBilling("SG", env), { currency: "sgd", amount: 10900, priceId: "price_sgd" });
+  assert.deepEqual(resolveBilling("US", env), { currency: "usd", amount: 7900, priceId: "price_usd" });
+  assert.deepEqual(resolveBilling("CA", env), { currency: "usd", amount: 7900, priceId: "price_usd" }, "no CAD Stripe price yet: fall back to the primary currency, never to an unconfigured one");
+  assert.equal(planForMarket("AU", env).priceAmount, 11900);
+  assert.equal(stripePriceIds({ ...env, STRIPE_PRICE_IDS: "sgd:price_sgd", STRIPE_STUDIO_PRICE_ID: "price_legacy" }).get("usd"), "price_legacy", "the legacy single ID is the primary currency's");
+  assert.equal(planConfig({ PLAN_PRICES: "sgd:10900,usd:7900" }).currency, "sgd", "without PLAN_CURRENCY the first entry is primary");
+  assert.throws(() => planConfig({ PLAN_PRICES: "usd-7900" }), /PLAN_PRICES must look like/);
+  assert.throws(() => planConfig({ PLAN_PRICES: "usd:0" }), /invalid amount/);
+  // Unset PLAN_PRICES keeps today's single-price behaviour.
+  assert.deepEqual(planConfig({ PLAN_CURRENCY: "sgd", PLAN_PRICE_AMOUNT: "4900" }).prices, [{ currency: "sgd", amount: 4900 }]);
+});
+
+test("checkout charges a workspace in its market currency and refuses a mismatched Stripe price", async t => {
+  const keys = ["BILLING_MODE", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_STUDIO_PRICE_ID", "PLAN_CURRENCY", "PLAN_PRICE_AMOUNT", "PLAN_PRICES", "STRIPE_PRICE_IDS"];
+  const before = keys.map(key => process.env[key]);
+  Object.assign(process.env, { BILLING_MODE: "sandbox", STRIPE_API_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_x", PLAN_CURRENCY: "usd", PLAN_PRICES: "usd:7900,sgd:10900", STRIPE_PRICE_IDS: "usd:price_usd,sgd:price_sgd" });
+  delete process.env.STRIPE_STUDIO_PRICE_ID; delete process.env.PLAN_PRICE_AMOUNT;
+  const { checkout } = await import("../server/billing.js");
+  const { createDatabase } = await import("../server/db.js");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-multicur-"));
+  const db = await createDatabase(dir, true);
+  t.after(async () => { await db.close(); await rm(dir, { recursive: true, force: true }); keys.forEach((key, i) => before[i] === undefined ? delete process.env[key] : process.env[key] = before[i]); });
+  await db.query("INSERT INTO workspaces(id,brand) VALUES ('w-sg','{\"market\":\"SG\"}'),('w-us','{\"market\":\"US\"}'),('w-ca','{\"market\":\"CA\"}')");
+  const retrieved: string[] = [];
+  let customers = 0;
+  const stripe = (override?: { currency: string; amount: number }) => ({
+    prices: { retrieve: async (id: string) => { retrieved.push(id); const table: Record<string, [string, number]> = { price_usd: ["usd", 7900], price_sgd: ["sgd", 10900] };
+      return { id, livemode: false, active: true, currency: override?.currency ?? table[id][0], unit_amount: override?.amount ?? table[id][1], recurring: { interval: "month", interval_count: 1 } }; } },
+    customers: { create: async () => ({ id: `cus_${++customers}` }) }, subscriptions: { list: async () => ({ has_more: false, data: [] }) },
+    checkout: { sessions: { create: async () => ({ id: "cs_1", url: "https://checkout.example.test" }) } },
+  }) as never;
+  const user = (workspaceId: string) => ({ id: workspaceId, workspaceId, name: "M", email: `${workspaceId}@example.test`, demo: false });
+  await checkout(db, user("w-sg"), () => stripe()); await checkout(db, user("w-us"), () => stripe()); await checkout(db, user("w-ca"), () => stripe());
+  assert.deepEqual(retrieved, ["price_sgd", "price_usd", "price_usd"], "SG pays SGD, US pays USD, CA falls back to USD");
+  await assert.rejects(checkout(db, user("w-sg"), () => stripe({ currency: "sgd", amount: 4900 })), /Configure/i, "a Stripe price with the wrong amount is refused");
 });

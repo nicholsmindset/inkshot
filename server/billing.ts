@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import type {Database,Queryable} from './db.js';
 import {AppError,config} from './config.js';
 import {changeCredits} from './credits.js';
-import {planConfig,stripePriceId} from './plan.js';
+import {allStripePriceIds,configuredCurrencies,planConfig,resolveBilling} from './plan.js';
+import {marketOf} from './copy/markets.js';
 import {recordEvent} from './events.js';
 import type {User} from '../shared/types.js';
 
@@ -15,7 +16,7 @@ export function billingMode(): BillingMode {
  if(mode!==undefined)return mode==='live'||mode==='sandbox'?mode:'off';
  return process.env.ENABLE_BILLING_SANDBOX==='true'?'sandbox':'off';
 }
-export function billingConfigured(){return billingMode()!=='off'&&!!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&!!stripePriceId()}
+export function billingConfigured(){return billingMode()!=='off'&&!!process.env.STRIPE_API_KEY&&!!process.env.STRIPE_WEBHOOK_SECRET&&allStripePriceIds().length>0}
 export function checkoutReleased() {
  return billingMode() !== 'live' || process.env.ENABLE_LIVE_CHECKOUT === 'true';
 }
@@ -81,8 +82,10 @@ export async function checkout(db:Database,user:User,getStripe:()=>CheckoutStrip
  if(user.demo)throw new AppError(400,'Create a permanent account before testing a subscription.');
  const stripe=getStripe();
  if (!checkoutReleased()) throw new AppError(503, 'New subscriptions are not open yet. You have not been charged.');
- const price=await stripe.prices.retrieve(stripePriceId());
- if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!==planConfig().currency||price.unit_amount!==planConfig().priceAmount||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
+ const brandRow=(await db.query<{brand:Pick<import('../shared/types.js').Brand,'market'>}>('SELECT brand FROM workspaces WHERE id=$1',[user.workspaceId])).rows[0];
+ const wanted=resolveBilling(marketOf(brandRow?.brand??{}));
+ const price=await stripe.prices.retrieve(wanted.priceId);
+ if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!==wanted.currency||price.unit_amount!==wanted.amount||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
  return db.transaction(async tx=>{
   // Same lock order as deletion: a checkout cannot open after the workspace freezes.
   await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[user.workspaceId]);
@@ -176,10 +179,10 @@ export async function webhook(db:Database,body:Buffer,signature:string,getStripe
  const subscription=await stripe.subscriptions.retrieve(subscriptionId);
  if(subscription.livemode!==event.livemode)return;
  const customerId=stripeId(subscription.customer);if(!customerId)return;
- const correctPlan=subscription.items.data.some(item=>item.price.id===stripePriceId()&&item.quantity===1);
+ const correctPlan=subscription.items.data.some(item=>allStripePriceIds().includes(item.price.id)&&item.quantity===1);
  if(!correctPlan)return;
  // A paid invoice may have a discounted or zero amount due to an intentional
  // coupon or customer balance. Entitlement comes from the verified active plan.
- const grantCredits=event.type==='invoice.paid'&&!!invoice&&invoice.status==='paid'&&invoice.currency===planConfig().currency&&['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'')&&subscription.status==='active';
+ const grantCredits=event.type==='invoice.paid'&&!!invoice&&invoice.status==='paid'&&configuredCurrencies().includes(invoice.currency)&&['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'')&&subscription.status==='active';
  await applyPaymentFact(db,{eventId:event.id,eventType:event.type,created:event.created,customerId,subscriptionId,status:subscription.status,invoiceId:invoice?.id,invoiceCreated:invoice?.created,grantCredits});
 }

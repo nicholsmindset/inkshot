@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import Stripe from "stripe";
-import { planConfig } from "../server/plan.js";
+import { planConfig, stripePriceIds } from "../server/plan.js";
 
 const apiVersion = "2026-08-26.dahlia";
 const accountId = "acct_1RKb5BDjNCv7xF61";
@@ -50,6 +50,14 @@ async function main() {
   assert(price.active && price.livemode && price.currency === plan.currency &&
     price.unit_amount === plan.priceAmount && price.recurring?.interval === "month" && price.recurring.interval_count === 1,
     `Expected an active live monthly ${plan.currency.toUpperCase()} ${plan.priceAmount / 100} price.`);
+  // Every other currency we sell in must also have a matching live price.
+  for (const [currency, id] of stripePriceIds()) {
+    if (id === priceId) continue;
+    const other = await stripe.prices.retrieve(id);
+    const want = plan.prices.find(p => p.currency === currency);
+    assert(want && other.active && other.livemode && other.currency === currency && other.unit_amount === want.amount && other.recurring?.interval === "month",
+      `Expected an active live monthly ${currency.toUpperCase()} price matching PLAN_PRICES.`);
+  }
   assert(portal.active && portal.livemode && portal.metadata?.application === "inkshot" &&
     portal.features.subscription_cancel.enabled && portal.features.subscription_cancel.mode === "at_period_end" &&
     portal.features.payment_method_update.enabled && portal.features.invoice_history.enabled,

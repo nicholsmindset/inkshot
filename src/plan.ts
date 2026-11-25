@@ -5,7 +5,8 @@ import type { PlanInfo } from "../shared/types";
 // Prices, credits and costs come from the server (/api/plan); nothing is hard-coded here.
 export function formatPrice(plan: PlanInfo) {
   const amount = plan.priceAmount / 100;
-  return new Intl.NumberFormat("en-SG", {
+  const locale = ({ usd: "en-US", cad: "en-CA", aud: "en-AU", sgd: "en-SG" } as Record<string, string>)[plan.currency] ?? "en-US";
+  return new Intl.NumberFormat(locale, {
     style: "currency", currency: plan.currency.toUpperCase(),
     minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
   }).format(amount);

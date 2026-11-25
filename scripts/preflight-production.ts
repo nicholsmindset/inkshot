@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import { assertHostedConfiguration, HostedConfigurationError } from "../server/config.js";
 import { createDatabase } from "../server/db.js";
 import { verifySchemaReadiness } from "../server/schema-readiness.js";
-import { planConfig } from "../server/plan.js";
+import { planConfig, stripePriceIds } from "../server/plan.js";
 import { checkHostedAuthEnvironment } from "./check-hosted-build.js";
 import { checkDestination } from "./check-live-stripe.js";
 
@@ -82,10 +82,16 @@ export async function runPreflight(env: NodeJS.ProcessEnv, origin: string, optio
     for await (const endpoint of stripe.webhookEndpoints.list({ limit: 100 })) endpoints.push(endpoint);
     checkDestination(endpoints, origin);
     const plan = planConfig();
-    const price = await stripe.prices.retrieve(env.PLAN_PRICE_ID || env.STRIPE_STUDIO_PRICE_ID!);
-    if (!price.livemode || !price.active || price.currency !== plan.currency || price.unit_amount !== plan.priceAmount)
-      return fail("Stripe live mode and webhook events", "price differs from PLAN_CURRENCY / PLAN_PRICE_AMOUNT");
-    return pass("Stripe live mode and webhook events", "endpoint events incl. charge.refunded and charge.dispute.created; price matches plan");
+    const ids = stripePriceIds(env);
+    const wrong: string[] = [];
+    for (const { currency, amount } of plan.prices) {
+      const id = ids.get(currency);
+      if (!id) { wrong.push(`${currency}: no Stripe price ID (those customers fall back to ${plan.currency})`); continue; }
+      const price = await stripe.prices.retrieve(id);
+      if (!price.livemode || !price.active || price.currency !== currency || price.unit_amount !== amount || price.recurring?.interval !== "month") wrong.push(`${currency}: price differs from the plan`);
+    }
+    if (wrong.some(w => !w.includes("fall back"))) return fail("Stripe live mode and webhook events", wrong.join("; "));
+    return pass("Stripe live mode and webhook events", `endpoint events incl. charge.refunded and charge.dispute.created; ${ids.size} price(s) match the plan${wrong.length ? `; note: ${wrong.join("; ")}` : ""}`);
   }));
 
   results.push(env.GENERATION_MODE !== "live" ? liveOnly("Higgsfield key validity") : await guarded("Higgsfield key validity", async () => {
