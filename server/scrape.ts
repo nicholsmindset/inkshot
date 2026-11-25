@@ -8,6 +8,8 @@ export function isPublicIp(address: string) {
     let ip = ipaddr.parse(address);
     if (ip.kind() === "ipv6" && (ip as ipaddr.IPv6).isIPv4MappedAddress())
       ip = (ip as ipaddr.IPv6).toIPv4Address();
+    // ::/96 (IPv4-compatible) addresses are never public; parse() reports some of them as unicast.
+    if (ip.kind() === "ipv6" && (ip as ipaddr.IPv6).parts.slice(0, 6).every(part => part === 0)) return false;
     return ip.range() === "unicast";
   } catch {
     return false;

@@ -95,6 +95,13 @@ export async function runDeletionOnce(db: Database, adapters: DeletionAdapters):
       await tx.query("DELETE FROM writing_daily_usage WHERE scope=$1",[`workspace:${task.workspace_id}`]);
       for(const table of ['jobs','versions','assets','campaigns','uploads','ledger','billing_accounts'])
         await tx.query(`DELETE FROM ${table} WHERE workspace_id=$1`,[task.workspace_id]);
+      // Pilot records that carry personal data: measurement events (including follow-up free text),
+      // the email a redeemed invite was used with, and any waitlist entry for the owner's address.
+      const emails=(await tx.query<{email:string}>('SELECT lower(email) AS email FROM users WHERE workspace_id=$1',[task.workspace_id])).rows.map(r=>r.email);
+      const exists=async(table:string)=>(await tx.query<{present:boolean}>('SELECT to_regclass($1) IS NOT NULL AS present',[table])).rows[0].present;
+      if(await exists('product_events'))await tx.query('DELETE FROM product_events WHERE workspace_id=$1',[task.workspace_id]);
+      if(emails.length&&await exists('invites'))await tx.query('UPDATE invites SET used_email=NULL WHERE lower(used_email)=ANY($1::text[])',[emails]);
+      if(emails.length&&await exists('waitlist'))await tx.query('DELETE FROM waitlist WHERE lower(email)=ANY($1::text[])',[emails]);
       await tx.query('DELETE FROM users WHERE workspace_id=$1',[task.workspace_id]);
       await tx.query('DELETE FROM workspaces WHERE id=$1',[task.workspace_id]);
       await tx.query("UPDATE account_deletions SET state='complete',user_id=NULL,provider_ids='[]',provider_deleted='[]',locked_until=NULL,error_code=NULL,completed_at=now() WHERE id=$1",[task.id]);

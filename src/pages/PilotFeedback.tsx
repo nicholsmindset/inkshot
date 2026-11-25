@@ -10,10 +10,13 @@ export function PublishQuestion({ assetId, versionId }: { assetId: string; versi
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   async function send(next: Answer, reason?: string) {
-    setError("");
+    if (busy) return;
+    setBusy(true); setError("");
     try { await api(`/assets/${assetId}/publish-answer`, { versionId, answer: next, reason }); setAnswer(next); setSaved(next !== "no" || !!reason); }
     catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
   }
   if (saved) return <p className="pilot-question" role="status">Thanks, that helps us improve.</p>;
   return (
@@ -21,9 +24,9 @@ export function PublishQuestion({ assetId, versionId }: { assetId: string; versi
       <legend>Would you publish this?</legend>
       {answer !== "no" ? (
         <div className="pilot-question-options">
-          <Button type="button" variant="secondary" onClick={() => void send("yes_as_is")}>Yes, as is</Button>
-          <Button type="button" variant="secondary" onClick={() => void send("yes_with_edits")}>Yes, with edits</Button>
-          <Button type="button" variant="secondary" onClick={() => void send("no")}>No</Button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void send("yes_as_is")}>Yes, as is</Button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void send("yes_with_edits")}>Yes, with edits</Button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void send("no")}>No</Button>
         </div>
       ) : (
         <div className="pilot-question-options">

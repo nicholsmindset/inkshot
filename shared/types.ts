@@ -128,6 +128,7 @@ export type PlanInfo = {
   currency: string;
   priceAmount: number;
   prices?: { currency: string; amount: number }[];
+  localCurrencyUnavailable?: boolean;
   credits: number;
   kitCredits: number;
   versionCredits: { video: number; image: number; post: number };

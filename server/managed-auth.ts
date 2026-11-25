@@ -1,4 +1,5 @@
 import {recordEvent} from './events.js';
+import {pilotInviteOnly} from './pilot-access.js';
 import { createServerClient } from '@supabase/ssr';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type { Request, Response } from 'express';
@@ -38,6 +39,10 @@ export async function provisionManagedUser(db: Database, identity: SupabaseUser)
     const existing = (await tx.query<User>('SELECT id,name,email,workspace_id AS "workspaceId",demo FROM users WHERE id=$1', [identity.id])).rows[0];
     if (existing) return existing;
     await rejectDeletedIdentity(tx, identity.id);
+    // Invite-only pilot: a new workspace needs an invite redeemed with this email, even if the
+    // Supabase sign-up endpoint was called directly instead of Inkshot's own signup route.
+    if (pilotInviteOnly() && !(await tx.query('SELECT 1 FROM invites WHERE lower(used_email)=lower($1) AND used_at IS NOT NULL', [email])).rows.length)
+      throw new AppError(403, 'Inkshot is invite-only during the pilot. Use the invite code you were sent.');
     const workspaceId = randomUUID();
     const name = String(identity.user_metadata?.name || email.split('@')[0]).slice(0,100);
     await tx.query('INSERT INTO workspaces(id,brand,credits) VALUES($1,$2,0)', [workspaceId, JSON.stringify(emptyBrand)]);

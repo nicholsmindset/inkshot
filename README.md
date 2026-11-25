@@ -1,6 +1,6 @@
 # Inkshot
 
-A small-business ad studio built from the Inkshot PRD and the revised SaaS plan. The planned launch offer is **$39 USD/month for 300 credits, enough for three nine-asset kits**. The hosted app is currently a preview with Stripe test checkout. See [DEPLOYMENT.md](DEPLOYMENT.md) for infrastructure and [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) for the launch decision.
+A small-business ad studio built from the Inkshot PRD and the revised SaaS plan. The planned launch offer is **US$79/month (also S$109, C$109, A$119) for 300 credits, enough for three nine-asset kits**. The hosted app is currently a preview with Stripe test checkout. See [DEPLOYMENT.md](DEPLOYMENT.md) for infrastructure and [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) for the launch decision.
 
 ## Run locally
 
@@ -12,7 +12,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Open http://127.0.0.1:5173 and choose **Explore the sample studio**, or create an account. No API keys are needed for preview mode. FFmpeg is used for actual downloadable MP4 sample exports.
+Open http://localhost:5173 (matching `APP_ORIGIN`) and choose **Explore the sample studio**, or create an account. No API keys are needed for preview mode. FFmpeg is used for actual downloadable MP4 sample exports.
 
 ```sh
 npm run build
@@ -33,13 +33,13 @@ npm test
 - Rendered headlines and CTAs in the downloaded media, rather than browser-only overlays.
 - Free text-edit versions, credit-priced sample regenerations, retained originals and version selection.
 - Private per-asset downloads and ZIP downloads with captions and a sample disclosure.
-- Credit usage history, $39 plan presentation, responsive layouts and reduced motion.
+- Credit usage history, plan presentation from server config, responsive layouts and reduced motion.
 
 ## Honest preview boundaries
 
 This is a working hosted preview, not a paid production launch. `GENERATION_MODE=mock` is the default. Sample outputs reuse an original AI-created candle photograph, or the customer's uploaded photo. Sample videos are five-second still-image MP4s, not Higgsfield motion. Mock revisions demonstrate the versioning workflow and do not interpret creative-direction notes. These limits are disclosed in the interface and sample downloads.
 
-Hosted checkout is in Stripe test mode: no real payment is collected. Test subscription invoices grant 300 preview credits; new hosted accounts otherwise start with zero. Local mock accounts receive 300 preview credits. Paid top-ups are not configured.
+Hosted preview checkout is off or in Stripe test mode: no real payment is collected. Live prices exist in Stripe but live checkout stays closed (`ENABLE_LIVE_CHECKOUT=false`) until cutover. Test subscription invoices grant the monthly credits; new hosted accounts otherwise start with zero. Local mock accounts receive 300 preview credits. Paid top-ups are not configured.
 
 Higgsfield image/video generation completed a locally budget-capped kit, and the hosted mock flow completed a nine-asset ZIP. The live hosted writing/generation flow remains disabled because the configured OpenRouter account needs funding and live output/billing still needs verification. Setting environment keys alone does not enable paid generation.
 

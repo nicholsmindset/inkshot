@@ -4,9 +4,9 @@ import Stripe from "stripe";
 import { planConfig, stripePriceIds } from "../server/plan.js";
 
 const apiVersion = "2026-08-26.dahlia";
-const accountId = "acct_1RKb5BDjNCv7xF61";
-const priceId = process.env.STRIPE_STUDIO_PRICE_ID || process.env.PLAN_PRICE_ID || "price_1UbbydDjNCv7xF61FEzeGu5I";
-const portalId = "bpc_1Ubc4cDjNCv7xF61XYQJpfqA";
+const accountId = process.env.STRIPE_ACCOUNT_ID || "acct_1RKb5BDjNCv7xF61";
+const priceId = process.env.STRIPE_STUDIO_PRICE_ID || process.env.PLAN_PRICE_ID || stripePriceIds().get(planConfig().currency) || "";
+const portalId = process.env.STRIPE_PORTAL_CONFIGURATION_ID || "bpc_1Ubc4cDjNCv7xF61XYQJpfqA";
 const events = [
   "checkout.session.completed", "checkout.session.async_payment_succeeded",
   "invoice.paid", "invoice.payment_failed", "customer.subscription.created",
@@ -39,6 +39,7 @@ async function main() {
   assert(/^[sr]k_live_/.test(key), "Supply a live Stripe API key through STRIPE_API_KEY.");
   const stripe = new Stripe(key, { apiVersion, timeout: 15000, maxNetworkRetries: 1 });
   const plan = planConfig();
+  assert(priceId, "Set STRIPE_PRICE_IDS (or STRIPE_STUDIO_PRICE_ID) to the live price for the primary currency.");
   const [account, price, portal] = await Promise.all([
     stripe.accounts.retrieveCurrent(), stripe.prices.retrieve(priceId),
     stripe.billingPortal.configurations.retrieve(portalId),

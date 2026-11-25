@@ -55,6 +55,7 @@ export function Billing() {
           <div className="price">
             {formatPrice(plan)} <small>{plan.currency.toUpperCase()} / month</small>
           </div>
+          {plan.localCurrencyUnavailable ? <small className="muted">Billed in {plan.currency.toUpperCase()} for now. Billing in your local currency is not available yet.</small> : null}
           <p>One small business. Three complete campaigns.</p>
           <ul>
             {[

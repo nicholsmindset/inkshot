@@ -360,7 +360,7 @@ function BrandForm({ initial }: { initial: Brand }) {
             </Field>
             {brand.logoId && <div><img src={"/api/uploads/" + brand.logoId} width={90} alt="Logo for exports" />
               <button type="button" onClick={() => set("logoId", undefined)}>Remove logo</button></div>}
-            <Field label="Where are your customers?" hint="Sets the currency, ad rules and wording used for your copy.">
+            <Field label="Where are your customers?" hint="Sets the ad rules, wording and (where available) the currency used for your copy.">
               <select value={brand.market ?? ""} onChange={(e) => set("market", e.target.value || undefined)}>
                 <option value="">Singapore (default)</option>
                 {Object.entries(MARKETS).filter(([code]) => code !== "SG").map(([code, name]) => <option key={code} value={code}>{name}</option>)}

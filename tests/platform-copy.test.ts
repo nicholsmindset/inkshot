@@ -93,17 +93,27 @@ test("live pipeline repairs once with the exact violations, then flags what rema
     }))),
   });
   const calls: { system: string; input: unknown }[] = [];
-  const fixed = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Sales", offer: context.offer, campaignMock: false, mode: "live",
+  const fixed = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Awareness", offer: context.offer, campaignMock: false, mode: "live",
     ask: async (system, input) => { calls.push({ system, input }); return calls.length === 1 ? good("facebook", true) : good("facebook"); } });
   assert.equal(calls.length, 2); assert.equal(fixed.repaired, true); assert.equal(fixed.needsReview, false);
   assert.match(calls[1].system, /Copy Critic/); assert.match(JSON.stringify(calls[1].input), /is 1\d\d characters/);
   assert.equal(fixed.aiDisclosure.required, true, "live campaigns need an AI-disclosure checklist");
   assert(fixed.aiDisclosure.steps.some(s => /AI-generated|AI disclosure/.test(s)));
 
-  const stuck = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Sales", offer: context.offer, campaignMock: false, mode: "live", ask: async () => good("facebook", true) });
+  const stuck = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Awareness", offer: context.offer, campaignMock: false, mode: "live", ask: async () => good("facebook", true) });
   assert.equal(stuck.needsReview, true); assert(errorsOf(stuck.violations).some(v => v.rule === "length"));
-  await assert.rejects(generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Sales", offer: context.offer, campaignMock: false, mode: "live", ask: async () => ({ nope: true }) }), /another attempt/);
-  await assert.rejects(generatePlatformCopy({ platform: "linkedin", brand, concepts, goal: "Sales", offer: "", campaignMock: true, mode: "mock", ask: async () => ({}) }), /not available/);
+  await assert.rejects(generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Awareness", offer: context.offer, campaignMock: false, mode: "live", ask: async () => ({ nope: true }) }), /another attempt/);
+  await assert.rejects(generatePlatformCopy({ platform: "linkedin", brand, concepts, goal: "Awareness", offer: "", campaignMock: true, mode: "mock", ask: async () => ({}) }), /not available/);
+
+  // Audit regressions: the model cannot pick its own length limit, and a failed repair keeps the first pass.
+  const lying = good("facebook"); lying.variants.forEach(v => { (v as { funnel_stage: string }).funnel_stage = "hot"; });
+  lying.variants[0].fields.primary_text = "x".repeat(130);
+  const clamped = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Awareness", offer: context.offer, campaignMock: false, mode: "live", ask: async () => lying });
+  assert(errorsOf(clamped.violations).some(v => v.rule === "length"), "a model-claimed 'hot' stage must not raise the limit");
+  let n = 0;
+  const kept = await generatePlatformCopy({ platform: "facebook", brand, concepts, goal: "Awareness", offer: context.offer, campaignMock: false, mode: "live",
+    ask: async () => { n++; return n === 1 ? good("facebook", true) : { broken: true }; } });
+  assert.equal(n, 2); assert.equal(kept.needsReview, true); assert.equal(kept.repaired, false); assert.equal(kept.variants.length, 6, "the first pass survives a failed repair");
 });
 
 test("copy API: sample copy in preview, workspace isolation, rewrite cap and disabled platforms", async t => {
@@ -190,4 +200,34 @@ test("market rules change the prompt, brief, defaults and validator for US, Cana
   assert(validateVariant("facebook", variant({ primary_text: "Prices are all-in, tax included", cta_button: "SHOP_NOW" }), usContext).some(v => v.rule === "tax_wording"));
   assert(validateVariant("facebook", variant({ primary_text: "Proudly Made in USA", cta_button: "SHOP_NOW" }), usContext).some(v => v.rule === "origin_claim"));
   assert(!validateVariant("facebook", variant({ primary_text: "Our smoothie prevents colds", cta_button: "SHOP_NOW" }), context).some(v => v.rule === "health_claim"), "market rules apply only outside the Singapore default context");
+});
+
+test("audit regressions: script text is scanned, halal tricks and '#1' are caught, and run numbers survive failures", async t => {
+  const { reserveRun, failRun, finishRun } = await import("../server/copy/pipeline.js");
+  const { createDatabase } = await import("../server/db.js");
+  const ok = { cta_button: "SHOP_NOW" };
+  const scripted = variant({ primary_text: "Fresh bread daily", ...ok }, { video_script: { hook_0_3s: { vo: "100% halal and guaranteed", on_screen_text: "Fresh" } } });
+  const found = validateVariant("facebook", scripted, context).map(v => v.rule);
+  assert(found.includes("claims") && found.includes("guarantee"), "voiceover text is held to the same rules");
+  for (const text of ["#halalfoodsg cakes", "h\u00ADalal cakes", "hal\u0101l cakes", "\u0bb9\u0bb2\u0bbe\u0bb2\u0bcd food", "\u7a46\u65af\u6797\u53cb\u597d"])
+    assert(rules("facebook", { ...ok, primary_text: text }).includes("claims"), `blocked: ${text}`);
+  assert(rules("facebook", { ...ok, primary_text: "We are #1 in Tampines" }).includes("superlative"));
+  assert(rules("facebook", { ...ok, primary_text: "The best laksa in town" }).includes("superlative"));
+  assert(rules("facebook", { ...ok, primary_text: "Selling fast, don't miss out" }).includes("urgency"));
+  assert(rules("facebook", { ...ok, primary_text: "" }).includes("empty"), "a variant with no copy is an error");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-runs-"));
+  const db = await createDatabase(dir, true);
+  t.after(async () => { await db.close(); });
+  await db.query("INSERT INTO workspaces(id) VALUES ('wr')");
+  await db.query("INSERT INTO campaigns(id,workspace_id,name,goal,concepts,brand,mock) VALUES ('cr','wr','C','Sales','[]','{}',true)");
+  const first = await reserveRun(db, "wr", "cr", "tiktok");
+  await failRun(db, first.id);
+  const second = await reserveRun(db, "wr", "cr", "tiktok");
+  assert.equal(second.run, 2, "a failed run must not collide with the next attempt");
+  await failRun(db, second.id);
+  const third = await reserveRun(db, "wr", "cr", "tiktok");
+  assert.equal(third.run, 3);
+  await finishRun(db, third.id, {} as never);
+  await finishRun(db, first.id, { stale: true } as never);
+  assert.equal((await db.query("SELECT status FROM campaign_copy WHERE id=$1", [first.id])).rows[0].status, "failed", "a stale failed run cannot flip back to ready");
 });

@@ -308,7 +308,7 @@ async function handle(db:Database,job: Job, deadline: number) {
 
 export async function runWorkerOnce(db:Database, deadline = Infinity):Promise<boolean> {
  if (deadline - Date.now() < MIN_CREATIVE_BUDGET_MS) return false;
- await wakeProviderJobs(db);
+ try { await wakeProviderJobs(db); } catch { /* a failed wake must never stop this turn from claiming work */ }
  if(process.env.DATABASE_URL && !cloudStorageEnabled())
   throw new Error('A managed database requires private cloud media storage.');
  // Alternate overdue archives with creative turns rather than waiting for an empty queue.

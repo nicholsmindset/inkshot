@@ -2,7 +2,7 @@
 
 One numbered checklist. **You (the owner) run every step marked OWNER.** Nothing here has been executed. Names of variables only: never paste secret values into chat, a PR or a committed file. Record identifiers (project refs, deployment IDs), not secrets, in the release record at the bottom.
 
-Prerequisites: PR #37 content merged; the hosted preview journey passed (LAUNCH_CHECKLIST.md gates 1, 4, 5); `docs/OWNER_DECISIONS.md` has no UNSET rows you still need (support email, price, regeneration cap, refund policy, alert destination).
+Prerequisites: PR #37 content merged; the hosted preview journey passed (LAUNCH_CHECKLIST.md gates 1, 4, 5); and the rows still marked UNSET in `docs/OWNER_DECISIONS.md` are filled in (support email, regeneration cap, refund policy, alert destination). Pricing is decided there.
 
 ## A. Safety facts to read first
 
@@ -24,7 +24,7 @@ Use the project's **direct** admin connection string as `ADMIN_DATABASE_URL` (sh
 for f in supabase/migrations/*.sql; do echo "== $f"; psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || break; done
 ```
 
-Expect `COMMIT` per file and no `ERROR`. Order is the filename order: foundation, managed_services, capped_allowance, provider_receipts, deployment_environment, writing_limits, live_media_buckets, campaign_planning, shared_rate_limits, inkshot_runtime_access, photo_first_video, campaign_exports, provider_events, account_deletion, launch_safeguards, **pilot_access, product_events, campaign_copy**. (The last three are not covered by the startup guard; the preflight in section I checks all three.)
+Expect `COMMIT` per file and no `ERROR`. If the loop stops partway, re-run only the failed file and later ones: migration 5 (`deployment_environment`) is not safe to re-run on a database that already has it. Order is the filename order: foundation, managed_services, capped_allowance, provider_receipts, deployment_environment, writing_limits, live_media_buckets, campaign_planning, shared_rate_limits, inkshot_runtime_access, photo_first_video, campaign_exports, provider_events, account_deletion, launch_safeguards, **pilot_access, product_events, campaign_copy, deletion_pilot_data**. (The last three are not covered by the startup guard; the preflight in section I checks all three.)
 
 Bind the project to live (only on an empty project):
 
@@ -97,10 +97,10 @@ Domain: attach your domain in Vercel, wait for the certificate, then set `APP_OR
 1. Dashboard in **live** mode: create product "Inkshot Studio", a recurring monthly price in the decided currency and amount (SGD if chosen). Copy the price ID into `STRIPE_STUDIO_PRICE_ID`. Rehearse the same objects in test mode first.
 2. Billing portal configuration: cancel at period end, update payment method, invoice history. Copy its ID.
 3. Developers > Webhooks: add **one** endpoint `<origin>/api/webhooks/stripe` with exactly these events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`, `charge.dispute.created`. API version `2026-08-26.dahlia`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
-4. Verify read-only (account id and portal id are in the script header; edit them if you use a different Stripe account):
+4. Verify read-only (it checks every currency in `PLAN_PRICES`; the Stripe account and portal IDs default to ONN GROUP LLP's and can be overridden with `STRIPE_ACCOUNT_ID` and `STRIPE_PORTAL_CONFIGURATION_ID`):
 
 ```bash
-STRIPE_API_KEY=<live restricted key> STRIPE_STUDIO_PRICE_ID=<live price> PLAN_CURRENCY=sgd PLAN_PRICE_AMOUNT=<minor units> npx tsx scripts/check-live-stripe.ts https://<origin>
+STRIPE_API_KEY=<live restricted key> PLAN_CURRENCY=usd PLAN_PRICES=usd:7900,sgd:10900,cad:10900,aud:11900 STRIPE_PRICE_IDS=usd:price_...,sgd:price_...,cad:price_...,aud:price_... npx tsx scripts/check-live-stripe.ts https://<origin>
 ```
 
 Expect `Verified live Stripe catalogue, portal, webhook configuration and Inkshot health.`
@@ -142,14 +142,14 @@ ALLOW_LIVE_GENERATION=true HF_API_KEY_ID=... HF_API_KEY_SECRET=... npx tsx scrip
    This proves the key, the quote endpoint, submission and status polling. It does not prove webhooks, storage or the full kit. Run one full kit within the US$30 cap during the quality trial for that.
 7. Review the asset, download it, answer "Would you publish this?".
 8. Set `ENABLE_LIVE_CHECKOUT=true`, redeploy, subscribe with your own card, confirm credits arrive, then refund the payment in Stripe. Expect a **spending hold** to appear (Usage & billing says generation is paused for review) and check the `charge.refunded` event delivered. Release the hold using the procedure agreed in LAUNCH_CHECKLIST gate 4.
-9. Run `npx tsx scripts/pilot-report.ts` and see your own events.
+9. Run `npx tsx scripts/pilot-report.ts` and see your own events. These admin scripts use the same database guard as the app: run them with `DATABASE_URL` set to the production runtime URL and `BILLING_MODE=live GENERATION_MODE=live` (they refuse to start otherwise, and `npm run invite` refuses to run without `DATABASE_URL` unless you pass `--local`).
 
 ## K. Rollback and kill switches
 
 | Situation | Action |
 | --- | --- |
 | Stop new subscriptions | `ENABLE_LIVE_CHECKOUT=false`, redeploy |
-| Stop new spend (any severity) | `GENERATION_PAUSED=true`, redeploy. Restore later by removing it |
+| Stop new spend (any severity) | `GENERATION_PAUSED=true`, redeploy. It refuses campaign approval, regeneration, platform copy and (when AI writing is on) website reading. Restore later by removing it |
 | Stop new signups | `PILOT_INVITE_ONLY=true` and issue no codes |
 | Bad code release | Vercel > Deployments: promote the previous production deployment (record its URL and ID before launch). Schema is additive, so older compatible code keeps working. Do not roll migrations back |
 | Data concern | Pause (`GENERATION_PAUSED=true`, checkout false). Supabase: Database > Backups (daily backups; enable point-in-time recovery before launch if your plan allows). Restore to a **new** project, then reconcile `payment_events`, `provider_spend` and the ledger before any reopening; never restore over newer payment records |

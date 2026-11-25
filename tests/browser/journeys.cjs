@@ -131,7 +131,7 @@ async function run(label, viewport) {
     await page.getByText(/Your kit is ready/).waitFor({ timeout: 90000 });
   });
   await step("platform-copy", async () => {
-    await page.getByRole("tab", { name: /TikTok/ }).click();
+    await page.getByRole("button", { name: /TikTok/, pressed: false }).click();
     await page.getByRole("button", { name: /Write TikTok copy/ }).click();
     await page.getByText(/Sample copy: shows the layout and limits/).waitFor();
     expect(await page.locator(".platform-variant").count() === 6, "TikTok copy should show 2 versions for each of the 3 angles");

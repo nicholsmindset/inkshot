@@ -83,6 +83,9 @@ test('new export and provider-event records are included without crossing worksp
  await pg.exec(`INSERT INTO campaigns(id,workspace_id,name,goal,concepts,brand,mock) VALUES('c-own','own','Own','Goal','[]','{}',true),('c-other','other','Other','Goal','[]','{}',true);
  INSERT INTO campaign_exports(id,workspace_id,campaign_id,category,fingerprint,manifest,state) VALUES('export-own','own','c-own','all','one','[]','queued'),('export-other','other','c-other','all','two','[]','ready');
  INSERT INTO campaign_copy(id,workspace_id,campaign_id,platform,run,status) VALUES('copy-own','own','c-own','tiktok',1,'ready'),('copy-other','other','c-other','tiktok',1,'ready');
+ INSERT INTO product_events(id,workspace_id,event,props) VALUES('pe-own','own','posted_followup','{"results":"six messages"}'),('pe-other','other','signup_completed','{}');
+ INSERT INTO invites(id,code_hash,used_email,used_at) VALUES('i-own','h1','Owner@Example.invalid',now()),('i-other','h2','other@example.invalid',now());
+ INSERT INTO waitlist(id,email,business_url) VALUES('w-own','owner@example.invalid','https://own.example'),('w-other','someone@example.invalid','https://x.example');
  INSERT INTO provider_events(webhook_id,request_id,status,body_hash) VALUES('evt-own','provider-own','completed','own'),('evt-other','provider-other','completed','other');`);
  await assert.rejects(requestDeletion(db,user),/downloads/);
  await pg.exec("UPDATE campaign_exports SET state='ready'");
@@ -94,6 +97,9 @@ test('new export and provider-event records are included without crossing worksp
  for(let i=0;i<4;i++)await runDeletionOnce(db,noop);
  assert.deepEqual((await db.query('SELECT id FROM campaign_exports')).rows,[{id:'export-other'}]);
  assert.deepEqual((await db.query('SELECT id FROM campaign_copy')).rows,[{id:'copy-other'}],'platform copy is erased with its campaign, without touching another workspace');
+ assert.deepEqual((await db.query('SELECT id FROM product_events')).rows,[{id:'pe-other'}],'measurement events and follow-up text are erased');
+ assert.deepEqual((await db.query('SELECT id,used_email FROM invites ORDER BY id')).rows,[{id:'i-other',used_email:'other@example.invalid'},{id:'i-own',used_email:null}],'the owner email is removed from the redeemed invite');
+ assert.deepEqual((await db.query('SELECT id FROM waitlist')).rows,[{id:'w-other'}],'the owner waitlist entry is erased');
  assert.deepEqual((await db.query('SELECT request_id FROM provider_events')).rows,[{request_id:'provider-other'}]);
 });
 

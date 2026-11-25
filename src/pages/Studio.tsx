@@ -86,7 +86,7 @@ export function Dashboard() {
       </div>}
     </section>
     <div className="studio-metrics" aria-label="Studio overview">
-      <Link to="/studio/billing"><span>{studio.mode === "live" ? "Available credits" : "Preview credits"}</span><strong>{studio.balance}</strong><small>A complete kit uses 100 credits</small></Link>
+      <Link to="/studio/billing"><span>{studio.mode === "live" ? "Available credits" : "Preview credits"}</span><strong>{studio.balance}</strong><small>A complete kit uses {studio.plan?.kitCredits ?? 100} credits</small></Link>
       <Link to="/studio/library"><span>Ready to download</span><strong>{counts.ready}</strong><small>Current versions</small></Link>
       <Link to="/studio/library"><span>In progress</span><strong>{counts.running}</strong><small>Queued or generating</small></Link>
       <Link to="/studio/library"><span>Need attention</span><strong>{counts.failed}</strong><small>{counts.failed ? "Open an asset to review its error" : "No failed current versions"}</small></Link>
@@ -517,11 +517,11 @@ function CampaignPlanner({ campaign, workspaceId }: { campaign: Campaign; worksp
         <span>Brand colour <strong>{campaign.brand.color}</strong></span>
       </div>
       {!draft.photoId && <Notice>No product photo is attached. {campaign.mock ? "Preview assets will use the sample image, not your actual product." : "The provider will invent the scene; product appearance is not guaranteed."} Add your own photo in the brand brief before starting a new campaign.</Notice>}
-      {studio.balance < 100 && <Notice><strong>You need {100 - studio.balance} more credits to generate this kit.</strong> {campaign.mock ? "This preview has no paid checkout. You can save and edit every prompt without credits; sample rendering needs a test allowance." : "Your draft is saved. Review your plan before generating."} <Link to="/studio/billing">View usage and billing</Link></Notice>}
+      {studio.balance < (studio.plan?.kitCredits ?? 100) && <Notice><strong>You need {(studio.plan?.kitCredits ?? 100) - studio.balance} more credits to generate this kit.</strong> {campaign.mock ? "This preview has no paid checkout. You can save and edit every prompt without credits; sample rendering needs a test allowance." : "Your draft is saved. Review your plan before generating."} <Link to="/studio/billing">View usage and billing</Link></Notice>}
       <div className="approval-panel">
         <div><h3>Approve your saved prompts</h3><label className="checkbox-label"><input type="checkbox" checked={approved === review} disabled={locked || dirty || saving || !validAssets || !!error}
           onChange={(event) => setApproved(event.target.checked ? review : "")} />I’ve checked the prompts, offer and claims, and approve these nine assets.</label></div>
-        <div><Button busy={action === "generate"} disabled={locked || approved !== review || !validAssets || dirty || saving || !!error || !destinationValid || studio.balance < 100} onClick={() => void generate()}>Make my kit <span className="button-credit">100 credits</span></Button><small>3 videos at {duration}s · 3 image ads · 3 posts. {studio.balance} credits available</small></div>
+        <div><Button busy={action === "generate"} disabled={locked || approved !== review || !validAssets || dirty || saving || !!error || !destinationValid || studio.balance < (studio.plan?.kitCredits ?? 100)} onClick={() => void generate()}>Make my kit <span className="button-credit">{studio.plan?.kitCredits ?? 100} credits</span></Button><small>3 videos at {duration}s · 3 image ads · 3 posts. {studio.balance} credits available</small></div>
       </div>
     </>}
   </div>;
@@ -683,7 +683,7 @@ function CampaignScreen({ id, workspaceId }: { id: string; workspaceId: string }
           ))}
         </>
       )}
-      {campaign.concepts.length > 0 && <PlatformCopy campaignId={id} campaign={campaign} />}
+      {campaign.concepts.length > 0 && campaign.status !== "draft" && <PlatformCopy campaignId={id} campaign={campaign} />}
       <AssetEditor
         asset={studio.assets.find((a) => a.id === selected) || null}
         onClose={() => setSelected(null)}

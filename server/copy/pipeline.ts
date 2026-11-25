@@ -121,14 +121,23 @@ export async function generatePlatformCopy(input: {
     return result.data;
   };
   let parsed = parse(await ask(platformSystemPrompt(platform, market), payload, 7000));
+  // The campaign goal decides the length limits, never the model's own funnel_stage.
+  const stage = funnelStageFor(goal);
+  parsed.variants.forEach(v => { v.funnel_stage = stage; });
   let violations = check(parsed.variants as Variant[]);
   let repaired = false;
   if (errorsOf(violations).length) {
     // One repair pass with the exact violations, then report whatever remains for human review.
-    parsed = parse(await ask(`${REPAIR_PROMPT}\n\n${marketBlock(market)}\n\n${limitsBlock(platform)}`,
-      { ...payload, candidate: parsed, violations: errorsOf(violations) }, 7000));
-    violations = check(parsed.variants as Variant[]);
-    repaired = true;
+    try {
+      const fixed = parse(await ask(`${REPAIR_PROMPT}\n\n${marketBlock(market)}\n\n${limitsBlock(platform)}`,
+        { ...payload, candidate: parsed, violations: errorsOf(violations) }, 7000));
+      fixed.variants.forEach(v => { v.funnel_stage = stage; });
+      parsed = fixed;
+      violations = check(parsed.variants as Variant[]);
+      repaired = true;
+    } catch {
+      // A failed repair must not throw away the first pass: show it with its violations for review.
+    }
   }
   return finalise(platform, parsed, violations, repaired, false, input.campaignMock);
 }
@@ -146,14 +155,16 @@ export async function reserveRun(db: Database, workspaceId: string, campaignId: 
     if ((await tx.query("SELECT id FROM campaign_copy WHERE campaign_id=$1 AND platform=$2 AND status='running'", [campaignId, platform])).rows.length)
       throw new AppError(409, "Copy for this platform is already being written.");
     const used = Number((await tx.query<{ n: string }>("SELECT count(*)::text AS n FROM campaign_copy WHERE campaign_id=$1 AND platform=$2 AND status='ready'", [campaignId, platform])).rows[0].n);
+    // Run numbers are unique per campaign and platform across every status, so a failed run never blocks the next attempt.
+    const next = Number((await tx.query<{ n: string }>("SELECT (coalesce(max(run),0)+1)::text AS n FROM campaign_copy WHERE campaign_id=$1 AND platform=$2", [campaignId, platform])).rows[0].n);
     if (used >= maxRunsPerPlatform()) throw new AppError(429, `You've used all ${maxRunsPerPlatform()} copy rewrites for this platform on this campaign.`);
     const id = randomUUID();
-    await tx.query("INSERT INTO campaign_copy(id,workspace_id,campaign_id,platform,run,status) VALUES($1,$2,$3,$4,$5,'running')", [id, workspaceId, campaignId, platform, used + 1]);
-    return { id, run: used + 1 };
+    await tx.query("INSERT INTO campaign_copy(id,workspace_id,campaign_id,platform,run,status) VALUES($1,$2,$3,$4,$5,'running')", [id, workspaceId, campaignId, platform, next]);
+    return { id, run: next };
   });
 }
 export const finishRun = (db: Queryable, id: string, result: CopyResult) =>
-  db.query("UPDATE campaign_copy SET status='ready',result=$2 WHERE id=$1", [id, JSON.stringify(result)]);
+  db.query("UPDATE campaign_copy SET status='ready',result=$2 WHERE id=$1 AND status='running'", [id, JSON.stringify(result)]);
 export const failRun = (db: Queryable, id: string) => db.query("UPDATE campaign_copy SET status='failed' WHERE id=$1", [id]);
 export async function latestCopy(db: Queryable, workspaceId: string, campaignId: string) {
   const rows = (await db.query<{ platform: PlatformId; run: number; result: CopyResult; created_at: string }>(

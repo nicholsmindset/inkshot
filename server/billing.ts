@@ -85,7 +85,7 @@ export async function checkout(db:Database,user:User,getStripe:()=>CheckoutStrip
  const brandRow=(await db.query<{brand:Pick<import('../shared/types.js').Brand,'market'>}>('SELECT brand FROM workspaces WHERE id=$1',[user.workspaceId])).rows[0];
  const wanted=resolveBilling(marketOf(brandRow?.brand??{}));
  const price=await stripe.prices.retrieve(wanted.priceId);
- if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!==wanted.currency||price.unit_amount!==wanted.amount||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,'Configure an active $39 USD monthly price in the selected billing environment.');
+ if(price.livemode!==(billingMode()==='live')||!price.active||price.currency!==wanted.currency||price.unit_amount!==wanted.amount||price.recurring?.interval!=='month'||price.recurring.interval_count!==1)throw new AppError(503,`Configure an active monthly ${wanted.currency.toUpperCase()} ${wanted.amount/100} price in the selected billing environment.`);
  return db.transaction(async tx=>{
   // Same lock order as deletion: a checkout cannot open after the workspace freezes.
   await tx.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[user.workspaceId]);
@@ -102,7 +102,7 @@ export async function checkout(db:Database,user:User,getStripe:()=>CheckoutStrip
   if(subscriptions.data.some(s=>!['canceled','incomplete_expired'].includes(s.status)))throw new AppError(409,'You already have a subscription or a pending payment. Use Manage subscription.');
   // A provider success can outlive a rolled-back database transaction. Reusing
   // its idempotency key must also reuse every request parameter.
-  const attemptKey=`inkshot-checkout:${user.workspaceId}:${account.checkout_id||'initial'}`;
+  const attemptKey=`inkshot-checkout:${user.workspaceId}:${wanted.priceId}:${account.checkout_id||'initial'}`;
   const suffix=Array.from(createHash('sha256').update(attemptKey).digest().subarray(0,16),b=>String.fromCharCode(97+b%26)).join('');
   const session=await stripe.checkout.sessions.create({mode:'subscription',customer:customerId,line_items:[{price:price.id,quantity:1}],integration_identifier:`inkshot_studio_${suffix}`,success_url:`${config.origin}/studio/billing?checkout=complete`,cancel_url:`${config.origin}/studio/billing?checkout=canceled`},{idempotencyKey:attemptKey});
   await tx.query('UPDATE billing_accounts SET checkout_id=$2 WHERE workspace_id=$1',[user.workspaceId,session.id]);

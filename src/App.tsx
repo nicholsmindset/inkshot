@@ -168,7 +168,7 @@ function Shell() {
               <b>{studio.balance}</b> credits available
             </p>
             <div className="credit-track">
-              <i style={{ width: `${Math.min(100, studio.balance / 3)}%` }} />
+              <i style={{ width: `${Math.min(100, (studio.balance / (studio.plan?.credits ?? 300)) * 100)}%` }} />
             </div>
             <Link to="/studio/billing">
               View your plan <ArrowUpRight size={14} />

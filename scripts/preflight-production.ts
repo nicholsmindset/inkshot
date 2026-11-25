@@ -19,14 +19,17 @@ const skip = (name: string, detail: string): Result => ({ name, status: "SKIP", 
 // Names only. "server" values must never reach the browser bundle.
 export const requiredVariables = {
   all: ["APP_ORIGIN", "AUTH_PROVIDER", "STORAGE_PROVIDER", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY", "DATABASE_URL", "CRON_SECRET"],
-  live: ["BILLING_MODE", "GENERATION_MODE", "ALLOW_LIVE_GENERATION", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_STUDIO_PRICE_ID", "HF_API_KEY_ID", "HF_API_KEY_SECRET", "HF_DAILY_BUDGET_USD",
-    "WRITING_DAILY_REQUEST_LIMIT", "WRITING_WORKSPACE_DAILY_REQUEST_LIMIT", "OPS_ALERTS_ENABLED", "OPS_ALERT_WEBHOOK_URL", "HF_WEBHOOKS_ENABLED", "HF_WEBHOOK_SECRET", "PLAN_CURRENCY", "PLAN_PRICE_AMOUNT", "VIDEO_REGEN_MONTHLY_CAP"],
+  live: ["BILLING_MODE", "GENERATION_MODE", "ALLOW_LIVE_GENERATION", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET", "HF_API_KEY_ID", "HF_API_KEY_SECRET", "HF_DAILY_BUDGET_USD",
+    "WRITING_DAILY_REQUEST_LIMIT", "WRITING_WORKSPACE_DAILY_REQUEST_LIMIT", "OPS_ALERTS_ENABLED", "OPS_ALERT_WEBHOOK_URL", "HF_WEBHOOKS_ENABLED", "HF_WEBHOOK_SECRET", "PLAN_CURRENCY", "VIDEO_REGEN_MONTHLY_CAP"],
 };
 export function checkEnvironmentPresence(env: NodeJS.ProcessEnv, live: boolean): Result {
   const names = [...requiredVariables.all, ...(live ? requiredVariables.live : [])];
   const missing = names.filter(name => !env[name]?.trim());
   const anyWriter = !!(env.ANTHROPIC_API_KEY?.trim() || env.OPENROUTER_API_KEY?.trim());
   if (live && !anyWriter) missing.push("ANTHROPIC_API_KEY or OPENROUTER_API_KEY");
+  // Either the multi-currency settings or the single-price ones, and a Stripe price ID in one of its forms.
+  if (live && !env.PLAN_PRICES?.trim() && !env.PLAN_PRICE_AMOUNT?.trim()) missing.push("PLAN_PRICES (or PLAN_PRICE_AMOUNT)");
+  if (live && !env.STRIPE_PRICE_IDS?.trim() && !env.STRIPE_STUDIO_PRICE_ID?.trim() && !env.PLAN_PRICE_ID?.trim()) missing.push("STRIPE_PRICE_IDS (or STRIPE_STUDIO_PRICE_ID)");
   return missing.length ? fail("Environment variables present", `missing: ${missing.join(", ")}`) : pass("Environment variables present", `${names.length} names checked`);
 }
 export function checkHeaders(headers: Headers): Result {

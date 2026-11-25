@@ -29,8 +29,9 @@ Cutover steps, rollback and the production preflight are in [docs/CUTOVER.md](do
 7. `20261124090000_pilot_access.sql` invites and waitlist (server-only)
 8. `20261124100000_product_events.sql` pilot measurement events (server-only)
 9. `20261125090000_campaign_copy.sql` platform copy runs (server-only; apply after 6, which installs the deletion trigger function)
+10. `20261126090000_deletion_pilot_data.sql` lets account deletion erase measurement events and waitlist entries (apply after 7 and 8)
 
-Migrations 7 to 9 are not covered by the startup schema guard: apply them before deploying, or signup with `PILOT_INVITE_ONLY=true` and event recording will fail (events fail quietly and log a warning).
+Migrations 7 to 10 are not covered by the startup schema guard: apply them before deploying, or signup with `PILOT_INVITE_ONLY=true` and event recording will fail (events fail quietly and log a warning).
 
 ## Pilot settings (names only)
 

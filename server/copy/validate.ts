@@ -33,26 +33,27 @@ const personal = new RegExp(`\\b(?:are you|do you have|have you got|you(?:'re| a
 const banned: [string, RegExp, string, "error" | "warn"][] = [
   ["guarantee", /\bguarantee(?:d|s)?\b/iu, "Do not guarantee results.", "error"],
   ["cure", /\b(?:cures?|miracle|heal(?:s|ed)?)\b/iu, "No cure or medical claims.", "error"],
-  ["superlative", /\b(?:best in|no\.?\s?1|number one|#1|cheapest|world[- ]class|unbeaten)\b/iu, "Superlatives need substantiation the brief does not contain.", "error"],
+  ["superlative", /(?:\b(?:best\s+(?:\w+\s+){0,3}(?:in|of|around)|no\.?\s?1|number one|cheapest|world[- ]class|unbeaten|finest|top[- ]rated|award[- ]winning)\b|(?:^|[^\w])#1\b)/iu, "Superlatives need substantiation the brief does not contain.", "error"],
   ["before_after", /\bbefore (?:and|&|\/) ?after\b/iu, "No before/after framing.", "error"],
   ["income", /\b(?:earn|make)\s+\$?\d[\d,]*\s*(?:\/|per|a)\s*(?:day|week|month|hour)\b/iu, "No income promises.", "error"],
   ["competitor", /\b(?:unlike|better than|worse than)\s+(?:other|our competitors|them)\b/iu, "Do not disparage competitors.", "error"],
   ["muslim_friendly", /\b(?:muslim|halal)[- ]friendly\b/iu, "Do not imply certification with 'Muslim-friendly' or 'halal-friendly'.", "error"],
 ];
 const healthClaims = /\b(?:treats?|prevents?|reverses?|detox(?:es|ify)?|boosts? (?:immunity|metabolism)|anti[- ]?inflammatory|lowers? (?:cholesterol|blood pressure)|fights? (?:disease|cancer))\b/iu;
-const urgency = /\b(?:limited[- ]time|limited period|ends? (?:soon|today|tonight|tomorrow)|last chance|hurry|while stocks? last|only \d+ left|today only)\b/iu;
+const urgency = /\b(?:limited[- ]time|limited period|ends? (?:soon|today|tonight|tomorrow|(?:mon|tues|wednes|thurs|fri|satur|sun)day)|last chance|hurry|act now|selling fast|don'?t miss out|final day|few (?:left|remaining)|this week only|limited stock|while stocks? last|only \d+ left|today only)\b/iu;
 const freeWord = /\bfree\b/iu;
 const freeConditions = /\b(?:with|when|over|above|min(?:imum)?|spend|orders? of|if you|for orders|terms|t&cs?|conditions?|while|from)\b/iu;
 
-export function textFields(fields: Record<string, unknown>) {
+// Every string at any depth, so nothing hides in carousel cards, slides, remix hooks or scripts.
+export function textFields(fields: Record<string, unknown>, prefix = ""): [string, string][] {
   const out: [string, string][] = [];
-  for (const [key, value] of Object.entries(fields)) {
-    if (typeof value === "string") out.push([key, value]);
-    else if (Array.isArray(value)) value.forEach((item, i) => {
-      if (typeof item === "string") out.push([`${key}[${i}]`, item]);
-      else if (item && typeof item === "object") for (const [k, v] of Object.entries(item)) if (typeof v === "string") out.push([`${key}[${i}].${k}`, v]);
-    });
-  }
+  const walk = (value: unknown, path: string, depth: number) => {
+    if (depth > 6) return;
+    if (typeof value === "string") out.push([path, value]);
+    else if (Array.isArray(value)) value.forEach((item, i) => walk(item, `${path}[${i}]`, depth + 1));
+    else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, path ? `${path}.${k}` : k, depth + 1);
+  };
+  for (const [key, value] of Object.entries(fields)) walk(value, prefix ? `${prefix}.${key}` : key, 0);
   return out;
 }
 
@@ -60,7 +61,9 @@ export function validateVariant(platform: PlatformId, variant: Variant, context:
   const spec = platformSpecs[platform];
   const out: Violation[] = [];
   const add = (field: string, rule: string, message: string, severity: "error" | "warn" = "error") => out.push({ variantId: variant.variant_id, field, rule, message, severity });
-  const texts = textFields(variant.fields);
+  // Script text (voiceover, overlays, visuals) is held to the same rules as the fields.
+  const texts = [...textFields(variant.fields), ...textFields({ video_script: variant.video_script ?? {} })];
+  if (!textFields(variant.fields).some(([k, v]) => v.trim() && Object.hasOwn(spec.fields, k.replace(/\[.*$/, "")))) add("fields", "empty", `No ${spec.label} copy fields were written.`);
 
   for (const [field, limit] of Object.entries(spec.fields) as [string, { max: number | Record<Stage, number> }][]) {
     const value = variant.fields[field];
@@ -118,6 +121,7 @@ export function validateSet(platform: PlatformId, variants: Variant[], context: 
     if (mine.length !== per) out.push({ variantId: "*", field: "variants", rule: "coverage", severity: "error", message: `Expected ${per} variants for angle ${id}, got ${mine.length}.` });
   }
   for (const v of variants) if (!context.conceptIds.includes(v.concept_id)) out.push({ variantId: v.variant_id, field: "concept_id", rule: "coverage", severity: "error", message: `Unknown angle ${v.concept_id}.` });
+  if (new Set(variants.map(v => v.variant_id)).size < variants.length) out.push({ variantId: "*", field: "variant_id", rule: "diversity", severity: "error", message: "Every variant needs its own variant_id." });
   const key = (v: Variant) => `${v.concept_id}`;
   for (const id of new Set(variants.map(key))) {
     const group = variants.filter(v => key(v) === id);

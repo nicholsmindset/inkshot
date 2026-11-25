@@ -21,9 +21,10 @@ export function PlatformCopy({ campaignId, campaign }: { campaignId: string; cam
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
-  useEffect(() => {
-    void api<Listing>(`/campaigns/${campaignId}/copy`).then(l => { setListing(l); setActive(a => a || l.platforms[0]?.id || ""); }).catch(() => {});
-  }, [campaignId]);
+  const [loadError, setLoadError] = useState(false);
+  const load = () => { setLoadError(false); void api<Listing>(`/campaigns/${campaignId}/copy`).then(l => { setListing(l); setActive(a => a || l.platforms[0]?.id || ""); }).catch(() => setLoadError(true)); };
+  useEffect(load, [campaignId]);
+  if (loadError && !listing) return <section className="platform-copy"><Notice>Platform copy could not be loaded. <Button type="button" variant="small secondary" onClick={load}>Try again</Button></Notice></section>;
   if (!listing || !listing.platforms.length) return null;
   const platform = listing.platforms.find(p => p.id === active) ?? listing.platforms[0];
   const result = listing.results[platform.id];
@@ -51,10 +52,10 @@ export function PlatformCopy({ campaignId, campaign }: { campaignId: string; cam
           <p>Captions, headlines and scripts for each platform, built on your three chosen angles. Check every fact and claim before you publish.</p>
         </div>
       </div>
-      <div role="tablist" aria-label="Platform" className="platform-tabs">
+      <div role="group" aria-label="Choose a platform" className="platform-tabs">
         {listing.platforms.map(p => (
-          <button key={p.id} role="tab" type="button" aria-selected={p.id === platform.id} className={p.id === platform.id ? "active" : ""} onClick={() => { setActive(p.id); setError(""); }}>
-            {p.label}{listing.results[p.id] ? " ✓" : ""}
+          <button key={p.id} type="button" aria-pressed={p.id === platform.id} className={p.id === platform.id ? "active" : ""} onClick={() => { setActive(p.id); setError(""); }}>
+            {p.label}{listing.results[p.id] ? <><span aria-hidden="true"> ✓</span><span className="sr-only"> (copy written)</span></> : null}
           </button>
         ))}
       </div>
@@ -89,7 +90,7 @@ export function PlatformCopy({ campaignId, campaign }: { campaignId: string; cam
                         <div key={field} className="platform-field">
                           <div><span>{pretty(field)}</span>{max !== undefined && <small className={count > max ? "over" : ""}>{count}/{max}{limit?.visible && count > limit.visible ? ` · ${limit.visible} show before “more”` : ""}</small>}</div>
                           <p>{String(value)}</p>
-                          <Button type="button" variant="small secondary" onClick={() => void copy(key, String(value))}><Copy size={14} /> {copied === key ? "Copied" : "Copy"}</Button>
+                          <Button type="button" variant="small secondary" aria-label={`Copy ${pretty(field)}, version ${v.variant_id}`} onClick={() => void copy(key, String(value))}><Copy size={14} /> {copied === key ? "Copied" : "Copy"}</Button>
                         </div>
                       );
                     })}
@@ -103,6 +104,7 @@ export function PlatformCopy({ campaignId, campaign }: { campaignId: string; cam
           {result.missingInputs.length > 0 && <p className="platform-missing">Add these to your brief for stronger copy: {result.missingInputs.join(", ")}.</p>}
         </>
       ) : null}
+      <span className="sr-only" role="status" aria-live="polite">{copied ? "Copied to clipboard" : ""}</span>
       <small className="platform-specs">Character limits are the platforms’ recommended display lengths (checked {listing.specsVersion}) and can change. Re-check in your ad manager before launch.</small>
     </section>
   );

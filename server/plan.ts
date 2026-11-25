@@ -91,9 +91,12 @@ export function resolveBilling(market: string, env: NodeJS.ProcessEnv = process.
   if (price && ids.get(wanted)) return { currency: price.currency, amount: price.amount, priceId: ids.get(wanted)! };
   return { currency: plan.currency, amount: plan.priceAmount, priceId: ids.get(plan.currency) ?? '' };
 }
+// Only advertise currencies that can actually be charged (they have a Stripe price); the rest fall back to the primary.
+const sellable = (plan: PlanConfig, env: NodeJS.ProcessEnv) => { const ids = stripePriceIds(env); return plan.prices.filter(p => p.currency === plan.currency || ids.has(p.currency)); };
+export const publicPlan = (env: NodeJS.ProcessEnv = process.env) => { const plan = planConfig(env); return { ...plan, prices: sellable(plan, env) }; };
 export const planForMarket = (market: string, env: NodeJS.ProcessEnv = process.env) => {
   const plan = planConfig(env), resolved = resolveBilling(market, env);
-  return { ...plan, currency: resolved.currency, priceAmount: resolved.amount };
+  return { ...plan, prices: sellable(plan, env), currency: resolved.currency, priceAmount: resolved.amount, localCurrencyUnavailable: currencyForMarket(market) !== resolved.currency };
 };
 
 const addMonths = (date: Date, months: number) => {

@@ -96,3 +96,28 @@ test("pilot access migration is additive, idempotent and covers both namespaces 
   const exposed = await db.query("SELECT grantee,table_schema,table_name FROM information_schema.role_table_grants WHERE grantee IN ('anon','authenticated','service_role') AND table_name IN ('invites','waitlist')");
   assert.equal(exposed.rows.length, 0);
 });
+
+test("audit regressions: managed sign-ups need a redeemed invite, malformed bodies are 400s and IPv4-compatible IPv6 is not public", async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "inkshot-managed-invite-"));
+  const keys = ["PILOT_INVITE_ONLY", "AUTH_PROVIDER", "STORAGE_PROVIDER", "GENERATION_MODE", "BILLING_MODE", "DATA_DIR"];
+  const before = keys.map(key => process.env[key]);
+  delete process.env.AUTH_PROVIDER; delete process.env.STORAGE_PROVIDER;
+  Object.assign(process.env, { PILOT_INVITE_ONLY: "true", GENERATION_MODE: "mock", BILLING_MODE: "off", DATA_DIR: dir });
+  const { createDatabase } = await import("../server/db.js");
+  const { provisionManagedUser } = await import("../server/managed-auth.js");
+  const { createInvite, redeemInvite } = await import("../server/pilot-access.js");
+  const { isPublicIp } = await import("../server/scrape.js");
+  const db = await createDatabase(dir, true);
+  t.after(async () => { await db.close(); keys.forEach((key, i) => before[i] === undefined ? delete process.env[key] : process.env[key] = before[i]); });
+  const identity = (id: string, email: string) => ({ id, email, email_confirmed_at: new Date().toISOString(), user_metadata: {} }) as never;
+  // Signed up straight at Supabase, skipping Inkshot's invite check: no workspace is created.
+  await assert.rejects(provisionManagedUser(db, identity("11111111-1111-4111-8111-111111111111", "walkin@example.test")), /invite-only/);
+  assert.equal(Number((await db.query<{ n: string }>("SELECT count(*)::text AS n FROM workspaces")).rows[0].n), 0);
+  const code = await createInvite(db);
+  await redeemInvite(db, code, "invited@example.test");
+  const user = await provisionManagedUser(db, identity("22222222-2222-4222-8222-222222222222", "Invited@Example.test"));
+  assert(user.workspaceId, "an invited email gets its workspace");
+  assert.equal((await provisionManagedUser(db, identity("22222222-2222-4222-8222-222222222222", "invited@example.test"))).workspaceId, user.workspaceId, "existing users are unaffected");
+  for (const address of ["::7f00:1", "::a9fe:a9fe", "::1", "127.0.0.1", "169.254.169.254", "10.0.0.1"]) assert.equal(isPublicIp(address), false, address);
+  assert.equal(isPublicIp("8.8.8.8"), true);
+});

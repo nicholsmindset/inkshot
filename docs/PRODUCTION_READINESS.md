@@ -34,7 +34,7 @@ An external monitor must call the protected operations endpoint with the existin
 
 Add `charge.refunded` and `charge.dispute.created` to the existing intended Stripe endpoint, first in test mode. Do not create duplicate endpoints or rerun provisioning blindly. See [PAYMENT_REVIEW.md](PAYMENT_REVIEW.md). Any refund or dispute holds new spend for review; it does not silently claw back credits or automatically release a hold.
 
-The currently implemented offer remains USD 39. The game plan's S$49 and eight regenerations are proposals. Approve pricing, credit economics and monthly regeneration rules using actual provider costs before implementing or advertising them as the launch offer.
+Pricing is configured, not hard-coded: see `PLAN_PRICES` in LAUNCH_CHECKLIST.md and the decided prices in `docs/OWNER_DECISIONS.md`. Re-check them against the measured cost per kit from the paid quality trial before opening checkout.
 
 ## Release gates
 
@@ -44,7 +44,7 @@ The original pilot and competitor-research validation remain separate open work.
 
 ## Verification record
 
-- Combined local suite: **149 passed, zero failed**.
+- Combined local suite: see the latest count in the PR description (184+ tests at the time of the full audit, 0 failed).
 - Production build, TypeScript and whitespace validation: passed.
 - Fresh sandbox: all new column types and restricted-runtime read/write privileges verified; security advisor has no findings.
 - Tests exercise HTTP routes, real local database schemas, fake provider transports, failure/retry paths and lock ordering. Actual concurrent hosted PostgreSQL, external delivery and paid-provider quality are not established by these tests.

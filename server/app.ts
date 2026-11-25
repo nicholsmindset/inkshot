@@ -40,7 +40,7 @@ import { scrape, importedIdentity, fetchSiteLogo } from "./scrape.js";
 import { changeCredits } from "./credits.js";
 import {briefFingerprints,editedBriefFields,recordEvent,websiteFailureReason,trackedBriefFields} from './events.js';
 import {joinWaitlist,pilotInviteOnly,redeemInvite,releaseInvite} from './pilot-access.js';
-import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,planForMarket,videoRegenUsage} from './plan.js';
+import {assertGenerationNotPaused,assertVideoRegenAllowed,planConfig,planForMarket,publicPlan,videoRegenUsage} from './plan.js';
 import {marketOf} from './copy/markets.js';
 import {assertBillingSpendAllowed,billingConfigured,billingMode,checkoutReleased,checkout,portal,webhook} from './billing.js';
 import {
@@ -195,7 +195,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   app.get("/api/health", (_req, res) =>
     res.json({ ok: true, mode: config.mode, billingMode: billingMode(), inviteOnly: pilotInviteOnly(), supportEmail: process.env.SUPPORT_EMAIL?.trim() || null, generationPaused: process.env.GENERATION_PAUSED === 'true', demoAvailable: !managedAuthEnabled() && !config.production && config.mode === 'mock' }),
   );
-  app.get("/api/plan", (_req, res) => res.json(planConfig()));
+  app.get("/api/plan", (_req, res) => res.json(publicPlan()));
   // Only server configuration controls the host; never echo request Host or Origin.
   app.get("/api/auth/config", (_req, res) => res.json({ origin: managedAuthEnabled() && (config.production || process.env.VERCEL === "1") ? config.origin : null }));
   const authLimit = rateLimit({
@@ -498,6 +498,7 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
   });
   app.post("/api/brand/read", websiteReadLimit, async (req, res) => {
     const { url } = z.object({ url: z.url().max(2048) }).parse(req.body);
+    if (writingMode() === "live") assertGenerationNotPaused();
     const eventBase = { workspaceId: req.user!.workspaceId, userId: req.user!.id };
     await recordEvent(db, { ...eventBase, event: 'website_read_started' });
     try {
@@ -959,17 +960,16 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
     const aid = id.parse(req.params.id),
       vid = id.parse(req.body.versionId),
       w = req.user!.workspaceId;
-    const row = (
-      await db.query(
+    // Same lock order as revise/variations/review: workspace first, then the asset.
+    await db.transaction(async (tx) => {
+      await tx.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE", [w]);
+      const row = (await tx.query(
         "SELECT id FROM versions WHERE id=$1 AND asset_id=$2 AND workspace_id=$3 AND status='ready'",
         [vid, aid, w],
-      )
-    ).rows[0];
-    if (!row) throw new AppError(404, "That version is not ready.");
-    await db.query(
-      "UPDATE assets SET current_version_id=$2 WHERE id=$1 AND workspace_id=$3",
-      [aid, vid, w],
-    );
+      )).rows[0];
+      if (!row) throw new AppError(404, "That version is not ready.");
+      await tx.query("UPDATE assets SET current_version_id=$2 WHERE id=$1 AND workspace_id=$3", [aid, vid, w]);
+    });
     res.json({ ok: true });
   });
   app.post('/api/assets/:id/review',async(req,res)=>{
@@ -1144,6 +1144,11 @@ export function createApp(db: Database, readSiteLogo = fetchSiteLogo) {
           });
       if (error instanceof AppError)
         return res.status(error.status).json({ error: error.message });
+      // Malformed or oversized request bodies are the client's problem, not a server failure.
+      if (error && typeof error === "object" && "type" in error && (error as { type: string }).type === "entity.too.large")
+        return res.status(413).json({ error: "That request is too large." });
+      if (error && typeof error === "object" && "type" in error && (error as { type: string }).type === "entity.parse.failed")
+        return res.status(400).json({ error: "That request could not be read. Please try again." });
       if (error instanceof multer.MulterError)
         return res
           .status(400)

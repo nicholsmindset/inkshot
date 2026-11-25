@@ -37,5 +37,9 @@ test("failed website reads and invalid input return plain-language guidance; hea
   assert.match(message, /^Please check .* and try again\.$/);
   assert(!/Invalid input|expected/i.test(message), "no raw validation jargon");
 
+  const bad = await fetch(`${origin}/brand`, { method: "PUT", headers: { cookie, "content-type": "application/json" }, body: "{not json" });
+  assert.equal(bad.status, 400, "malformed JSON is a client error, not a 500");
+  const huge = await fetch(`${origin}/brand`, { method: "PUT", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ pad: "x".repeat(200000) }) });
+  assert.equal(huge.status, 413);
   assert.equal((await (await fetch(`${origin}/health`)).json() as { supportEmail: string }).supportEmail, "help@example.test");
 });
